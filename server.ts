@@ -2,9 +2,14 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import Anthropic from '@anthropic-ai/sdk';
+import { trendingCache } from './server/cache/trendingCache.js';
+import { searchCache } from './server/cache/searchCache.js';
 
 // Load environment variables
 dotenv.config({ path: '.env.local' });
+
+// Token optimization constants
+const MAX_SEARCH_ITERATIONS = 2; // Cap agentic loops to prevent runaway token usage
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -710,14 +715,23 @@ const fetchBraveSearchResults = async (query: string): Promise<string> => {
   }
 };
 
-// Web search function that uses Brave API with automatic fallback to mock data
+// Web search function that uses Brave API with caching
 const performWebSearch = async (query: string): Promise<string> => {
-  console.log(`Web search performed for query: ${query}`);
+  // Check cache first
+  const cached = searchCache.get(query);
+  if (cached) {
+    return cached;
+  }
+
+  console.log(`[WebSearch] Fetching: ${query}`);
   try {
-    return await fetchBraveSearchResults(query);
+    const result = await fetchBraveSearchResults(query);
+    searchCache.set(query, result);
+    return result;
   } catch (error) {
     console.error("performWebSearch error:", error);
-    return getMockSearchResults();
+    // Return empty results instead of fake mock data (quality improvement)
+    return "Web search temporarily unavailable. Please use your training knowledge for this query.";
   }
 };
 
@@ -794,10 +808,27 @@ const scoreSourceForPracticality = (source: TrendingSource): number => {
   return score;
 };
 
-// Fetch Trending Sources
+// Fetch Trending Sources (with caching)
 app.get("/api/fetchTrendingSources", async (req, res) => {
   try {
+    // Check cache first (reduces 67+ API calls to 1 per hour)
+    const cached = trendingCache.get();
+    if (cached) {
+      const metadata = trendingCache.getMetadata();
+      return res.json({
+        sources: cached,
+        cachedAt: metadata?.cachedAt,
+        ttl: metadata?.ttl,
+      });
+    }
+
+    // Fetch fresh data
+    console.log('[TrendingSources] Cache miss, fetching fresh data...');
     const sources = await fetchAllTrendingSources();
+
+    // Store in cache
+    trendingCache.set(sources);
+
     res.json({ sources });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -900,8 +931,9 @@ app.post("/api/generateCompellingTrendingContent", async (req, res) => {
       { role: "user", content: userMessage },
     ];
 
+    // Use Haiku for this summarization task (token optimization)
     let response = await anthropic.messages.create({
-      model: "claude-3-5-sonnet-20241022",
+      model: "claude-haiku-4-5-20251001",
       max_tokens: 3000,
       system: systemPrompt,
       messages: messages,
@@ -1015,8 +1047,12 @@ You have access to web search to find the latest, most relevant information. The
       messages: messages,
     });
 
-    // Handle tool calls if any
-    while (response.stop_reason === "tool_use") {
+    // Handle tool calls with iteration cap (token optimization)
+    let iterations = 0;
+    while (response.stop_reason === "tool_use" && iterations < MAX_SEARCH_ITERATIONS) {
+      iterations++;
+      console.log(`[Newsletter] Agentic loop iteration ${iterations}/${MAX_SEARCH_ITERATIONS}`);
+
       const toolUseBlocks = response.content.filter(
         (block): block is Anthropic.Messages.ToolUseBlock =>
           block.type === "tool_use"
@@ -1054,6 +1090,10 @@ You have access to web search to find the latest, most relevant information. The
         tools: [webSearchTool],
         messages: messages,
       });
+    }
+
+    if (iterations >= MAX_SEARCH_ITERATIONS) {
+      console.log(`[Newsletter] Reached max iterations (${MAX_SEARCH_ITERATIONS}), proceeding with current results`);
     }
 
     const textBlock = response.content.find(
@@ -1166,7 +1206,12 @@ app.post("/api/generateTopicSuggestions", async (req, res) => {
       messages: messages,
     });
 
-    while (response.stop_reason === "tool_use") {
+    // Handle tool calls with iteration cap (token optimization)
+    let suggestIterations = 0;
+    while (response.stop_reason === "tool_use" && suggestIterations < MAX_SEARCH_ITERATIONS) {
+      suggestIterations++;
+      console.log(`[TopicSuggestions] Agentic loop iteration ${suggestIterations}/${MAX_SEARCH_ITERATIONS}`);
+
       const toolUseBlocks = response.content.filter(
         (block): block is Anthropic.Messages.ToolUseBlock =>
           block.type === "tool_use"
@@ -1296,7 +1341,12 @@ app.post("/api/generateTrendingTopics", async (req, res) => {
       messages: messages,
     });
 
-    while (response.stop_reason === "tool_use") {
+    // Handle tool calls with iteration cap (token optimization)
+    let trendingIterations = 0;
+    while (response.stop_reason === "tool_use" && trendingIterations < MAX_SEARCH_ITERATIONS) {
+      trendingIterations++;
+      console.log(`[TrendingTopics] Agentic loop iteration ${trendingIterations}/${MAX_SEARCH_ITERATIONS}`);
+
       const toolUseBlocks = response.content.filter(
         (block): block is Anthropic.Messages.ToolUseBlock =>
           block.type === "tool_use"
@@ -1404,7 +1454,12 @@ app.post("/api/generateTrendingTopicsWithSources", async (req, res) => {
       messages: messages,
     });
 
-    while (response.stop_reason === "tool_use") {
+    // Handle tool calls with iteration cap (token optimization)
+    let srcIterations = 0;
+    while (response.stop_reason === "tool_use" && srcIterations < MAX_SEARCH_ITERATIONS) {
+      srcIterations++;
+      console.log(`[TrendingWithSources] Agentic loop iteration ${srcIterations}/${MAX_SEARCH_ITERATIONS}`);
+
       const toolUseBlocks = response.content.filter(
         (block): block is Anthropic.Messages.ToolUseBlock =>
           block.type === "tool_use"
