@@ -14,6 +14,15 @@ vi.mock('../../services/claudeService', () => ({
   loadPresetsFromCloud: vi.fn().mockResolvedValue({ presets: [] }),
 }));
 
+// Helper to create valid preset settings
+const createSettings = (topics: string[]) => ({
+  selectedAudience: { business: true },
+  selectedTone: 'professional',
+  selectedFlavors: { practical: true },
+  selectedImageStyle: 'photorealistic',
+  selectedTopics: topics,
+});
+
 describe('usePresets', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -28,7 +37,7 @@ describe('usePresets', () => {
 
   it('loads presets from localStorage on mount', () => {
     const storedPresets = [
-      { name: 'Test Preset', settings: { topics: ['AI'] } }
+      { name: 'Test Preset', settings: createSettings(['AI']) }
     ];
     window.localStorage.getItem = vi.fn().mockReturnValue(JSON.stringify(storedPresets));
 
@@ -40,7 +49,7 @@ describe('usePresets', () => {
     const { result } = renderHook(() => usePresets());
 
     act(() => {
-      result.current.savePreset('New Preset', { topics: ['AI tools'] });
+      result.current.savePreset('New Preset', createSettings(['AI tools']));
     });
 
     expect(result.current.presets).toHaveLength(1);
@@ -52,23 +61,23 @@ describe('usePresets', () => {
     const { result } = renderHook(() => usePresets());
 
     act(() => {
-      result.current.savePreset('Test', { topics: ['Original'] });
+      result.current.savePreset('Test', createSettings(['Original']));
     });
 
     act(() => {
-      result.current.savePreset('Test', { topics: ['Updated'] });
+      result.current.savePreset('Test', createSettings(['Updated']));
     });
 
     expect(result.current.presets).toHaveLength(1);
-    expect(result.current.presets[0].settings.topics).toEqual(['Updated']);
+    expect(result.current.presets[0].settings.selectedTopics).toEqual(['Updated']);
   });
 
   it('deletes a preset', () => {
     const { result } = renderHook(() => usePresets());
 
     act(() => {
-      result.current.savePreset('Preset 1', { topics: ['AI'] });
-      result.current.savePreset('Preset 2', { topics: ['ML'] });
+      result.current.savePreset('Preset 1', createSettings(['AI']));
+      result.current.savePreset('Preset 2', createSettings(['ML']));
     });
 
     expect(result.current.presets).toHaveLength(2);
@@ -83,7 +92,7 @@ describe('usePresets', () => {
 
   it('loads preset settings', () => {
     const { result } = renderHook(() => usePresets());
-    const settings = { topics: ['AI', 'ML'], audience: ['developers'] };
+    const settings = createSettings(['AI', 'ML']);
 
     act(() => {
       result.current.savePreset('Test', settings);
@@ -97,15 +106,15 @@ describe('usePresets', () => {
     const { result } = renderHook(() => usePresets());
 
     act(() => {
-      result.current.savePreset('First', { topics: ['1'] });
+      result.current.savePreset('First', createSettings(['1']));
     });
 
     act(() => {
-      result.current.savePreset('Second', { topics: ['2'] });
+      result.current.savePreset('Second', createSettings(['2']));
     });
 
     act(() => {
-      result.current.savePreset('Third', { topics: ['3'] });
+      result.current.savePreset('Third', createSettings(['3']));
     });
 
     expect(result.current.presets[0].name).toBe('Third');

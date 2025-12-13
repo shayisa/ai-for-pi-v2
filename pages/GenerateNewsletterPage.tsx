@@ -3,9 +3,8 @@ import { Newsletter, NewsletterSection, Preset, PromptOfTheDay } from '../types'
 import { NewsletterPreview } from '../components/NewsletterPreview';
 import { PresetsManager } from '../components/PresetsManager';
 import { PromptOfTheDayEditor } from '../components/PromptOfTheDayEditor';
-import { ProgressGauge } from '../components/ProgressGauge';
+import { GenerationProgress } from '../components/GenerationProgress';
 import { SparklesIcon, RefreshIcon } from '../components/IconComponents';
-import { Spinner } from '../components/Spinner';
 
 interface GenerateNewsletterPageProps {
     selectedTopics: string[];
@@ -121,11 +120,13 @@ export const GenerateNewsletterPage: React.FC<GenerateNewsletterPageProps> = ({
             </div>
 
             {loading && (
-                <div className="mt-8 flex flex-col items-center justify-center text-center">
-                    <ProgressGauge
+                <div className="mt-8 bg-white rounded-2xl shadow-lg p-8 border border-border-light">
+                    <h3 className="text-lg font-semibold text-primary-text mb-6 text-center">
+                        Creating Your Newsletter
+                    </h3>
+                    <GenerationProgress
                         progress={progress}
                         message={loading}
-                        size="large"
                     />
                 </div>
             )}
