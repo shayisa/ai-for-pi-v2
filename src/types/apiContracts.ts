@@ -19,6 +19,7 @@ export type SkillLevel = z.infer<typeof SkillLevelSchema>;
 
 /**
  * Trending source category
+ * NOTE: 'producthunt' removed in v2 - was 100% mock data
  */
 export const TrendingCategorySchema = z.enum([
   'hackernews',

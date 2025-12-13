@@ -96,7 +96,7 @@ interface TrendingSource {
   author?: string;
   publication?: string;
   date?: string;
-  category: 'hackernews' | 'arxiv' | 'github' | 'reddit' | 'dev' | 'producthunt';
+  category: 'hackernews' | 'arxiv' | 'github' | 'reddit' | 'dev';
   summary?: string;
 }
 
@@ -325,125 +325,10 @@ const fetchDevToTopics = async (): Promise<TrendingSource[]> => {
   }
 };
 
-const fetchProductHuntTopics = async (): Promise<TrendingSource[]> => {
-  try {
-    console.log("Fetching from Product Hunt...");
-
-    // Mock Product Hunt data since API requires authentication
-    // In production, would integrate with Product Hunt API (requires API key)
-    const mockProducts: TrendingSource[] = [
-      {
-        id: 'ph-1',
-        title: 'Claude Automation Suite - Streamline workflows with Claude AI',
-        url: 'https://www.producthunt.com/posts/claude-automation-suite',
-        author: 'Anthropic Team',
-        publication: 'Product Hunt',
-        date: new Date().toLocaleDateString(),
-        category: 'producthunt',
-        summary: '1200+ upvotes - AI-powered workflow automation for document processing, meeting transcription, and task orchestration',
-      },
-      {
-        id: 'ph-2',
-        title: 'SkeletalAI - Forensic Analysis with Vision Models',
-        url: 'https://www.producthunt.com/posts/skeletalai',
-        author: 'ForensicTech Inc',
-        publication: 'Product Hunt',
-        date: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toLocaleDateString(),
-        category: 'producthunt',
-        summary: '850+ upvotes - Automated skeletal element identification and trauma classification using Claude Vision API',
-      },
-      {
-        id: 'ph-3',
-        title: 'LiDAR Processing Pro - 3D Archaeological Site Analysis',
-        url: 'https://www.producthunt.com/posts/lidar-processing-pro',
-        author: 'ArcheoTech Labs',
-        publication: 'Product Hunt',
-        date: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toLocaleDateString(),
-        category: 'producthunt',
-        summary: '640+ upvotes - Real-time LiDAR processing and 3D reconstruction for archaeological sites',
-      },
-      {
-        id: 'ph-4',
-        title: 'Supply Chain Optimizer - Predictive Analytics Dashboard',
-        url: 'https://www.producthunt.com/posts/supply-chain-optimizer',
-        author: 'LogisticsPro AI',
-        publication: 'Product Hunt',
-        date: new Date(Date.now() - 21 * 24 * 60 * 60 * 1000).toLocaleDateString(),
-        category: 'producthunt',
-        summary: '1100+ upvotes - Machine learning-driven demand forecasting and inventory optimization',
-      },
-      {
-        id: 'ph-5',
-        title: 'Document Intelligence Platform v2.0',
-        url: 'https://www.producthunt.com/posts/document-intelligence-platform-v2',
-        author: 'DocAI Solutions',
-        publication: 'Product Hunt',
-        date: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toLocaleDateString(),
-        category: 'producthunt',
-        summary: '950+ upvotes - AI-powered document extraction, classification, and business process automation',
-      },
-      {
-        id: 'ph-6',
-        title: 'Analytics Toolkit Pro - Real-time Data Intelligence',
-        url: 'https://www.producthunt.com/posts/analytics-toolkit-pro',
-        author: 'DataViz Inc',
-        publication: 'Product Hunt',
-        date: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toLocaleDateString(),
-        category: 'producthunt',
-        summary: '780+ upvotes - Unified analytics dashboard with predictive modeling and KPI tracking',
-      },
-      {
-        id: 'ph-7',
-        title: 'n8n AI Workflows - Automation with Claude Integration',
-        url: 'https://www.producthunt.com/posts/n8n-ai-workflows',
-        author: 'n8n Team',
-        publication: 'Product Hunt',
-        date: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toLocaleDateString(),
-        category: 'producthunt',
-        summary: '1350+ upvotes - No-code workflow automation with native Claude API integration',
-      },
-      {
-        id: 'ph-8',
-        title: 'Research Aggregator AI - Academic Paper Discovery',
-        url: 'https://www.producthunt.com/posts/research-aggregator-ai',
-        author: 'AcademiaTech',
-        publication: 'Product Hunt',
-        date: new Date(Date.now() - 28 * 24 * 60 * 60 * 1000).toLocaleDateString(),
-        category: 'producthunt',
-        summary: '620+ upvotes - Automated research paper discovery and summarization from ArXiv and journals',
-      },
-      {
-        id: 'ph-9',
-        title: 'Business Intelligence Assistant - Automated Reporting',
-        url: 'https://www.producthunt.com/posts/business-intelligence-assistant',
-        author: 'BIAssist Corp',
-        publication: 'Product Hunt',
-        date: new Date(Date.now() - 35 * 24 * 60 * 60 * 1000).toLocaleDateString(),
-        category: 'producthunt',
-        summary: '890+ upvotes - AI-powered business reporting and executive dashboards',
-      },
-      {
-        id: 'ph-10',
-        title: 'Code Analysis Platform - Automated Repository Intelligence',
-        url: 'https://www.producthunt.com/posts/code-analysis-platform',
-        author: 'GitInsights',
-        publication: 'Product Hunt',
-        date: new Date(Date.now() - 42 * 24 * 60 * 60 * 1000).toLocaleDateString(),
-        category: 'producthunt',
-        summary: '1050+ upvotes - Intelligence gathering from GitHub repositories with trend analysis',
-      },
-    ];
-
-    console.log(`Fetched ${mockProducts.length} products from Product Hunt`);
-    return mockProducts;
-  } catch (error) {
-    console.error('Error fetching Product Hunt topics:', error);
-    return [];
-  }
-};
+// NOTE: Product Hunt removed - was 100% mock data. Will add real API integration in future.
 
 const fetchAllTrendingSources = async (): Promise<TrendingSource[]> => {
-  console.log("Fetching trending data from all sources...");
+  console.log("Fetching trending data from all REAL sources...");
   try {
     const [
       hackerNewsTopics,
@@ -451,14 +336,12 @@ const fetchAllTrendingSources = async (): Promise<TrendingSource[]> => {
       githubTopics,
       redditTopics,
       devtoTopics,
-      productHuntTopics,
     ] = await Promise.all([
       fetchHackerNewsTopics(),
       fetchArxivTopics(),
       fetchGitHubTopics(),
       fetchRedditTopics(),
       fetchDevToTopics(),
-      fetchProductHuntTopics(),
     ]);
 
     const allSources = [
@@ -467,10 +350,9 @@ const fetchAllTrendingSources = async (): Promise<TrendingSource[]> => {
       ...githubTopics,
       ...redditTopics,
       ...devtoTopics,
-      ...productHuntTopics,
     ];
 
-    console.log(`Fetched ${allSources.length} trending sources from 6 sources (HN, ArXiv, GitHub, Reddit, Dev.to, Product Hunt)`);
+    console.log(`Fetched ${allSources.length} trending sources from 5 REAL sources (HN, ArXiv, GitHub, Reddit, Dev.to)`);
     return allSources;
   } catch (error) {
     console.error('Error fetching trending sources:', error);
@@ -561,114 +443,17 @@ const formatBraveSearchResults = (results: any): string => {
   return formatted;
 };
 
-// Helper: Get domain-specific mock search results for fallback
-const getMockSearchResults = (): string => {
-  const today = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+// NOTE: Mock search results removed - newsletters now use ONLY real data or graceful degradation
 
-  const mockResults = {
-    forensic: `
-## Web Search Results
-
-### Web Results:
-
-1. **Advanced Skeletal Analysis with Claude Vision API** (github.com/anthropic/skeletal-analysis)
-   Automated morphometric measurement and trauma classification using Claude's vision capabilities. Published October 2024. Includes PyTorch integration and case management system bindings.
-
-2. **LiDAR Processing Pipeline for Archaeological Sites** (pytorch.org/tutorials/lidar-archaeology)
-   Real-time 3D site reconstruction using Open3D and PyTorch. Processes 50GB+ datasets efficiently. Released November 2024 with latest CUDA optimization.
-
-3. **Building Forensic Anthropology Databases with Claude** (dev.to/forensic-tech/claude-api-skeleton)
-   Step-by-step guide for integrating skeletal data analysis into case management workflows. Feature extraction for ancestry classification. By TechAnthropo, Nov 2024.
-
-### News Results:
-
-1. **Claude 3.5 Sonnet Enables New Breakthrough in Forensic Analysis** (technews.ai)
-   Anthropic's latest model shows 94% accuracy in automated skeletal element identification. Published ${today}
-
-2. **Archaeological AI: Universities Adopt Vision Models** (archaeologytoday.com)
-   Major museums partner with Anthropic for artifact documentation projects. ${today}
-    `,
-
-    business: `
-## Web Search Results
-
-### Web Results:
-
-1. **Automating Document Processing with Claude and n8n** (n8n.io/workflows/document-automation)
-   Complete workflow for invoice processing, contract analysis, and meeting transcription. Reduces manual work by 70%. Published October 2024.
-
-2. **Build a Business Process Automation Pipeline** (medium.com/automation/bpa-claude)
-   RPA integration with Claude API for task orchestration and workflow optimization. GitHub repo with 1200+ stars. By DevAutomation, Nov 2024.
-
-3. **Productivity Enhancement Tools Using Claude 3.5** (producthunt.com/posts/claude-automation)
-   Tool collection for streamlining operations: calendar management, email classification, report generation. Featured in PH top picks. ${today}
-
-### News Results:
-
-1. **AI-Powered Workflow Automation Reaches Enterprise Scale** (businesstech.ai)
-   Companies report 60% efficiency gains using Claude for BPA implementation. Published ${today}
-
-2. **No-Code Automation Platforms Integrate Claude** (techcrunch.com)
-   Zapier, Make, and n8n add native Claude support for workflow creation. ${today}
-    `,
-
-    analytics: `
-## Web Search Results
-
-### Web Results:
-
-1. **Supply Chain Forecasting with Claude and Prophet** (towardsdatascience.com/supply-chain-ai)
-   Demand prediction models using ensemble methods. 40% accuracy improvement over traditional approaches. By DataSciencePro, October 2024.
-
-2. **Real-Time Analytics Dashboard Using Claude Vision** (github.com/logistics-ai/analytics-dashboard)
-   Automated anomaly detection in warehouse operations and route optimization. 1500+ stars. Latest release November 2024.
-
-3. **Implementing ML-Driven Logistics Optimization** (realpython.com/supply-chain-ml)
-   End-to-end pipeline for inventory management and demand planning. Pandas, scikit-learn, and Streamlit integration. By DataEngineer, Nov 2024.
-
-### News Results:
-
-1. **AI Transforms Supply Chain Decision-Making** (logisticsnews.com)
-   Enterprises see 35% cost reduction using predictive analytics. Published ${today}
-
-2. **Data Mining Breakthroughs Enable Warehouse Automation** (ai-frontier.org)
-   New models process unstructured shipping data 10x faster. ${today}
-    `,
-
-    general: `
-## Web Search Results
-
-### Web Results:
-
-1. **Claude 3.5 Sonnet: Advancing AI Capabilities** (anthropic.com/research)
-   Latest model improvements in reasoning, code generation, and tool use. Released October 2024 with 200K context window.
-
-2. **API Integration Patterns with Claude** (developers.anthropic.com/docs)
-   Complete guide for building agentic systems with Claude's tool-use capabilities. Includes error handling and retry patterns.
-
-3. **Building Production AI Systems** (github.com/anthropic/prompt-engineering)
-   Best practices for prompt engineering, system design, and evaluation. By Anthropic Research Team.
-
-### News Results:
-
-1. **Claude API Usage Grows 300% Quarterly** (techreport.ai)
-   Enterprises adopt Claude for mission-critical applications. Published ${today}
-
-2. **AI Model Improvements Enable New Applications** (aiweekly.org)
-   Industry discusses implications of latest generation models. ${today}
-    `
-  };
-
-  return mockResults.general;
-};
-
-// Helper: Fetch results from Brave Search API with timeout and fallback
+// Helper: Fetch results from Brave Search API with timeout (NO mock fallback)
 const fetchBraveSearchResults = async (query: string): Promise<string> => {
   const apiKey = process.env.VITE_BRAVE_SEARCH_API_KEY;
 
+  const NO_RESULTS_MESSAGE = `No current web search results available for "${query}". Please use your training knowledge to provide accurate, helpful information about this topic.`;
+
   if (!apiKey) {
-    console.log("Brave Search API key not found. Using mock results.");
-    return getMockSearchResults();
+    console.warn("[BraveSearch] API key not configured - using training knowledge");
+    return NO_RESULTS_MESSAGE;
   }
 
   try {
@@ -688,30 +473,30 @@ const fetchBraveSearchResults = async (query: string): Promise<string> => {
 
     if (!response.ok) {
       if (response.status === 429) {
-        console.warn("Brave Search API: Rate limit exceeded. Using mock results.");
+        console.warn("[BraveSearch] Rate limit exceeded");
       } else if (response.status === 401 || response.status === 403) {
-        console.warn("Brave Search API: Authentication failed. Using mock results.");
+        console.warn("[BraveSearch] Authentication failed - check API key");
       } else {
-        console.warn(`Brave Search API error: ${response.status}. Using mock results.`);
+        console.warn(`[BraveSearch] API error: ${response.status}`);
       }
-      return getMockSearchResults();
+      return NO_RESULTS_MESSAGE;
     }
 
     const data = await response.json();
 
     if (!data || (!data.web && !data.news)) {
-      console.log("Brave Search: Empty results received. Using mock results.");
-      return getMockSearchResults();
+      console.log("[BraveSearch] Empty results received");
+      return NO_RESULTS_MESSAGE;
     }
 
     return formatBraveSearchResults(data);
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
-      console.warn("Brave Search API: Request timeout. Using mock results.");
+      console.warn("[BraveSearch] Request timeout");
     } else {
-      console.warn("Brave Search API error:", error, "Using mock results.");
+      console.warn("[BraveSearch] Error:", error);
     }
-    return getMockSearchResults();
+    return NO_RESULTS_MESSAGE;
   }
 };
 
@@ -1009,6 +794,19 @@ app.post("/api/generateNewsletter", async (req, res) => {
 
     RECENCY REQUIREMENT: Focus ONLY on tools, tutorials, developments, and advancements published or significantly updated between ${dateRange.range}. Do NOT suggest tools that haven't been meaningfully updated since 2023. Do NOT reference older solutions unless they received major recent improvements.
 
+    ACTIONABILITY REQUIREMENTS (MANDATORY for every tool/technique mentioned):
+    Every section MUST include actionability information so readers can immediately implement what they learn:
+    1. Implementation Time: State how long to get started (e.g., "15 minutes to first result")
+    2. Skill Level: Specify required expertise (beginner/intermediate/advanced)
+    3. Prerequisites: List required tools/accounts (e.g., "Requires Python 3.9+ and pip")
+    4. Concrete Steps: Provide 3-5 numbered steps to get started
+    5. Expected Outcome: What user will achieve (e.g., "You'll have a working classifier")
+
+    SOURCE REQUIREMENTS:
+    - Every tool mentioned MUST include a direct link to its documentation or GitHub
+    - Include at least 2 sources per section with verifiable URLs
+    - Do NOT invent or guess URLs - only include URLs you found via web search
+
     When you find relevant web pages, you MUST embed hyperlinks directly within the text of the 'content' field for each section using HTML \`<a>\` tags. For example: \`<a href='URL' target="_blank" rel="noopener noreferrer">this new tool</a>\`.
 
     The final output MUST be a valid JSON object. Do not include any text outside of the JSON object, including markdown backticks.
@@ -1021,7 +819,17 @@ app.post("/api/generateNewsletter", async (req, res) => {
         {
           "title": "Title for this section (e.g., a specific tool or how-to)",
           "content": "Conversational, detailed explanation written in a natural voice. Explain what it does and how to use it. Share genuine insights and context. This content MUST include inline HTML \`<a>\` tags linking to the original sources or examples. The text should be formatted with HTML paragraph tags \`<p>\` for readability.",
-          "imagePrompt": "A simple, descriptive prompt for an AI image generator to create a relevant image for this section. The image MUST be in a ${styleDescription} style."
+          "imagePrompt": "A simple, descriptive prompt for an AI image generator to create a relevant image for this section. The image MUST be in a ${styleDescription} style.",
+          "actionability": {
+            "implementationTime": "e.g., '15 minutes' or '1 hour'",
+            "skillLevel": "beginner | intermediate | advanced",
+            "prerequisites": ["Required tool 1", "Required account/API key"],
+            "steps": ["Step 1: Do this", "Step 2: Then this", "Step 3: Finally this"],
+            "expectedOutcome": "What the reader will have achieved"
+          },
+          "sources": [
+            {"url": "https://actual-url.com", "title": "Source title"}
+          ]
         }
       ],
       "conclusion": "A thoughtful, conversational closing paragraph. This must be plain text, without any HTML tags. End with something genuine and memorable."
