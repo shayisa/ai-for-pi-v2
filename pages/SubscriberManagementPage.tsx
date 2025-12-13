@@ -1,21 +1,13 @@
-import React, { useState, useEffect } from 'react';
-import { Subscriber, SubscriberList, GoogleSettings, GapiAuthData } from '../types';
-import * as googleApi from '../services/googleApiService';
-import { UsersIcon, PlusIcon, TrashIcon, EditIcon, FilterIcon, XIcon, UploadIcon, CheckIcon } from '../components/IconComponents';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Subscriber, SubscriberList } from '../types';
+import * as subscriberApi from '../services/subscriberClientService';
+import { UsersIcon, PlusIcon, TrashIcon, EditIcon, XIcon, UploadIcon, CheckIcon, RefreshIcon } from '../components/IconComponents';
 
 interface SubscriberManagementPageProps {
-    subscribers: Subscriber[];
-    subscriberLists: SubscriberList[];
-    googleSettings: GoogleSettings | null;
-    authData: GapiAuthData | null;
     onListsChanged?: () => Promise<void>;
 }
 
 export const SubscriberManagementPage: React.FC<SubscriberManagementPageProps> = ({
-    subscribers,
-    subscriberLists,
-    googleSettings,
-    authData,
     onListsChanged
 }) => {
     // UI States
@@ -25,14 +17,14 @@ export const SubscriberManagementPage: React.FC<SubscriberManagementPageProps> =
     const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
     // Subscriber Management
-    const [subscribersData, setSubscribersData] = useState<Subscriber[]>(subscribers);
-    const [filteredSubscribers, setFilteredSubscribers] = useState<Subscriber[]>(subscribers);
+    const [subscribersData, setSubscribersData] = useState<Subscriber[]>([]);
+    const [filteredSubscribers, setFilteredSubscribers] = useState<Subscriber[]>([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'inactive'>('all');
     const [filterList, setFilterList] = useState<string>('');
 
     // List Management
-    const [listsData, setListsData] = useState<SubscriberList[]>(subscriberLists);
+    const [listsData, setListsData] = useState<SubscriberList[]>([]);
 
     // Modal States
     const [isAddSubscriberModalOpen, setIsAddSubscriberModalOpen] = useState(false);
@@ -41,7 +33,6 @@ export const SubscriberManagementPage: React.FC<SubscriberManagementPageProps> =
     const [isAddListModalOpen, setIsAddListModalOpen] = useState(false);
     const [isEditListModalOpen, setIsEditListModalOpen] = useState(false);
     const [editingList, setEditingList] = useState<SubscriberList | null>(null);
-    const [isBulkImportModalOpen, setIsBulkImportModalOpen] = useState(false);
 
     // Form States
     const [formData, setFormData] = useState({ email: '', name: '', lists: [] as string[] });
@@ -49,12 +40,29 @@ export const SubscriberManagementPage: React.FC<SubscriberManagementPageProps> =
     const [bulkImportData, setBulkImportData] = useState('');
     const [selectedListsForImport, setSelectedListsForImport] = useState<string[]>([]);
 
-    // Load subscribers and lists on mount and when auth changes
-    useEffect(() => {
-        if (authData && googleSettings) {
-            loadData();
+    // Load data from SQLite on mount
+    const loadData = useCallback(async () => {
+        setLoading(true);
+        setError(null);
+        try {
+            const [subsResponse, listsResponse] = await Promise.all([
+                subscriberApi.getSubscribers({ status: 'all' }),
+                subscriberApi.getLists()
+            ]);
+
+            setSubscribersData(subsResponse.subscribers);
+            setListsData(listsResponse.lists);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Failed to load data');
+            console.error('Error loading data:', err);
+        } finally {
+            setLoading(false);
         }
-    }, [authData, googleSettings]);
+    }, []);
+
+    useEffect(() => {
+        loadData();
+    }, [loadData]);
 
     // Filter subscribers when search or filter changes
     useEffect(() => {
@@ -78,31 +86,6 @@ export const SubscriberManagementPage: React.FC<SubscriberManagementPageProps> =
         setFilteredSubscribers(filtered);
     }, [subscribersData, searchTerm, filterStatus, filterList]);
 
-    const loadData = async () => {
-        if (!googleSettings) return;
-
-        setLoading(true);
-        setError(null);
-        try {
-            // Migrate sheet if needed
-            await googleApi.migrateSubscriberSheet(googleSettings.subscribersSheetName);
-
-            // Load subscribers and lists
-            const [subs, lists] = await Promise.all([
-                googleApi.readAllSubscribers(googleSettings.subscribersSheetName),
-                googleApi.readAllLists(googleSettings.groupListSheetName || 'Group List')
-            ]);
-
-            setSubscribersData(subs);
-            setListsData(lists);
-        } catch (err) {
-            setError(err instanceof Error ? err.message : 'Failed to load data');
-            console.error('Error loading data:', err);
-        } finally {
-            setLoading(false);
-        }
-    };
-
     const showSuccess = (message: string) => {
         setSuccessMessage(message);
         setTimeout(() => setSuccessMessage(null), 3000);
@@ -111,21 +94,19 @@ export const SubscriberManagementPage: React.FC<SubscriberManagementPageProps> =
     // ===== SUBSCRIBER HANDLERS =====
 
     const handleAddSubscriber = async () => {
-        if (!formData.email || !googleSettings) return;
+        if (!formData.email) return;
 
         setLoading(true);
         try {
-            const newSubscriber: Subscriber = {
+            const newSubscriber = await subscriberApi.addSubscriber({
                 email: formData.email,
-                name: formData.name,
+                name: formData.name || undefined,
                 status: 'active',
                 lists: formData.lists.join(','),
-                dateAdded: new Date().toISOString(),
                 source: 'manual'
-            };
+            });
 
-            await googleApi.addSubscriber(newSubscriber, googleSettings.subscribersSheetName);
-            setSubscribersData([...subscribersData, newSubscriber]);
+            setSubscribersData([newSubscriber, ...subscribersData]);
             setIsAddSubscriberModalOpen(false);
             setFormData({ email: '', name: '', lists: [] });
             showSuccess(`Subscriber ${formData.email} added successfully!`);
@@ -137,20 +118,20 @@ export const SubscriberManagementPage: React.FC<SubscriberManagementPageProps> =
     };
 
     const handleUpdateSubscriber = async () => {
-        if (!editingSubscriber || !googleSettings) return;
+        if (!editingSubscriber) return;
 
         setLoading(true);
         try {
-            await googleApi.updateSubscriber(
+            const updated = await subscriberApi.updateSubscriber(
                 editingSubscriber.email,
-                { ...editingSubscriber, lists: formData.lists.join(',') },
-                googleSettings.subscribersSheetName
+                {
+                    name: formData.name || undefined,
+                    lists: formData.lists.join(',')
+                }
             );
 
             setSubscribersData(subscribersData.map(s =>
-                s.email === editingSubscriber.email
-                    ? { ...editingSubscriber, lists: formData.lists.join(',') }
-                    : s
+                s.email === editingSubscriber.email ? updated : s
             ));
 
             setIsEditSubscriberModalOpen(false);
@@ -165,11 +146,11 @@ export const SubscriberManagementPage: React.FC<SubscriberManagementPageProps> =
     };
 
     const handleDeleteSubscriber = async (email: string) => {
-        if (!googleSettings || !confirm(`Are you sure you want to delete ${email}?`)) return;
+        if (!confirm(`Are you sure you want to delete ${email}?`)) return;
 
         setLoading(true);
         try {
-            await googleApi.deleteSubscriber(email, googleSettings.subscribersSheetName);
+            await subscriberApi.deleteSubscriber(email);
             setSubscribersData(subscribersData.filter(s => s.email !== email));
             showSuccess('Subscriber deleted successfully!');
         } catch (err) {
@@ -184,7 +165,7 @@ export const SubscriberManagementPage: React.FC<SubscriberManagementPageProps> =
         setFormData({
             email: subscriber.email,
             name: subscriber.name || '',
-            lists: subscriber.lists ? subscriber.lists.split(',').map(l => l.trim()) : []
+            lists: subscriber.lists ? subscriber.lists.split(',').map(l => l.trim()).filter(Boolean) : []
         });
         setIsEditSubscriberModalOpen(true);
     };
@@ -192,22 +173,20 @@ export const SubscriberManagementPage: React.FC<SubscriberManagementPageProps> =
     // ===== LIST HANDLERS =====
 
     const handleCreateList = async () => {
-        if (!listFormData.name || !googleSettings) return;
+        if (!listFormData.name) return;
 
         setLoading(true);
         try {
-            const newList = await googleApi.createList(
+            const newList = await subscriberApi.createList(
                 listFormData.name,
-                listFormData.description,
-                googleSettings.groupListSheetName || 'Group List'
+                listFormData.description || undefined
             );
 
-            setListsData([...listsData, newList]);
+            setListsData([newList, ...listsData]);
             setIsAddListModalOpen(false);
             setListFormData({ name: '', description: '' });
             showSuccess(`List "${listFormData.name}" created successfully!`);
 
-            // Notify parent component that lists changed
             if (onListsChanged) {
                 await onListsChanged();
             }
@@ -219,20 +198,17 @@ export const SubscriberManagementPage: React.FC<SubscriberManagementPageProps> =
     };
 
     const handleUpdateList = async () => {
-        if (!editingList || !googleSettings) return;
+        if (!editingList) return;
 
         setLoading(true);
         try {
-            await googleApi.updateList(
+            const updated = await subscriberApi.updateList(
                 editingList.id,
-                { name: listFormData.name, description: listFormData.description },
-                googleSettings.groupListSheetName || 'Group List'
+                { name: listFormData.name, description: listFormData.description || undefined }
             );
 
             setListsData(listsData.map(l =>
-                l.id === editingList.id
-                    ? { ...editingList, name: listFormData.name, description: listFormData.description }
-                    : l
+                l.id === editingList.id ? updated : l
             ));
 
             setIsEditListModalOpen(false);
@@ -240,7 +216,6 @@ export const SubscriberManagementPage: React.FC<SubscriberManagementPageProps> =
             setListFormData({ name: '', description: '' });
             showSuccess('List updated successfully!');
 
-            // Notify parent component that lists changed
             if (onListsChanged) {
                 await onListsChanged();
             }
@@ -252,18 +227,15 @@ export const SubscriberManagementPage: React.FC<SubscriberManagementPageProps> =
     };
 
     const handleDeleteList = async (id: string) => {
-        if (!googleSettings) return;
-
         const list = listsData.find(l => l.id === id);
         if (!list || !confirm(`Are you sure you want to delete "${list.name}"? This will remove it from all subscribers.`)) return;
 
         setLoading(true);
         try {
-            await googleApi.deleteList(id, googleSettings.subscribersSheetName, googleSettings.groupListSheetName || 'Group List');
+            await subscriberApi.deleteList(id);
             setListsData(listsData.filter(l => l.id !== id));
             showSuccess('List deleted successfully!');
 
-            // Notify parent component that lists changed
             if (onListsChanged) {
                 await onListsChanged();
             }
@@ -283,7 +255,7 @@ export const SubscriberManagementPage: React.FC<SubscriberManagementPageProps> =
     // ===== BULK IMPORT HANDLER =====
 
     const handleBulkImport = async () => {
-        if (!bulkImportData.trim() || !googleSettings) return;
+        if (!bulkImportData.trim()) return;
 
         setLoading(true);
         setError(null);
@@ -299,43 +271,18 @@ export const SubscriberManagementPage: React.FC<SubscriberManagementPageProps> =
                 return;
             }
 
-            let imported = 0;
-            let failed = 0;
+            const subscribers = emails.map(email => ({
+                email,
+                name: undefined,
+                listId: selectedListsForImport[0] // Use first selected list
+            }));
 
-            for (const email of emails) {
-                try {
-                    const newSubscriber: Subscriber = {
-                        email,
-                        name: '',
-                        status: 'active',
-                        lists: selectedListsForImport.join(','),
-                        dateAdded: new Date().toISOString(),
-                        source: 'import'
-                    };
-
-                    await googleApi.addSubscriber(newSubscriber, googleSettings.subscribersSheetName);
-
-                    // Add to lists if needed
-                    for (const listId of selectedListsForImport) {
-                        await googleApi.addSubscriberToList(
-                            email,
-                            listId,
-                            googleSettings.subscribersSheetName,
-                            googleSettings.groupListSheetName || 'Group List'
-                        );
-                    }
-
-                    imported++;
-                } catch {
-                    failed++;
-                }
-            }
+            const result = await subscriberApi.importSubscribers(subscribers);
 
             await loadData(); // Refresh data
-            setIsBulkImportModalOpen(false);
             setBulkImportData('');
             setSelectedListsForImport([]);
-            showSuccess(`Imported ${imported} subscriber(s). ${failed > 0 ? `${failed} failed.` : ''}`);
+            showSuccess(`Imported ${result.added} subscriber(s). ${result.skipped > 0 ? `${result.skipped} skipped (duplicates).` : ''}`);
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Failed to import subscribers');
         } finally {
@@ -346,11 +293,22 @@ export const SubscriberManagementPage: React.FC<SubscriberManagementPageProps> =
     return (
         <div className="space-y-8">
             {/* Page Header */}
-            <div>
-                <h1 className="text-3xl md:text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-accent-light-blue to-accent-salmon mb-2">
-                    Subscriber Management
-                </h1>
-                <p className="text-secondary-text">Manage your subscriber lists and organize them into groups for targeted newsletters</p>
+            <div className="flex items-center justify-between">
+                <div>
+                    <h1 className="text-3xl md:text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-accent-light-blue to-accent-salmon mb-2">
+                        Subscriber Management
+                    </h1>
+                    <p className="text-secondary-text">Manage your subscriber lists and organize them into groups for targeted newsletters</p>
+                </div>
+                <button
+                    onClick={loadData}
+                    disabled={loading}
+                    className="flex items-center gap-2 px-3 py-2 border border-border-light rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
+                    title="Refresh data"
+                >
+                    <RefreshIcon className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+                    Refresh
+                </button>
             </div>
 
             {/* Messages */}
@@ -378,7 +336,7 @@ export const SubscriberManagementPage: React.FC<SubscriberManagementPageProps> =
                 </div>
             )}
 
-            {!loading && googleSettings && authData ? (
+            {!loading && (
                 <>
                     {/* Tab Navigation */}
                     <div className="flex gap-2 border-b border-border-light">
@@ -502,7 +460,7 @@ export const SubscriberManagementPage: React.FC<SubscriberManagementPageProps> =
                                                             </span>
                                                         </td>
                                                         <td className="px-6 py-4 text-sm">
-                                                            {sub.lists ? sub.lists.split(',').map(lid => {
+                                                            {sub.lists ? sub.lists.split(',').filter(Boolean).map(lid => {
                                                                 const list = listsData.find(l => l.id === lid.trim());
                                                                 return <span key={lid} className="inline-block mr-1 px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs">{list?.name || lid.trim()}</span>;
                                                             }) : '-'}
@@ -816,11 +774,6 @@ export const SubscriberManagementPage: React.FC<SubscriberManagementPageProps> =
                         </div>
                     )}
                 </>
-            ) : (
-                <div className="bg-white rounded-2xl shadow-lg border border-border-light p-12 text-center">
-                    <p className="text-secondary-text mb-4">Please sign in with Google to manage subscribers.</p>
-                    <p className="text-sm text-secondary-text">Go to Settings & Integrations to connect your Google account.</p>
-                </div>
             )}
         </div>
     );

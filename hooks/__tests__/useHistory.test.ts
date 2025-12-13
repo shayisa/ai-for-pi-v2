@@ -1,17 +1,29 @@
 /**
  * useHistory Hook Tests
  *
- * Tests newsletter generation history management
+ * Tests newsletter generation history management via SQLite
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
+import { renderHook, act, waitFor } from '@testing-library/react';
 import { useHistory } from '../useHistory';
 
-// Mock googleApiService
-vi.mock('../../services/googleApiService', () => ({
-  readHistoryFromSheet: vi.fn().mockResolvedValue([]),
+// Mock newsletterClientService
+vi.mock('../../services/newsletterClientService', () => ({
+  getNewsletters: vi.fn().mockResolvedValue({ newsletters: [], count: 0 }),
+  saveNewsletter: vi.fn().mockResolvedValue({
+    id: 'nl_mock_123',
+    createdAt: '2024-01-01T00:00:00.000Z',
+    subject: 'Test Newsletter',
+    introduction: 'Test intro',
+    sections: [{ title: 'Section 1', content: 'Content 1', imagePrompt: 'Prompt 1' }],
+    conclusion: 'Test conclusion',
+    topics: ['AI tools']
+  }),
+  deleteNewsletter: vi.fn().mockResolvedValue({ success: true })
 }));
+
+import * as newsletterApi from '../../services/newsletterClientService';
 
 const mockNewsletter = {
   id: 'nl_123',
@@ -26,109 +38,150 @@ const mockNewsletter = {
 describe('useHistory', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    window.localStorage.getItem = vi.fn().mockReturnValue(null);
-    window.localStorage.setItem = vi.fn();
-    window.localStorage.removeItem = vi.fn();
   });
 
-  it('initializes with empty history', () => {
+  it('initializes with empty history and loading state', async () => {
     const { result } = renderHook(() => useHistory());
+
+    // Initially loading
+    expect(result.current.isLoading).toBe(true);
+
+    // Wait for load to complete
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
     expect(result.current.history).toEqual([]);
   });
 
-  it('loads history from localStorage on mount', () => {
-    const storedHistory = [
+  it('loads history from SQLite on mount', async () => {
+    const storedNewsletters = [
       {
-        id: 1,
-        date: '2024-01-01',
+        id: 'nl_1',
+        createdAt: '2024-01-01T00:00:00.000Z',
         subject: 'Old Newsletter',
-        newsletter: mockNewsletter,
+        introduction: 'Intro',
+        sections: [{ title: 'S1', content: 'C1', imagePrompt: 'P1' }],
+        conclusion: 'Conclusion',
         topics: ['AI']
       }
     ];
-    window.localStorage.getItem = vi.fn().mockReturnValue(JSON.stringify(storedHistory));
+
+    vi.mocked(newsletterApi.getNewsletters).mockResolvedValueOnce({
+      newsletters: storedNewsletters,
+      count: 1
+    });
 
     const { result } = renderHook(() => useHistory());
-    expect(result.current.history).toEqual(storedHistory);
-  });
 
-  it('adds newsletter to history', () => {
-    const { result } = renderHook(() => useHistory());
-
-    act(() => {
-      result.current.addToHistory(mockNewsletter as any, ['AI tools']);
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
     });
 
     expect(result.current.history).toHaveLength(1);
-    expect(result.current.history[0].subject).toBe('Test Newsletter');
-    expect(result.current.history[0].topics).toEqual(['AI tools']);
-    expect(window.localStorage.setItem).toHaveBeenCalled();
+    expect(result.current.history[0].subject).toBe('Old Newsletter');
   });
 
-  it('maintains history limit (50 items)', () => {
+  it('adds newsletter to history via SQLite', async () => {
     const { result } = renderHook(() => useHistory());
 
-    // Add 55 items
-    for (let i = 0; i < 55; i++) {
-      act(() => {
-        result.current.addToHistory(
-          { ...mockNewsletter, id: `nl_${i}`, subject: `Newsletter ${i}` } as any,
-          [`Topic ${i}`]
-        );
-      });
-    }
-
-    expect(result.current.history.length).toBeLessThanOrEqual(50);
-  });
-
-  it('keeps newest items at the start', () => {
-    const { result } = renderHook(() => useHistory());
-
-    act(() => {
-      result.current.addToHistory(
-        { ...mockNewsletter, subject: 'First' } as any,
-        ['Topic 1']
-      );
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
     });
 
-    act(() => {
-      result.current.addToHistory(
-        { ...mockNewsletter, subject: 'Second' } as any,
-        ['Topic 2']
-      );
+    await act(async () => {
+      await result.current.addToHistory(mockNewsletter as any, ['AI tools']);
     });
 
-    expect(result.current.history[0].subject).toBe('Second');
-    expect(result.current.history[1].subject).toBe('First');
+    expect(newsletterApi.saveNewsletter).toHaveBeenCalledWith(
+      expect.objectContaining({
+        subject: 'Test Newsletter'
+      }),
+      ['AI tools']
+    );
+
+    expect(result.current.history).toHaveLength(1);
   });
 
-  it('loads from history correctly', () => {
+  it('loads from history correctly', async () => {
+    vi.mocked(newsletterApi.getNewsletters).mockResolvedValueOnce({
+      newsletters: [{
+        id: 'nl_1',
+        createdAt: '2024-01-01T00:00:00.000Z',
+        subject: 'Test Newsletter',
+        introduction: 'Test intro',
+        sections: [{ title: 'Section 1', content: 'Content 1', imagePrompt: 'Prompt 1' }],
+        conclusion: 'Test conclusion',
+        topics: ['AI tools']
+      }],
+      count: 1
+    });
+
     const { result } = renderHook(() => useHistory());
 
-    act(() => {
-      result.current.addToHistory(mockNewsletter as any, ['AI tools']);
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
     });
 
     const loaded = result.current.loadFromHistory(result.current.history[0]);
 
-    expect(loaded.newsletter).toEqual(mockNewsletter);
+    expect(loaded.newsletter.subject).toBe('Test Newsletter');
     expect(loaded.topics).toEqual(['AI tools']);
   });
 
-  it('clears history', () => {
+  it('deletes from history via SQLite', async () => {
+    vi.mocked(newsletterApi.getNewsletters).mockResolvedValueOnce({
+      newsletters: [{
+        id: 'nl_1',
+        createdAt: '2024-01-01T00:00:00.000Z',
+        subject: 'Test Newsletter',
+        introduction: 'Test intro',
+        sections: [{ title: 'Section 1', content: 'Content 1', imagePrompt: 'Prompt 1' }],
+        conclusion: 'Test conclusion',
+        topics: ['AI tools']
+      }],
+      count: 1
+    });
+
     const { result } = renderHook(() => useHistory());
 
-    act(() => {
-      result.current.addToHistory(mockNewsletter as any, ['AI tools']);
+    await waitFor(() => {
+      expect(result.current.history).toHaveLength(1);
+    });
+
+    await act(async () => {
+      await result.current.deleteFromHistory('nl_1');
+    });
+
+    expect(newsletterApi.deleteNewsletter).toHaveBeenCalledWith('nl_1');
+    expect(result.current.history).toHaveLength(0);
+  });
+
+  it('refreshes history from SQLite', async () => {
+    const { result } = renderHook(() => useHistory());
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    vi.mocked(newsletterApi.getNewsletters).mockResolvedValueOnce({
+      newsletters: [{
+        id: 'nl_refreshed',
+        createdAt: '2024-01-02T00:00:00.000Z',
+        subject: 'Refreshed Newsletter',
+        introduction: 'Intro',
+        sections: [],
+        conclusion: 'Conclusion',
+        topics: ['New']
+      }],
+      count: 1
+    });
+
+    await act(async () => {
+      await result.current.refreshHistory();
     });
 
     expect(result.current.history).toHaveLength(1);
-
-    act(() => {
-      result.current.clearHistory();
-    });
-
-    expect(result.current.history).toEqual([]);
-    expect(window.localStorage.removeItem).toHaveBeenCalledWith('generationHistory');
+    expect(result.current.history[0].subject).toBe('Refreshed Newsletter');
   });
 });

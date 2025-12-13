@@ -12,7 +12,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import type { GoogleSettings, GapiAuthData, Newsletter } from '../types';
 import * as googleApi from '../services/googleApiService';
-import { supabase, IS_SUPABASE_CONFIGURED } from '../lib/supabase';
 
 interface WorkflowStatus {
   message: string;
@@ -105,17 +104,6 @@ export function useGoogleWorkspace(): UseGoogleWorkspaceReturn {
   const signOut = useCallback(async () => {
     try {
       googleApi.signOut();
-
-      // Also sign out from Supabase
-      if (IS_SUPABASE_CONFIGURED) {
-        try {
-          await supabase.auth.signOut();
-          console.log('[GoogleWorkspace] Signed out from Supabase');
-        } catch (error) {
-          console.error('[GoogleWorkspace] Supabase sign out error:', error);
-        }
-      }
-
       setAuthData(null);
       setWorkflowActions({ savedToDrive: false, sentEmail: false });
     } catch (error) {

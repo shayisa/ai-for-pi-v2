@@ -88,3 +88,60 @@ export interface HistoryItem {
   newsletter: Newsletter;
   topics: string[];
 }
+
+// Archive types for trending data persistence
+export interface ArchiveContent {
+  trendingTopics?: TrendingTopic[];
+  compellingContent?: CompellingContent;
+  trendingSources?: TrendingSource[];
+  metadata?: {
+    sourceCount: number;
+    generatedAt: string;
+  };
+}
+
+export interface CompellingContent {
+  actionableCapabilities?: ActionableCapability[];
+  essentialTools?: EssentialTool[];
+}
+
+export interface ActionableCapability {
+  title: string;
+  description: string;
+  whatItIs?: string;
+  newCapability?: string;
+  whoShouldCare?: string;
+  howToGetStarted?: string;
+  expectedImpact?: string;
+  resource?: string;
+  implementationGuide?: string;
+  relevantTools?: string[];
+}
+
+export interface EssentialTool {
+  name: string;
+  purpose?: string;
+  description?: string;
+  whyNow?: string;
+  url?: string;
+  link?: string;
+}
+
+export interface TrendingSource {
+  id: string;
+  title: string;
+  url: string;
+  author?: string;
+  publication?: string;
+  date?: string;
+  category: 'hackernews' | 'arxiv' | 'github' | 'reddit' | 'dev';
+  summary?: string;
+}
+
+export interface Archive {
+  id: string;
+  createdAt: string;
+  name: string;
+  audience: string[];
+  content: ArchiveContent;
+}

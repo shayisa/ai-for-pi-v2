@@ -760,6 +760,415 @@ Same pattern as `/claude-api/*`.
 
 ---
 
+### 3.3 SQLite API Endpoints (Local)
+
+**Base URL:** `http://localhost:3001`
+
+These endpoints provide CRUD operations for locally-stored data in SQLite.
+
+#### Newsletter Endpoints
+
+##### GET /api/newsletters
+
+Lists all stored newsletters, newest first.
+
+**Query Params:**
+```
+limit?: number    // Max items to return (default: 50)
+```
+
+**Response:**
+```typescript
+{
+  newsletters: Newsletter[];
+  count: number;
+}
+```
+
+---
+
+##### GET /api/newsletters/:id
+
+Gets a single newsletter by ID.
+
+**Response:**
+```typescript
+Newsletter   // Full newsletter object
+```
+
+---
+
+##### POST /api/newsletters
+
+Saves a newsletter to SQLite.
+
+**Request:**
+```typescript
+{
+  newsletter: {
+    id: string;
+    subject: string;
+    introduction: string;
+    sections: NewsletterSection[];
+    conclusion: string;
+    promptOfTheDay?: PromptOfTheDay;
+  };
+  topics: string[];
+  settings?: {
+    audience?: string[];
+    tone?: string;
+    imageStyle?: string;
+  };
+}
+```
+
+**Response:**
+```typescript
+Newsletter   // Saved newsletter with createdAt
+```
+
+---
+
+##### DELETE /api/newsletters/:id
+
+Deletes a newsletter by ID.
+
+**Response:**
+```typescript
+{
+  success: boolean;
+  message: string;
+}
+```
+
+---
+
+##### POST /api/newsletters/:id/log
+
+Logs an action for a newsletter.
+
+**Request:**
+```typescript
+{
+  action: 'created' | 'saved_to_drive' | 'sent_email';
+  details?: {
+    sent_to_lists?: string[];
+    recipient_count?: number;
+  };
+}
+```
+
+**Response:**
+```typescript
+{
+  success: boolean;
+  message: string;
+}
+```
+
+---
+
+##### GET /api/newsletters/:id/logs
+
+Gets all logs for a newsletter.
+
+**Response:**
+```typescript
+{
+  logs: Array<{
+    id: number;
+    newsletterId: string;
+    action: string;
+    actionAt: string;
+    details?: object;
+  }>;
+}
+```
+
+---
+
+#### Subscriber Endpoints
+
+##### GET /api/subscribers
+
+Lists all subscribers with optional filters.
+
+**Query Params:**
+```
+status?: 'active' | 'inactive'
+listId?: string
+```
+
+**Response:**
+```typescript
+{
+  subscribers: Subscriber[];
+  count: number;
+}
+```
+
+---
+
+##### GET /api/subscribers/:email
+
+Gets a single subscriber by email.
+
+**Response:**
+```typescript
+Subscriber
+```
+
+---
+
+##### POST /api/subscribers
+
+Adds a new subscriber.
+
+**Request:**
+```typescript
+{
+  email: string;
+  name?: string;
+  listId?: string;    // Optional list to add to
+  source?: string;    // 'manual' | 'import'
+}
+```
+
+**Response:**
+```typescript
+Subscriber   // Created subscriber with id and dateAdded
+```
+
+---
+
+##### PUT /api/subscribers/:email
+
+Updates subscriber details.
+
+**Request:**
+```typescript
+{
+  name?: string;
+  status?: 'active' | 'inactive';
+  lists?: string;    // Comma-separated list IDs
+}
+```
+
+**Response:**
+```typescript
+Subscriber   // Updated subscriber
+```
+
+---
+
+##### DELETE /api/subscribers/:email
+
+Soft deletes a subscriber (sets status to 'inactive').
+
+**Response:**
+```typescript
+{
+  success: boolean;
+  message: string;
+}
+```
+
+---
+
+##### POST /api/subscribers/import
+
+Bulk imports subscribers.
+
+**Request:**
+```typescript
+{
+  subscribers: Array<{
+    email: string;
+    name?: string;
+    listId?: string;
+  }>;
+}
+```
+
+**Response:**
+```typescript
+{
+  added: number;
+  skipped: number;   // Duplicates skipped
+}
+```
+
+---
+
+#### List Endpoints
+
+##### GET /api/lists
+
+Lists all subscriber lists.
+
+**Response:**
+```typescript
+{
+  lists: SubscriberList[];
+  count: number;
+}
+```
+
+---
+
+##### GET /api/lists/:id
+
+Gets a single list by ID.
+
+**Response:**
+```typescript
+SubscriberList
+```
+
+---
+
+##### POST /api/lists
+
+Creates a new subscriber list.
+
+**Request:**
+```typescript
+{
+  name: string;
+  description?: string;
+}
+```
+
+**Response:**
+```typescript
+SubscriberList   // Created list with auto-generated 5-char ID
+```
+
+---
+
+##### PUT /api/lists/:id
+
+Updates list details.
+
+**Request:**
+```typescript
+{
+  name?: string;
+  description?: string;
+}
+```
+
+**Response:**
+```typescript
+SubscriberList
+```
+
+---
+
+##### DELETE /api/lists/:id
+
+Deletes a list (removes from all subscribers).
+
+**Response:**
+```typescript
+{
+  success: boolean;
+  message: string;
+}
+```
+
+---
+
+##### POST /api/lists/:id/subscribers
+
+Adds a subscriber to a list.
+
+**Request:**
+```typescript
+{
+  email: string;
+}
+```
+
+**Response:**
+```typescript
+{
+  success: boolean;
+  message: string;
+}
+```
+
+---
+
+##### DELETE /api/lists/:id/subscribers/:email
+
+Removes a subscriber from a list.
+
+**Response:**
+```typescript
+{
+  success: boolean;
+  message: string;
+}
+```
+
+---
+
+##### GET /api/lists/:id/subscribers
+
+Gets all subscribers in a list.
+
+**Response:**
+```typescript
+{
+  subscribers: Subscriber[];
+  count: number;
+}
+```
+
+---
+
+#### Archive Endpoints
+
+##### GET /api/archives
+
+Lists trending data archives.
+
+**Query Params:**
+```
+limit?: number
+audience?: string    // JSON-encoded string[]
+```
+
+**Response:**
+```typescript
+{
+  archives: Archive[];
+  count: number;
+}
+```
+
+---
+
+##### POST /api/archives
+
+Saves a trending data archive.
+
+**Request:**
+```typescript
+{
+  content: object;     // Trending data
+  audience?: string[]; // Target audience
+}
+```
+
+**Response:**
+```typescript
+Archive
+```
+
+---
+
 ## 3.5 Custom Hooks (v2 NEW)
 
 The v2 refactor extracts state management from App.tsx into focused custom hooks in `/hooks/`.
@@ -901,22 +1310,42 @@ await generate({
 
 ### useHistory
 
-**Purpose:** Manages newsletter generation history with local storage persistence.
+**Purpose:** Manages newsletter generation history using SQLite backend.
 
 **File:** `hooks/useHistory.ts`
 
 **Returns:**
 ```typescript
 {
+  // State
   history: HistoryItem[];
-  addToHistory: (newsletter, topics) => void;
+  isLoading: boolean;              // True while loading from SQLite
+  error: string | null;            // Error message if load/save fails
+
+  // Actions
+  addToHistory: (newsletter, topics) => Promise<void>;  // Async - saves to SQLite
   loadFromHistory: (item) => { newsletter, topics };
-  clearHistory: () => void;
-  loadFromGoogleSheets: (settings, accessToken) => Promise<void>;
+  deleteFromHistory: (id: string) => Promise<void>;     // Soft delete from SQLite
+  refreshHistory: () => Promise<void>;                  // Re-fetch from SQLite
 }
 ```
 
-**Note:** History is limited to 50 items to prevent localStorage quota issues.
+**Usage:**
+```typescript
+const { history, isLoading, error, addToHistory, deleteFromHistory } = useHistory();
+
+// History loads automatically on mount
+if (isLoading) return <Spinner />;
+if (error) return <Error message={error} />;
+
+// Add to history (auto-saved to SQLite)
+await addToHistory(newsletter, selectedTopics);
+
+// Delete from history
+await deleteFromHistory('nl_123');
+```
+
+**Note:** History is limited to 50 items. Data persists in SQLite at `./data/archives.db`.
 
 ---
 
@@ -1159,6 +1588,186 @@ authenticateSupabaseWithGoogleEmail(
 - `gemini-2.5-flash-image` - Image generation
 
 **Note:** Present in codebase but not actively used.
+
+---
+
+### 4.7 newsletterDbService.ts (Backend)
+
+**Location:** `server/services/newsletterDbService.ts`
+
+**Purpose:** SQLite CRUD operations for newsletters and action logs.
+
+**Exported Functions:**
+
+```typescript
+// Save newsletter to SQLite
+saveNewsletter(
+  newsletter: { id, subject, introduction, sections, conclusion, promptOfTheDay? },
+  topics: string[],
+  settings?: { audience?, tone?, imageStyle? }
+): Newsletter
+
+// Get all newsletters (newest first)
+getNewsletters(limit?: number): Newsletter[]
+
+// Get single newsletter by ID
+getNewsletterById(id: string): Newsletter | null
+
+// Delete newsletter
+deleteNewsletter(id: string): boolean
+
+// Log action (created, saved_to_drive, sent_email)
+logAction(
+  newsletterId: string,
+  action: 'created' | 'saved_to_drive' | 'sent_email',
+  details?: Record<string, unknown>
+): void
+
+// Get logs for a newsletter
+getNewsletterLogs(newsletterId: string): NewsletterLog[]
+```
+
+---
+
+### 4.8 subscriberDbService.ts (Backend)
+
+**Location:** `server/services/subscriberDbService.ts`
+
+**Purpose:** SQLite CRUD operations for subscribers and lists.
+
+**Exported Functions - Subscribers:**
+
+```typescript
+// Add subscriber
+addSubscriber(subscriber: Omit<Subscriber, 'id' | 'dateAdded'>): Subscriber
+
+// Update subscriber
+updateSubscriber(email: string, updates: Partial<Subscriber>): Subscriber | null
+
+// Soft delete (set status to inactive)
+deleteSubscriber(email: string): boolean
+
+// Get all subscribers with optional filters
+getSubscribers(filters?: { status?, listId? }): Subscriber[]
+
+// Get single subscriber by email
+getSubscriberByEmail(email: string): Subscriber | null
+
+// Bulk import subscribers
+importSubscribers(subscribers: Array<{ email, name?, listId? }>): { added, skipped }
+```
+
+**Exported Functions - Lists:**
+
+```typescript
+// Create list (auto-generates 5-char ID)
+createList(name: string, description?: string): SubscriberList
+
+// Update list
+updateList(id: string, updates: Partial<SubscriberList>): SubscriberList | null
+
+// Delete list (removes from all subscribers)
+deleteList(id: string): boolean
+
+// Get all lists
+getLists(): SubscriberList[]
+
+// Add/remove subscriber from list
+addSubscriberToList(email: string, listId: string): boolean
+removeSubscriberFromList(email: string, listId: string): boolean
+
+// Get subscribers in a list
+getSubscribersByList(listId: string): Subscriber[]
+
+// Sync list subscriber count
+syncListCount(listId: string): number
+```
+
+---
+
+### 4.9 newsletterClientService.ts (Frontend)
+
+**Location:** `services/newsletterClientService.ts`
+
+**Purpose:** Frontend API client for newsletter SQLite operations.
+
+**Exported Functions:**
+
+```typescript
+// Save newsletter
+saveNewsletter(newsletter, topics, settings?): Promise<Newsletter>
+
+// Get all newsletters
+getNewsletters(limit?): Promise<{ newsletters, count }>
+
+// Get by ID
+getNewsletterById(id): Promise<Newsletter>
+
+// Delete
+deleteNewsletter(id): Promise<{ success, message }>
+
+// Log action
+logAction(newsletterId, action, details?): Promise<{ success, message }>
+
+// Get logs
+getNewsletterLogs(newsletterId): Promise<{ logs }>
+```
+
+---
+
+### 4.10 subscriberClientService.ts (Frontend)
+
+**Location:** `services/subscriberClientService.ts`
+
+**Purpose:** Frontend API client for subscriber/list SQLite operations.
+
+**Exported Functions - Subscribers:**
+
+```typescript
+getSubscribers(filters?): Promise<{ subscribers, count }>
+getSubscriberByEmail(email): Promise<Subscriber>
+addSubscriber(subscriber): Promise<Subscriber>
+updateSubscriber(email, updates): Promise<Subscriber>
+deleteSubscriber(email): Promise<{ success, message }>
+importSubscribers(subscribers): Promise<{ added, skipped }>
+```
+
+**Exported Functions - Lists:**
+
+```typescript
+getLists(): Promise<{ lists, count }>
+getListById(id): Promise<SubscriberList>
+createList(name, description?): Promise<SubscriberList>
+updateList(id, updates): Promise<SubscriberList>
+deleteList(id): Promise<{ success, message }>
+addSubscriberToList(email, listId): Promise<{ success, message }>
+removeSubscriberFromList(email, listId): Promise<{ success, message }>
+getSubscribersByList(listId): Promise<{ subscribers, count }>
+```
+
+---
+
+### 4.11 archiveClientService.ts (Frontend)
+
+**Location:** `services/archiveClientService.ts`
+
+**Purpose:** Frontend API client for trending data archive operations.
+
+**Exported Functions:**
+
+```typescript
+// Save archive
+saveArchive(content, audience?): Promise<Archive>
+
+// Get archives
+getArchives(limit?, audience?): Promise<{ archives, count }>
+
+// Get latest archive
+getLatestArchive(audience?): Promise<Archive | null>
+
+// Delete archive
+deleteArchive(id): Promise<{ success, message }>
+```
 
 ---
 
@@ -1925,7 +2534,101 @@ CREATE INDEX idx_audit_log_user_email ON api_key_audit_log(user_email);
 CREATE INDEX idx_audit_log_created_at ON api_key_audit_log(created_at);
 ```
 
-### 8.2 Row-Level Security (RLS)
+### 8.2 SQLite Local Database
+
+Local SQLite database for fast offline storage of newsletters, subscribers, and lists.
+
+**Location:** `./data/archives.db`
+
+#### newsletters
+
+Stores full newsletter content with metadata.
+
+```sql
+CREATE TABLE IF NOT EXISTS newsletters (
+  id TEXT PRIMARY KEY,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  subject TEXT NOT NULL,
+  introduction TEXT,
+  conclusion TEXT,
+  sections TEXT NOT NULL,           -- JSON: NewsletterSection[]
+  prompt_of_day TEXT,               -- JSON: PromptOfTheDay (optional)
+  topics TEXT NOT NULL DEFAULT '[]', -- JSON: string[]
+  audience TEXT DEFAULT '[]',        -- JSON: string[]
+  tone TEXT,
+  image_style TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_newsletters_created ON newsletters(created_at DESC);
+```
+
+#### newsletter_logs
+
+Action audit trail for newsletter operations.
+
+```sql
+CREATE TABLE IF NOT EXISTS newsletter_logs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  newsletter_id TEXT NOT NULL,
+  action TEXT NOT NULL,              -- 'created', 'saved_to_drive', 'sent_email'
+  action_at TEXT NOT NULL DEFAULT (datetime('now')),
+  details TEXT,                      -- JSON: { sent_to_lists: [], recipient_count: n }
+  FOREIGN KEY (newsletter_id) REFERENCES newsletters(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_logs_newsletter ON newsletter_logs(newsletter_id);
+```
+
+#### subscribers
+
+Email subscriber list with status and list membership.
+
+```sql
+CREATE TABLE IF NOT EXISTS subscribers (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  email TEXT UNIQUE NOT NULL,
+  name TEXT,
+  status TEXT NOT NULL DEFAULT 'active',  -- 'active' | 'inactive'
+  lists TEXT NOT NULL DEFAULT '',          -- Comma-separated list IDs
+  date_added TEXT NOT NULL DEFAULT (datetime('now')),
+  date_removed TEXT,
+  source TEXT DEFAULT 'manual'             -- 'manual' | 'import' | 'sheets_import'
+);
+
+CREATE INDEX IF NOT EXISTS idx_subscribers_email ON subscribers(email);
+CREATE INDEX IF NOT EXISTS idx_subscribers_status ON subscribers(status);
+```
+
+#### subscriber_lists
+
+Named subscriber lists for targeted newsletters.
+
+```sql
+CREATE TABLE IF NOT EXISTS subscriber_lists (
+  id TEXT PRIMARY KEY,              -- 5-char ID (e.g., "ABC12")
+  name TEXT NOT NULL,
+  description TEXT,
+  date_created TEXT NOT NULL DEFAULT (datetime('now')),
+  subscriber_count INTEGER DEFAULT 0
+);
+```
+
+#### archives
+
+Trending data archives (existing).
+
+```sql
+CREATE TABLE IF NOT EXISTS archives (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  content TEXT NOT NULL,            -- JSON: full archive data
+  audience TEXT                     -- JSON: string[]
+);
+
+CREATE INDEX IF NOT EXISTS idx_archives_created ON archives(created_at DESC);
+```
+
+### 8.3 Row-Level Security (RLS)
 
 ```sql
 -- Enable RLS
@@ -1941,7 +2644,7 @@ CREATE POLICY "Insert audit logs" ON api_key_audit_log
   FOR INSERT WITH CHECK (true);
 ```
 
-### 8.3 Encryption
+### 8.4 Encryption
 
 API keys are encrypted at rest using PostgreSQL's pgcrypto extension:
 

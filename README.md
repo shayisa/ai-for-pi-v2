@@ -30,7 +30,7 @@ git clone https://github.com/shayisa/ai-for-pi-v2.git
 cd ai-for-pi-v2
 npm install
 cp .env.local.example .env.local
-# Add your Supabase URL and Anon Key to .env.local
+# Optionally add your API keys to .env.local (or configure via Settings UI)
 npm run dev:all
 ```
 
@@ -40,9 +40,10 @@ Then open `http://localhost:5173` in your browser.
 
 - **AI Newsletter Generation** - Claude API generates newsletters with web search grounding
 - **Custom Image Generation** - Stability AI creates unique images for each section
-- **Google Workspace Integration** - Auto-save to Drive, send via Gmail, log to Sheets
-- **Secure API Key Management** - All keys stored encrypted in Supabase
-- **Load & Resend** - Retrieve and resend previous newsletters
+- **Local SQLite Storage** - Fast offline storage for newsletters, subscribers, lists, and API keys
+- **Google Workspace Integration** - Save HTML backups to Drive, send via Gmail
+- **Subscriber Management** - Full CRUD for subscribers and mailing lists
+- **History & Resend** - Browse and resend previous newsletters
 
 ## Documentation
 
@@ -50,7 +51,6 @@ Then open `http://localhost:5173` in your browser.
 |----------|---------|
 | **[ARCHITECTURE.md](./ARCHITECTURE.md)** | **Comprehensive technical reference** - file dependencies, API endpoints, data flows |
 | [GETTING_STARTED.md](./GETTING_STARTED.md) | Complete setup guide for new users |
-| [SUPABASE_SETUP.md](./SUPABASE_SETUP.md) | Supabase database configuration |
 | [docs/API_CONTRACTS.md](./docs/API_CONTRACTS.md) | Request/response schemas for all endpoints |
 | [docs/STATE_DEPENDENCIES.md](./docs/STATE_DEPENDENCIES.md) | State management documentation |
 
@@ -58,11 +58,11 @@ Then open `http://localhost:5173` in your browser.
 
 | Layer | Technologies |
 |-------|-------------|
-| Frontend | React 19, TypeScript, Vite, TailwindCSS, React Router |
+| Frontend | React 19, TypeScript, Vite, TailwindCSS |
 | Backend | Node.js, Express, TypeScript, Zod validation |
-| Database | Supabase (PostgreSQL + pgcrypto) |
+| Database | SQLite (newsletters, subscribers, lists, archives, API keys) |
 | AI Services | Claude 3.5 Sonnet, Claude Haiku, Stability AI |
-| Cloud | Google Drive, Sheets, Gmail APIs |
+| Cloud | Google Drive, Gmail APIs |
 
 ## Development
 
@@ -78,32 +78,40 @@ npm run test:e2e   # Run integration tests (uses mocks)
 ## Project Structure (v2)
 
 ```
-src/
-├── hooks/              # Custom React hooks (state management)
-├── services/
-│   └── google/         # Drive, Sheets, Gmail (split from monolith)
-├── components/         # UI components with error boundaries
-├── pages/              # Route pages
-├── cache/              # Trending data and search caching
-├── types/              # TypeScript interfaces and Zod schemas
-└── __mocks__/          # Test mocks for API services
+/
+├── hooks/                    # Custom React hooks (state management)
+│   └── useHistory.ts         # SQLite-backed newsletter history
+├── services/                 # Frontend API clients
+│   ├── newsletterClientService.ts   # Newsletter SQLite API
+│   ├── subscriberClientService.ts   # Subscriber/List SQLite API
+│   └── archiveClientService.ts      # Archive SQLite API
+├── components/               # UI components with error boundaries
+├── pages/                    # Route pages
+├── types/                    # TypeScript interfaces and Zod schemas
+└── __mocks__/                # Test mocks for API services
 
 server/
-├── routes/             # Express route handlers
-├── services/           # Claude, Stability, Brave Search
-├── middleware/         # Validation, rate limiting, error handling
-└── cache/              # Server-side caching
+├── services/                 # Backend services
+│   ├── apiKeyDbService.ts      # API key SQLite CRUD
+│   ├── newsletterDbService.ts  # Newsletter SQLite CRUD
+│   └── subscriberDbService.ts  # Subscriber/List SQLite CRUD
+└── server.ts                 # Express server with all routes
+
+data/
+└── archives.db               # SQLite database (auto-created)
 ```
 
 ## Environment Variables
 
-Required in `.env.local`:
+Optional in `.env.local` (or configure via Settings UI):
 ```env
-VITE_SUPABASE_URL=https://your-project.supabase.co
-VITE_SUPABASE_ANON_KEY=your-anon-key
+ADMIN_EMAIL=your-email@example.com
+VITE_ANTHROPIC_API_KEY=sk-ant-...
+VITE_STABILITY_API_KEY=sk-...
+VITE_BRAVE_SEARCH_API_KEY=BSA...
 ```
 
-All other API keys (Claude, Stability AI, Google) are managed through the app's Settings UI.
+API keys can be set via environment variables or managed through the app's Settings UI. Keys saved via the UI are stored in the local SQLite database.
 
 ---
 

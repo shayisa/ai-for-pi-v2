@@ -9,10 +9,10 @@ import { generateNewsletterContent, generateImage, generateTopicSuggestions, gen
 import { InspirationSources } from './components/InspirationSources';
 import * as trendingDataService from './services/trendingDataService';
 import type { TrendingSource } from './services/trendingDataService';
+import * as archiveClientService from './services/archiveClientService';
 import { SettingsModal } from './components/SettingsModal'; // SettingsModal is now only for initial sign-in/out feedback.
 import * as googleApi from './services/googleApiService';
 import { getIdToken } from './services/googleApiService';
-import { supabase, IS_SUPABASE_CONFIGURED } from './lib/supabase';
 import { fileToBase64 } from './utils/fileUtils';
 import { PresetsManager } from './components/PresetsManager';
 import { HistoryPanel } from './components/HistoryPanel';
@@ -26,6 +26,8 @@ import { GenerateNewsletterPage } from './pages/GenerateNewsletterPage'; // New
 import { HistoryContentPage } from './pages/HistoryContentPage'; // New
 import { SubscriberManagementPage } from './pages/SubscriberManagementPage'; // New
 import { AuthenticationPage } from './pages/AuthenticationPage'; // New
+import { useHistory } from './hooks/useHistory';
+import * as newsletterApi from './services/newsletterClientService';
 
 
 const audienceOptions: Record<string, { label: string; description: string }> = {
@@ -99,6 +101,9 @@ type ErrorState = {
 };
 
 const App: React.FC = () => {
+    // Setup wizard state - check if Supabase is configured
+    const [isSetupComplete, setIsSetupComplete] = useState<boolean | null>(null);
+
     const [activePage, setActivePage] = useState<ActivePage>('authentication'); // Initial page - authentication first
     const [selectedTopics, setSelectedTopics] = useState<string[]>(['Latest AI tools for data visualization']);
     const [customTopic, setCustomTopic] = useState<string>('');
@@ -134,7 +139,16 @@ const App: React.FC = () => {
     const [isSettingsOpen, setIsSettingsOpen] = useState(false); // This will now control the modal for initial sign-in/out feedback
 
     const [presets, setPresets] = useState<Preset[]>([]);
-    const [history, setHistory] = useState<HistoryItem[]>([]);
+
+    // Newsletter history from SQLite
+    const {
+        history,
+        isLoading: isHistoryLoading,
+        addToHistory,
+        loadFromHistory: loadHistoryItem,
+        deleteFromHistory,
+        refreshHistory
+    } = useHistory();
 
     const [promptOfTheDay, setPromptOfTheDay] = useState<PromptOfTheDay | null>(null);
 
@@ -222,17 +236,6 @@ const App: React.FC = () => {
     const handleGoogleSignOut = async () => {
         try {
             googleApi.signOut();
-
-            // Also sign out from Supabase
-            if (IS_SUPABASE_CONFIGURED) {
-                try {
-                    await supabase.auth.signOut();
-                    console.log("Signed out from Supabase");
-                } catch (error) {
-                    console.error('Error signing out from Supabase:', error);
-                }
-            }
-
             setAuthData(null);
             setActivePage('authentication');
         } catch (error) {
@@ -240,17 +243,14 @@ const App: React.FC = () => {
         }
     };
 
-    const handleAddToHistory = (generatedNewsletter: Newsletter, topics: string[]) => {
-        const newItem: HistoryItem = {
-            id: Date.now(),
-            date: new Date().toLocaleString(),
-            subject: generatedNewsletter.subject,
-            newsletter: generatedNewsletter,
-            topics: topics,
-        };
-        const updatedHistory = [newItem, ...history].slice(0, 50); // Keep last 50
-        setHistory(updatedHistory);
-        localStorage.setItem('generationHistory', JSON.stringify(updatedHistory));
+    const handleAddToHistory = async (generatedNewsletter: Newsletter, topics: string[]) => {
+        try {
+            await addToHistory(generatedNewsletter, topics);
+            console.log('[App] Newsletter saved to SQLite');
+        } catch (err) {
+            console.error('[App] Failed to save newsletter to SQLite:', err);
+            // Non-critical - don't show error to user
+        }
     };
 
     const handleLoadFromHistory = (item: HistoryItem) => {
@@ -279,9 +279,10 @@ const App: React.FC = () => {
         }, 100);
     };
 
-    const handleClearHistory = () => {
-        setHistory([]);
-        localStorage.removeItem('generationHistory');
+    const handleClearHistory = async () => {
+        // Note: Full clear not implemented - use individual delete
+        // For now, just refresh to sync with SQLite
+        await refreshHistory();
     };
 
     const getAudienceKeys = useCallback(() => Object.keys(selectedAudience).filter(key => selectedAudience[key]), [selectedAudience]);
@@ -314,7 +315,21 @@ const App: React.FC = () => {
             return;
         }
 
+        // Track fetched sources for archiving
+        let fetchedSources: TrendingSource[] = [];
+
         try {
+            // Fetch trending sources for the Inspiration Sources panel
+            console.log("Fetching trending sources...");
+            try {
+                const allSources = await trendingDataService.fetchAllTrendingSources();
+                fetchedSources = trendingDataService.filterSourcesByAudience(allSources, audience);
+                setTrendingSources(fetchedSources);
+                console.log(`Fetched ${fetchedSources.length} trending sources`);
+            } catch (err) {
+                console.warn("Could not fetch trending sources:", err);
+            }
+
             // Generate COMPELLING, actionable trending content with structured insights
             console.log("Generating compelling trending content with actionable insights...");
             const result = await generateCompellingTrendingContent(audience);
@@ -331,6 +346,23 @@ const App: React.FC = () => {
                 const titles = compellingData.actionableCapabilities.map((item: any) => item.title);
                 setTrendingContent(titles.map((title: string) => ({ title, summary: "Actionable AI capability from trending insights" })));
             }
+
+            // Auto-save archive after successful fetch
+            try {
+                const archiveContent = {
+                    trendingTopics: compellingData.actionableCapabilities?.map((item: any) => ({
+                        title: item.title,
+                        summary: item.description || item.whatItIs || ""
+                    })) || [],
+                    compellingContent: compellingData,
+                    trendingSources: fetchedSources
+                };
+                const savedArchive = await archiveClientService.saveArchive(archiveContent, audience);
+                console.log(`[Archive] Auto-saved: ${savedArchive.name} (${savedArchive.id})`);
+            } catch (archiveError) {
+                console.warn("[Archive] Could not auto-save:", archiveError);
+                // Don't show error to user - archive is a background feature
+            }
         } catch (e) {
             console.error("Failed to fetch compelling trending content:", e);
             const errorMessage = e instanceof SyntaxError
@@ -342,7 +374,42 @@ const App: React.FC = () => {
         }
     }, [getAudienceKeys]);
 
+    // Load content from an archive (skips API calls, saves tokens)
+    const handleLoadFromArchive = useCallback((content: archiveClientService.ArchiveContent, audience: string[]) => {
+        console.log('[Archive] Loading from archive...');
 
+        // Set trending sources
+        if (content.trendingSources) {
+            setTrendingSources(content.trendingSources as TrendingSource[]);
+        }
+
+        // Set compelling content
+        if (content.compellingContent) {
+            setCompellingContent(content.compellingContent);
+        }
+
+        // Extract titles for trending topics
+        if (content.trendingTopics && content.trendingTopics.length > 0) {
+            setTrendingContent(content.trendingTopics);
+        } else if (content.compellingContent?.actionableCapabilities) {
+            const titles = content.compellingContent.actionableCapabilities.map((item: any) => item.title);
+            setTrendingContent(titles.map((title: string) => ({
+                title,
+                summary: "Actionable AI capability from archived insights"
+            })));
+        }
+
+        // Update audience selection to match archive
+        if (audience && audience.length > 0) {
+            const newAudience: Record<string, boolean> = {};
+            Object.keys(selectedAudience).forEach(key => {
+                newAudience[key] = audience.includes(key);
+            });
+            setSelectedAudience(newAudience);
+        }
+
+        console.log('[Archive] Content loaded successfully');
+    }, [selectedAudience]);
 
     const handleAudienceChange = (key: string) => {
         setSelectedAudience(prev => ({ ...prev, [key]: !prev[key] }));
@@ -581,7 +648,15 @@ const App: React.FC = () => {
         }
     };
     
+    // Setup is always complete (Supabase removed)
     useEffect(() => {
+        setIsSetupComplete(true);
+    }, []);
+
+    useEffect(() => {
+        // Skip initialization if setup is not complete
+        if (isSetupComplete === false) return;
+
         const storedSettings = localStorage.getItem('googleSettings');
         if (storedSettings) {
             setGoogleSettings(JSON.parse(storedSettings));
@@ -592,7 +667,7 @@ const App: React.FC = () => {
                 subscribersSheetName: 'Newsletter Subscribers',
             });
         }
-        
+
         googleApi.initClient((data) => {
             setAuthData(data);
         }, () => {
@@ -605,11 +680,8 @@ const App: React.FC = () => {
             setPresets(JSON.parse(storedPresets));
         }
 
-        const storedHistory = localStorage.getItem('generationHistory');
-        if (storedHistory) {
-            setHistory(JSON.parse(storedHistory));
-        }
-    }, []);
+        // History is now loaded from SQLite via useHistory hook
+    }, [isSetupComplete]);
 
     // Load subscriber lists when googleSettings or authData changes
     useEffect(() => {
@@ -626,29 +698,7 @@ const App: React.FC = () => {
         loadSubscriberLists();
     }, [googleSettings, authData]);
 
-    // Load history from Google Sheets when authenticated
-    useEffect(() => {
-        const loadHistoryFromSheet = async () => {
-            if (!googleSettings || !authData?.access_token) return;
-            try {
-                const sheetHistory = await googleApi.readHistoryFromSheet(googleSettings.logSheetName, googleSettings.driveFolderName);
-                if (sheetHistory && sheetHistory.length > 0) {
-                    setHistory(sheetHistory);
-                    // Also update localStorage to keep it in sync
-                    try {
-                        localStorage.setItem('generationHistory', JSON.stringify(sheetHistory));
-                    } catch (storageErr) {
-                        console.warn('Could not update localStorage (quota exceeded), but history loaded from Google Sheets:', storageErr);
-                    }
-                    console.log(`Loaded ${sheetHistory.length} items from Google Sheets history`);
-                }
-            } catch (err) {
-                console.error('Error loading history from Google Sheets:', err);
-                // Silently fall back to localStorage - history will still be available from initial load
-            }
-        };
-        loadHistoryFromSheet();
-    }, [googleSettings, authData?.access_token]);
+    // Newsletter history is now loaded from SQLite via useHistory hook
 
 
     // Handle authentication state changes - navigate to app when authenticated
@@ -662,16 +712,22 @@ const App: React.FC = () => {
     const handleWorkflowAction = async (action: 'drive' | 'sheet' | 'gmail') => {
         if (!newsletter || !googleSettings || !authData?.access_token) return;
         setWorkflowStatus({ message: `Executing ${action} action...`, type: 'success' });
-        
+
         try {
             let resultMessage = '';
             switch (action) {
                 case 'drive':
                     resultMessage = await googleApi.saveToDrive(newsletter, googleSettings.driveFolderName, selectedTopics);
                     setWorkflowActions({ ...workflowActions, savedToDrive: true });
+                    // Log to SQLite
+                    if (newsletter.id) {
+                        await newsletterApi.logAction(newsletter.id, 'saved_to_drive', {
+                            folder: googleSettings.driveFolderName
+                        });
+                    }
                     break;
                 case 'sheet':
-                    // Log to sheet with current workflow action status
+                    // Legacy: Log to Google Sheet (keeping for backward compatibility)
                     resultMessage = await googleApi.logToSheet(newsletter, selectedTopics, googleSettings.logSheetName, workflowActions.savedToDrive, workflowActions.sentEmail);
                     break;
                 case 'gmail':
@@ -688,7 +744,15 @@ const App: React.FC = () => {
                     );
                     resultMessage = emailResult.message;
                     setWorkflowActions({ ...workflowActions, sentEmail: true });
-                    // Auto-log to sheet when email is sent with list names
+                    // Log to SQLite
+                    if (newsletter.id) {
+                        await newsletterApi.logAction(newsletter.id, 'sent_email', {
+                            sent_to_lists: selectedEmailLists,
+                            list_names: emailResult.listNames,
+                            recipient_count: emailResult.sentCount || 0
+                        });
+                    }
+                    // Also log to sheet for backward compatibility
                     const listNames = emailResult.listNames.join(', ');
                     await googleApi.logToSheet(
                         newsletter,
@@ -698,7 +762,7 @@ const App: React.FC = () => {
                         true,
                         listNames
                     );
-                    resultMessage += ` Also logged to sheet with email tracking.`;
+                    resultMessage += ` Also logged to SQLite.`;
                     break;
             }
             setWorkflowStatus({ message: resultMessage, type: 'success' });
@@ -711,6 +775,15 @@ const App: React.FC = () => {
     
     const hasSelectedAudience = getAudienceKeys().length > 0;
     console.log('isGoogleApiInitialized:', isGoogleApiInitialized);
+
+    // Show loading while checking setup status
+    if (isSetupComplete === null) {
+        return (
+            <div className="min-h-screen bg-background text-primary-text font-sans flex items-center justify-center">
+                <Spinner />
+            </div>
+        );
+    }
 
     // If not authenticated, show the authentication page
     if (!authData?.access_token) {
@@ -755,6 +828,7 @@ const App: React.FC = () => {
                             selectedAudience={selectedAudience}
                             handleAudienceChange={handleAudienceChange}
                             trendingSources={trendingSources}
+                            onLoadFromArchive={handleLoadFromArchive}
                         />
                     )}
 
@@ -822,10 +896,6 @@ const App: React.FC = () => {
 
                     {activePage === 'subscriberManagement' && (
                         <SubscriberManagementPage
-                            subscribers={subscribers}
-                            subscriberLists={subscriberLists}
-                            googleSettings={googleSettings}
-                            authData={authData}
                             onListsChanged={refreshSubscriberLists}
                         />
                     )}

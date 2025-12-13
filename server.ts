@@ -2,8 +2,12 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import Anthropic from '@anthropic-ai/sdk';
-import { trendingCache } from './server/cache/trendingCache.js';
-import { searchCache } from './server/cache/searchCache.js';
+import { trendingCache } from './server/cache/trendingCache.ts';
+import { searchCache } from './server/cache/searchCache.ts';
+import * as archiveService from './server/services/archiveService.ts';
+import * as newsletterDbService from './server/services/newsletterDbService.ts';
+import * as subscriberDbService from './server/services/subscriberDbService.ts';
+import * as apiKeyDbService from './server/services/apiKeyDbService.ts';
 
 // Load environment variables
 dotenv.config({ path: '.env.local' });
@@ -18,10 +22,36 @@ const PORT = process.env.PORT || 3001;
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 
-// Initialize Anthropic client (securely on the backend)
-const anthropic = new Anthropic({
-  apiKey: process.env.VITE_ANTHROPIC_API_KEY,
-});
+// Cache for Anthropic client (recreated if API key changes)
+let cachedAnthropicClient: Anthropic | null = null;
+let cachedApiKey: string | null = null;
+
+// Get Anthropic client with API key from SQLite or env
+const getAnthropicClient = async (): Promise<Anthropic> => {
+  const adminEmail = process.env.ADMIN_EMAIL;
+
+  // Try SQLite first
+  let apiKey = adminEmail ? apiKeyDbService.getApiKey(adminEmail, 'claude') : null;
+
+  // Fall back to environment variable
+  if (!apiKey) {
+    apiKey = process.env.VITE_ANTHROPIC_API_KEY || null;
+  }
+
+  if (!apiKey) {
+    throw new Error('Claude API key not configured. Please add it in Settings.');
+  }
+
+  // Reuse cached client if API key hasn't changed
+  if (cachedAnthropicClient && cachedApiKey === apiKey) {
+    return cachedAnthropicClient;
+  }
+
+  // Create new client with updated API key
+  cachedAnthropicClient = new Anthropic({ apiKey });
+  cachedApiKey = apiKey;
+  return cachedAnthropicClient;
+};
 
 // Helper: Get audience description
 const getAudienceDescription = (audience: string[]): string => {
@@ -447,7 +477,13 @@ const formatBraveSearchResults = (results: any): string => {
 
 // Helper: Fetch results from Brave Search API with timeout (NO mock fallback)
 const fetchBraveSearchResults = async (query: string): Promise<string> => {
-  const apiKey = process.env.VITE_BRAVE_SEARCH_API_KEY;
+  const adminEmail = process.env.ADMIN_EMAIL;
+
+  // Try SQLite first, then env var
+  let apiKey = adminEmail ? apiKeyDbService.getApiKey(adminEmail, 'brave') : null;
+  if (!apiKey) {
+    apiKey = process.env.VITE_BRAVE_SEARCH_API_KEY || null;
+  }
 
   const NO_RESULTS_MESSAGE = `No current web search results available for "${query}". Please use your training knowledge to provide accurate, helpful information about this topic.`;
 
@@ -717,7 +753,7 @@ app.post("/api/generateCompellingTrendingContent", async (req, res) => {
     ];
 
     // Use Haiku for this summarization task (token optimization)
-    let response = await anthropic.messages.create({
+    let response = await (await getAnthropicClient()).messages.create({
       model: "claude-haiku-4-5-20251001",
       max_tokens: 3000,
       system: systemPrompt,
@@ -847,7 +883,7 @@ You have access to web search to find the latest, most relevant information. The
     ];
 
     // Agentic loop for tool use
-    let response = await anthropic.messages.create({
+    let response = await (await getAnthropicClient()).messages.create({
       model: "claude-3-5-sonnet-20241022",
       max_tokens: 4096,
       system: systemPrompt,
@@ -891,7 +927,7 @@ You have access to web search to find the latest, most relevant information. The
         content: toolResultContent,
       });
 
-      response = await anthropic.messages.create({
+      response = await (await getAnthropicClient()).messages.create({
         model: "claude-3-5-sonnet-20241022",
         max_tokens: 4096,
         system: systemPrompt,
@@ -1006,7 +1042,7 @@ app.post("/api/generateTopicSuggestions", async (req, res) => {
       { role: "user", content: userMessage },
     ];
 
-    let response = await anthropic.messages.create({
+    let response = await (await getAnthropicClient()).messages.create({
       model: "claude-3-5-sonnet-20241022",
       max_tokens: 2048,
       system: systemPrompt,
@@ -1050,7 +1086,7 @@ app.post("/api/generateTopicSuggestions", async (req, res) => {
         content: toolResultContent,
       });
 
-      response = await anthropic.messages.create({
+      response = await (await getAnthropicClient()).messages.create({
         model: "claude-3-5-sonnet-20241022",
         max_tokens: 2048,
         system: systemPrompt,
@@ -1141,7 +1177,7 @@ app.post("/api/generateTrendingTopics", async (req, res) => {
       { role: "user", content: userMessage },
     ];
 
-    let response = await anthropic.messages.create({
+    let response = await (await getAnthropicClient()).messages.create({
       model: "claude-3-5-sonnet-20241022",
       max_tokens: 2048,
       system: systemPrompt,
@@ -1185,7 +1221,7 @@ app.post("/api/generateTrendingTopics", async (req, res) => {
         content: toolResultContent,
       });
 
-      response = await anthropic.messages.create({
+      response = await (await getAnthropicClient()).messages.create({
         model: "claude-3-5-sonnet-20241022",
         max_tokens: 2048,
         system: systemPrompt,
@@ -1254,7 +1290,7 @@ app.post("/api/generateTrendingTopicsWithSources", async (req, res) => {
       { role: "user", content: userMessage },
     ];
 
-    let response = await anthropic.messages.create({
+    let response = await (await getAnthropicClient()).messages.create({
       model: "claude-haiku-4-5-20251001",
       max_tokens: 2048,
       system: systemPrompt,
@@ -1298,7 +1334,7 @@ app.post("/api/generateTrendingTopicsWithSources", async (req, res) => {
         content: toolResultContent,
       });
 
-      response = await anthropic.messages.create({
+      response = await (await getAnthropicClient()).messages.create({
         model: "claude-haiku-4-5-20251001",
         max_tokens: 2048,
         system: systemPrompt,
@@ -1613,6 +1649,590 @@ app.get("/api/loadPresets", async (req, res) => {
     res.status(500).json({ error: "Failed to load presets", details: errorMessage });
   }
 });
+
+// ===================================================================
+// ARCHIVE MANAGEMENT ENDPOINTS
+// ===================================================================
+
+// Get all archives (newest first)
+app.get("/api/archives", (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit as string) || 50;
+    const archives = archiveService.getArchives(limit);
+    res.json({ archives, count: archives.length });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("Error fetching archives:", errorMessage);
+    res.status(500).json({ error: "Failed to fetch archives", details: errorMessage });
+  }
+});
+
+// Get single archive by ID
+app.get("/api/archives/:id", (req, res) => {
+  try {
+    const archive = archiveService.getArchiveById(req.params.id);
+    if (!archive) {
+      return res.status(404).json({ error: "Archive not found" });
+    }
+    res.json(archive);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("Error fetching archive:", errorMessage);
+    res.status(500).json({ error: "Failed to fetch archive", details: errorMessage });
+  }
+});
+
+// Save new archive
+app.post("/api/archives", (req, res) => {
+  try {
+    const { content, audience, name } = req.body;
+
+    if (!content) {
+      return res.status(400).json({ error: "Content is required" });
+    }
+
+    const archive = archiveService.saveArchive(content, audience || [], name);
+    res.json(archive);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("Error saving archive:", errorMessage);
+    res.status(500).json({ error: "Failed to save archive", details: errorMessage });
+  }
+});
+
+// Delete archive by ID
+app.delete("/api/archives/:id", (req, res) => {
+  try {
+    const success = archiveService.deleteArchive(req.params.id);
+    if (!success) {
+      return res.status(404).json({ error: "Archive not found" });
+    }
+    res.json({ success: true, message: "Archive deleted" });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("Error deleting archive:", errorMessage);
+    res.status(500).json({ error: "Failed to delete archive", details: errorMessage });
+  }
+});
+
+// Search archives by name
+app.get("/api/archives/search/:query", (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit as string) || 20;
+    const archives = archiveService.searchArchives(req.params.query, limit);
+    res.json({ archives, count: archives.length });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("Error searching archives:", errorMessage);
+    res.status(500).json({ error: "Failed to search archives", details: errorMessage });
+  }
+});
+
+// ===================================================================
+// NEWSLETTER MANAGEMENT ENDPOINTS
+// ===================================================================
+
+// Get all newsletters (newest first)
+app.get("/api/newsletters", (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit as string) || 50;
+    const newsletters = newsletterDbService.getNewsletters(limit);
+    res.json({ newsletters, count: newsletters.length });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("Error fetching newsletters:", errorMessage);
+    res.status(500).json({ error: "Failed to fetch newsletters", details: errorMessage });
+  }
+});
+
+// Get single newsletter by ID
+app.get("/api/newsletters/:id", (req, res) => {
+  try {
+    const newsletter = newsletterDbService.getNewsletterById(req.params.id);
+    if (!newsletter) {
+      return res.status(404).json({ error: "Newsletter not found" });
+    }
+    res.json(newsletter);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("Error fetching newsletter:", errorMessage);
+    res.status(500).json({ error: "Failed to fetch newsletter", details: errorMessage });
+  }
+});
+
+// Save new newsletter
+app.post("/api/newsletters", (req, res) => {
+  try {
+    const { newsletter, topics, settings } = req.body;
+
+    if (!newsletter || !newsletter.id || !newsletter.subject) {
+      return res.status(400).json({ error: "Newsletter with id and subject is required" });
+    }
+
+    const saved = newsletterDbService.saveNewsletter(newsletter, topics || [], settings);
+    res.json(saved);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("Error saving newsletter:", errorMessage);
+    res.status(500).json({ error: "Failed to save newsletter", details: errorMessage });
+  }
+});
+
+// Delete newsletter by ID
+app.delete("/api/newsletters/:id", (req, res) => {
+  try {
+    const success = newsletterDbService.deleteNewsletter(req.params.id);
+    if (!success) {
+      return res.status(404).json({ error: "Newsletter not found" });
+    }
+    res.json({ success: true, message: "Newsletter deleted" });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("Error deleting newsletter:", errorMessage);
+    res.status(500).json({ error: "Failed to delete newsletter", details: errorMessage });
+  }
+});
+
+// Log newsletter action
+app.post("/api/newsletters/:id/log", (req, res) => {
+  try {
+    const { action, details } = req.body;
+
+    if (!['created', 'saved_to_drive', 'sent_email'].includes(action)) {
+      return res.status(400).json({ error: "Invalid action type" });
+    }
+
+    newsletterDbService.logAction(req.params.id, action, details);
+    res.json({ success: true, message: `Action '${action}' logged` });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("Error logging action:", errorMessage);
+    res.status(500).json({ error: "Failed to log action", details: errorMessage });
+  }
+});
+
+// Get newsletter logs
+app.get("/api/newsletters/:id/logs", (req, res) => {
+  try {
+    const logs = newsletterDbService.getNewsletterLogs(req.params.id);
+    res.json({ logs });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("Error fetching logs:", errorMessage);
+    res.status(500).json({ error: "Failed to fetch logs", details: errorMessage });
+  }
+});
+
+// ===================================================================
+// SUBSCRIBER MANAGEMENT ENDPOINTS
+// ===================================================================
+
+// Get all subscribers with optional filters
+app.get("/api/subscribers", (req, res) => {
+  try {
+    const status = req.query.status as 'active' | 'inactive' | 'all' | undefined;
+    const listId = req.query.listId as string | undefined;
+
+    const subscribers = subscriberDbService.getSubscribers({ status, listId });
+    res.json({ subscribers, count: subscribers.length });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("Error fetching subscribers:", errorMessage);
+    res.status(500).json({ error: "Failed to fetch subscribers", details: errorMessage });
+  }
+});
+
+// Get single subscriber by email
+app.get("/api/subscribers/:email", (req, res) => {
+  try {
+    const subscriber = subscriberDbService.getSubscriberByEmail(req.params.email);
+    if (!subscriber) {
+      return res.status(404).json({ error: "Subscriber not found" });
+    }
+    res.json(subscriber);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("Error fetching subscriber:", errorMessage);
+    res.status(500).json({ error: "Failed to fetch subscriber", details: errorMessage });
+  }
+});
+
+// Add new subscriber
+app.post("/api/subscribers", (req, res) => {
+  try {
+    const { email, name, status, lists, source } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ error: "Email is required" });
+    }
+
+    const subscriber = subscriberDbService.addSubscriber({
+      email,
+      name,
+      status: status || 'active',
+      lists: lists || '',
+      source: source || 'manual'
+    });
+
+    res.json(subscriber);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("Error adding subscriber:", errorMessage);
+    res.status(500).json({ error: "Failed to add subscriber", details: errorMessage });
+  }
+});
+
+// Update subscriber
+app.put("/api/subscribers/:email", (req, res) => {
+  try {
+    const updates = req.body;
+    const subscriber = subscriberDbService.updateSubscriber(req.params.email, updates);
+
+    if (!subscriber) {
+      return res.status(404).json({ error: "Subscriber not found" });
+    }
+
+    res.json(subscriber);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("Error updating subscriber:", errorMessage);
+    res.status(500).json({ error: "Failed to update subscriber", details: errorMessage });
+  }
+});
+
+// Delete subscriber (soft delete)
+app.delete("/api/subscribers/:email", (req, res) => {
+  try {
+    const success = subscriberDbService.deleteSubscriber(req.params.email);
+    if (!success) {
+      return res.status(404).json({ error: "Subscriber not found" });
+    }
+    res.json({ success: true, message: "Subscriber deactivated" });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("Error deleting subscriber:", errorMessage);
+    res.status(500).json({ error: "Failed to delete subscriber", details: errorMessage });
+  }
+});
+
+// Bulk import subscribers
+app.post("/api/subscribers/import", (req, res) => {
+  try {
+    const { subscribers } = req.body;
+
+    if (!Array.isArray(subscribers)) {
+      return res.status(400).json({ error: "subscribers array is required" });
+    }
+
+    const result = subscriberDbService.importSubscribers(subscribers);
+    res.json(result);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("Error importing subscribers:", errorMessage);
+    res.status(500).json({ error: "Failed to import subscribers", details: errorMessage });
+  }
+});
+
+// ===================================================================
+// SUBSCRIBER LIST ENDPOINTS
+// ===================================================================
+
+// Get all lists
+app.get("/api/lists", (req, res) => {
+  try {
+    const lists = subscriberDbService.getLists();
+    res.json({ lists, count: lists.length });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("Error fetching lists:", errorMessage);
+    res.status(500).json({ error: "Failed to fetch lists", details: errorMessage });
+  }
+});
+
+// Get single list by ID
+app.get("/api/lists/:id", (req, res) => {
+  try {
+    const list = subscriberDbService.getListById(req.params.id);
+    if (!list) {
+      return res.status(404).json({ error: "List not found" });
+    }
+    res.json(list);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("Error fetching list:", errorMessage);
+    res.status(500).json({ error: "Failed to fetch list", details: errorMessage });
+  }
+});
+
+// Create new list
+app.post("/api/lists", (req, res) => {
+  try {
+    const { name, description } = req.body;
+
+    if (!name) {
+      return res.status(400).json({ error: "List name is required" });
+    }
+
+    const list = subscriberDbService.createList(name, description);
+    res.json(list);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("Error creating list:", errorMessage);
+    res.status(500).json({ error: "Failed to create list", details: errorMessage });
+  }
+});
+
+// Update list
+app.put("/api/lists/:id", (req, res) => {
+  try {
+    const updates = req.body;
+    const list = subscriberDbService.updateList(req.params.id, updates);
+
+    if (!list) {
+      return res.status(404).json({ error: "List not found" });
+    }
+
+    res.json(list);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("Error updating list:", errorMessage);
+    res.status(500).json({ error: "Failed to update list", details: errorMessage });
+  }
+});
+
+// Delete list
+app.delete("/api/lists/:id", (req, res) => {
+  try {
+    const success = subscriberDbService.deleteList(req.params.id);
+    if (!success) {
+      return res.status(404).json({ error: "List not found" });
+    }
+    res.json({ success: true, message: "List deleted" });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("Error deleting list:", errorMessage);
+    res.status(500).json({ error: "Failed to delete list", details: errorMessage });
+  }
+});
+
+// Add subscriber to list
+app.post("/api/lists/:id/subscribers", (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ error: "Email is required" });
+    }
+
+    const success = subscriberDbService.addSubscriberToList(email, req.params.id);
+    if (!success) {
+      return res.status(404).json({ error: "Subscriber or list not found" });
+    }
+
+    res.json({ success: true, message: "Subscriber added to list" });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("Error adding subscriber to list:", errorMessage);
+    res.status(500).json({ error: "Failed to add subscriber to list", details: errorMessage });
+  }
+});
+
+// Remove subscriber from list
+app.delete("/api/lists/:id/subscribers/:email", (req, res) => {
+  try {
+    const success = subscriberDbService.removeSubscriberFromList(req.params.email, req.params.id);
+    if (!success) {
+      return res.status(404).json({ error: "Subscriber not found" });
+    }
+
+    res.json({ success: true, message: "Subscriber removed from list" });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("Error removing subscriber from list:", errorMessage);
+    res.status(500).json({ error: "Failed to remove subscriber from list", details: errorMessage });
+  }
+});
+
+// Get subscribers in a list
+app.get("/api/lists/:id/subscribers", (req, res) => {
+  try {
+    const subscribers = subscriberDbService.getSubscribersByList(req.params.id);
+    res.json({ subscribers, count: subscribers.length });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("Error fetching list subscribers:", errorMessage);
+    res.status(500).json({ error: "Failed to fetch list subscribers", details: errorMessage });
+  }
+});
+
+// ===================================================================
+// API KEY MANAGEMENT ENDPOINTS
+// ===================================================================
+
+// List all API key statuses for a user
+app.get("/api/keys", (req, res) => {
+  try {
+    const userEmail = req.query.userEmail as string;
+
+    if (!userEmail) {
+      return res.status(400).json({ error: "userEmail query parameter is required" });
+    }
+
+    const statuses = apiKeyDbService.listApiKeyStatuses(userEmail);
+    res.json({ statuses });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("Error listing API key statuses:", errorMessage);
+    res.status(500).json({ error: "Failed to list API key statuses", details: errorMessage });
+  }
+});
+
+// Save an API key
+app.post("/api/keys", async (req, res) => {
+  try {
+    const { userEmail, service, key } = req.body;
+
+    if (!userEmail || !service || !key) {
+      return res.status(400).json({ error: "userEmail, service, and key are required" });
+    }
+
+    const validServices = ['claude', 'stability', 'brave', 'google_api_key', 'google_client_id'];
+    if (!validServices.includes(service)) {
+      return res.status(400).json({ error: `Invalid service. Must be one of: ${validServices.join(', ')}` });
+    }
+
+    const record = apiKeyDbService.saveApiKey(userEmail, service, key);
+    res.json({ success: true, record: { service: record.service, isValid: record.isValid } });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("Error saving API key:", errorMessage);
+    res.status(500).json({ error: "Failed to save API key", details: errorMessage });
+  }
+});
+
+// Delete an API key
+app.delete("/api/keys/:service", (req, res) => {
+  try {
+    const { service } = req.params;
+    const userEmail = req.query.userEmail as string;
+
+    if (!userEmail) {
+      return res.status(400).json({ error: "userEmail query parameter is required" });
+    }
+
+    const success = apiKeyDbService.deleteApiKey(userEmail, service as apiKeyDbService.ServiceType);
+
+    if (!success) {
+      return res.status(404).json({ error: "API key not found" });
+    }
+
+    res.json({ success: true, message: "API key deleted" });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("Error deleting API key:", errorMessage);
+    res.status(500).json({ error: "Failed to delete API key", details: errorMessage });
+  }
+});
+
+// Validate an API key
+app.post("/api/keys/:service/validate", async (req, res) => {
+  try {
+    const { service } = req.params;
+    const { userEmail } = req.body;
+
+    if (!userEmail) {
+      return res.status(400).json({ error: "userEmail is required" });
+    }
+
+    const apiKey = apiKeyDbService.getApiKey(userEmail, service as apiKeyDbService.ServiceType);
+
+    if (!apiKey) {
+      return res.status(404).json({ error: "API key not found", isValid: false });
+    }
+
+    let isValid = false;
+
+    // Validate based on service type
+    switch (service) {
+      case 'claude':
+        isValid = await validateClaudeApiKey(apiKey);
+        break;
+      case 'stability':
+        isValid = await validateStabilityApiKey(apiKey);
+        break;
+      case 'brave':
+        isValid = await validateBraveApiKey(apiKey);
+        break;
+      case 'google_api_key':
+      case 'google_client_id':
+        // Google keys are validated by format only
+        isValid = service === 'google_api_key'
+          ? apiKey.startsWith('AIza')
+          : apiKey.includes('.apps.googleusercontent.com');
+        break;
+      default:
+        return res.status(400).json({ error: "Invalid service type" });
+    }
+
+    // Update validation status in database
+    apiKeyDbService.updateValidationStatus(userEmail, service as apiKeyDbService.ServiceType, isValid);
+
+    res.json({ isValid });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("Error validating API key:", errorMessage);
+    res.status(500).json({ error: "Failed to validate API key", details: errorMessage, isValid: false });
+  }
+});
+
+// Helper: Validate Claude API key
+async function validateClaudeApiKey(apiKey: string): Promise<boolean> {
+  try {
+    const client = new Anthropic({ apiKey });
+    // Make a minimal API call to validate the key
+    await client.messages.create({
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: 1,
+      messages: [{ role: "user", content: "Hi" }]
+    });
+    return true;
+  } catch (error) {
+    console.warn("[Validation] Claude API key validation failed:", error);
+    return false;
+  }
+}
+
+// Helper: Validate Stability API key
+async function validateStabilityApiKey(apiKey: string): Promise<boolean> {
+  try {
+    const response = await fetch("https://api.stability.ai/v1/user/account", {
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Accept": "application/json"
+      }
+    });
+    return response.ok;
+  } catch (error) {
+    console.warn("[Validation] Stability API key validation failed:", error);
+    return false;
+  }
+}
+
+// Helper: Validate Brave API key
+async function validateBraveApiKey(apiKey: string): Promise<boolean> {
+  try {
+    const response = await fetch("https://api.search.brave.com/res/v1/web/search?q=test&count=1", {
+      headers: {
+        "Accept": "application/json",
+        "X-Subscription-Token": apiKey
+      }
+    });
+    return response.ok;
+  } catch (error) {
+    console.warn("[Validation] Brave API key validation failed:", error);
+    return false;
+  }
+}
 
 // Health check
 app.get("/api/health", (req, res) => {

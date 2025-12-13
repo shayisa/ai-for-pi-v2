@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { XIcon, GoogleIcon, CheckIcon, DriveIcon, SheetIcon, SendIcon } from './IconComponents';
 import type { GoogleSettings, GapiAuthData, Newsletter } from '../types';
 import { saveApiKey, hasApiKey, getApiKeyStatus, deleteApiKey, validateApiKey, listApiKeyStatuses } from '../services/apiKeyService';
-import { isSupabaseReady } from '../lib/supabase';
 import { LoadFromDriveModal } from './LoadFromDriveModal';
 
 interface SettingsModalProps {
@@ -31,14 +30,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
     // API Key management state
     const [claudeApiKey, setClaudeApiKey] = useState('');
-    const [geminiApiKey, setGeminiApiKey] = useState('');
     const [stabilityApiKey, setStabilityApiKey] = useState('');
+    const [braveApiKey, setBraveApiKey] = useState('');
+    const [googleApiKey, setGoogleApiKey] = useState('');
+    const [googleClientId, setGoogleClientId] = useState('');
     const [claudeKeyStatus, setClaudeKeyStatus] = useState<'valid' | 'invalid' | 'unknown'>('unknown');
-    const [geminiKeyStatus, setGeminiKeyStatus] = useState<'valid' | 'invalid' | 'unknown'>('unknown');
     const [stabilityKeyStatus, setStabilityKeyStatus] = useState<'valid' | 'invalid' | 'unknown'>('unknown');
+    const [braveKeyStatus, setBraveKeyStatus] = useState<'valid' | 'invalid' | 'unknown'>('unknown');
+    const [googleApiKeyStatus, setGoogleApiKeyStatus] = useState<'valid' | 'invalid' | 'unknown'>('unknown');
+    const [googleClientIdStatus, setGoogleClientIdStatus] = useState<'valid' | 'invalid' | 'unknown'>('unknown');
     const [isValidatingClaude, setIsValidatingClaude] = useState(false);
-    const [isValidatingGemini, setIsValidatingGemini] = useState(false);
     const [isValidatingStability, setIsValidatingStability] = useState(false);
+    const [isValidatingBrave, setIsValidatingBrave] = useState(false);
+    const [isValidatingGoogleApiKey, setIsValidatingGoogleApiKey] = useState(false);
+    const [isValidatingGoogleClientId, setIsValidatingGoogleClientId] = useState(false);
     const [apiKeyMessage, setApiKeyMessage] = useState<string | null>(null);
 
     // Load from Drive modal state
@@ -65,7 +70,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     // Load saved API key statuses when modal opens
     useEffect(() => {
         const loadApiKeyStatuses = async () => {
-            if (!isOpen || !authData?.email || !isSupabaseReady()) {
+            if (!isOpen || !authData?.email) {
                 return;
             }
 
@@ -74,10 +79,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 statuses.forEach(status => {
                     if (status.service === 'claude') {
                         setClaudeKeyStatus(status.isValid ? 'valid' : 'invalid');
-                    } else if (status.service === 'gemini') {
-                        setGeminiKeyStatus(status.isValid ? 'valid' : 'invalid');
                     } else if (status.service === 'stability') {
                         setStabilityKeyStatus(status.isValid ? 'valid' : 'invalid');
+                    } else if (status.service === 'brave') {
+                        setBraveKeyStatus(status.isValid ? 'valid' : 'invalid');
+                    } else if (status.service === 'google_api_key') {
+                        setGoogleApiKeyStatus(status.isValid ? 'valid' : 'invalid');
+                    } else if (status.service === 'google_client_id') {
+                        setGoogleClientIdStatus(status.isValid ? 'valid' : 'invalid');
                     }
                 });
             } catch (error) {
@@ -193,12 +202,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     </div>
 
                     {/* API Key Management Section */}
-                    {isSupabaseReady() && (
-                        <div className="border-t border-border-light pt-6 mt-6">
-                            <h3 className="text-lg font-semibold text-primary-text mb-2">API Key Management</h3>
-                            <p className="text-sm text-secondary-text mb-4">
-                                Securely store and manage your API keys for Claude, Gemini, and Stability. Keys are encrypted and never exposed to the frontend.
-                            </p>
+                    <div className="border-t border-border-light pt-6 mt-6">
+                        <h3 className="text-lg font-semibold text-primary-text mb-2">API Key Management</h3>
+                        <p className="text-sm text-secondary-text mb-4">
+                            Store and manage your API keys for Claude, Stability, and Brave Search. Keys are stored locally.
+                        </p>
 
                             {/* Claude API Key */}
                             <div className="mb-4 p-4 bg-gray-50 rounded-lg border border-border-light">
@@ -274,54 +282,54 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                 )}
                             </div>
 
-                            {/* Gemini API Key */}
+                            {/* Brave Search API Key */}
                             <div className="mb-4 p-4 bg-gray-50 rounded-lg border border-border-light">
                                 <div className="flex items-center justify-between mb-2">
-                                    <label htmlFor="geminiApiKey" className="block text-sm font-medium text-primary-text">
-                                        Gemini API Key
+                                    <label htmlFor="braveApiKey" className="block text-sm font-medium text-primary-text">
+                                        Brave Search API Key
                                     </label>
-                                    {geminiKeyStatus !== 'unknown' && (
+                                    {braveKeyStatus !== 'unknown' && (
                                         <span className={`text-xs font-semibold px-2 py-1 rounded ${
-                                            geminiKeyStatus === 'valid'
+                                            braveKeyStatus === 'valid'
                                                 ? 'bg-green-100 text-green-700'
                                                 : 'bg-red-100 text-red-700'
                                         }`}>
-                                            {geminiKeyStatus === 'valid' ? '✓ Valid' : '✗ Invalid'}
+                                            {braveKeyStatus === 'valid' ? '✓ Valid' : '✗ Invalid'}
                                         </span>
                                     )}
                                 </div>
                                 <div className="flex gap-2">
                                     <input
                                         type="password"
-                                        id="geminiApiKey"
-                                        value={geminiApiKey}
-                                        onChange={(e) => setGeminiApiKey(e.target.value)}
-                                        placeholder="AIza..."
+                                        id="braveApiKey"
+                                        value={braveApiKey}
+                                        onChange={(e) => setBraveApiKey(e.target.value)}
+                                        placeholder="BSA..."
                                         className="flex-1 bg-white border border-border-light rounded-lg p-2 focus:ring-2 focus:ring-accent-light-blue focus:outline-none transition text-primary-text"
                                     />
                                     <button
                                         onClick={async () => {
-                                            setIsValidatingGemini(true);
+                                            setIsValidatingBrave(true);
                                             try {
                                                 if (!authData?.email) {
                                                     setApiKeyMessage('User email is required');
                                                     return;
                                                 }
-                                                await saveApiKey({ service: 'gemini', key: geminiApiKey }, authData.email);
-                                                const isValid = await validateApiKey('gemini', authData.email);
-                                                setGeminiKeyStatus(isValid ? 'valid' : 'invalid');
-                                                setApiKeyMessage(isValid ? 'Gemini API key saved and validated!' : 'Gemini API key saved but validation failed');
+                                                await saveApiKey({ service: 'brave' as any, key: braveApiKey }, authData.email);
+                                                const isValid = await validateApiKey('brave' as any, authData.email);
+                                                setBraveKeyStatus(isValid ? 'valid' : 'invalid');
+                                                setApiKeyMessage(isValid ? 'Brave Search API key saved and validated!' : 'Brave Search API key saved but validation failed');
                                             } catch (error) {
-                                                setGeminiKeyStatus('invalid');
-                                                setApiKeyMessage('Failed to save Gemini API key');
+                                                setBraveKeyStatus('invalid');
+                                                setApiKeyMessage('Failed to save Brave Search API key');
                                             } finally {
-                                                setIsValidatingGemini(false);
+                                                setIsValidatingBrave(false);
                                             }
                                         }}
-                                        disabled={isValidatingGemini || !geminiApiKey}
+                                        disabled={isValidatingBrave || !braveApiKey}
                                         className="bg-accent-light-blue hover:bg-opacity-90 disabled:bg-accent-light-blue/40 text-white font-semibold py-2 px-4 rounded-lg transition text-sm"
                                     >
-                                        {isValidatingGemini ? 'Saving...' : 'Save'}
+                                        {isValidatingBrave ? 'Saving...' : 'Save'}
                                     </button>
                                     <button
                                         onClick={async () => {
@@ -329,23 +337,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                                 setApiKeyMessage('User email is required');
                                                 return;
                                             }
-                                            await deleteApiKey('gemini', authData.email);
-                                            setGeminiApiKey('');
-                                            setGeminiKeyStatus('unknown');
-                                            setApiKeyMessage('Gemini API key deleted');
+                                            await deleteApiKey('brave' as any, authData.email);
+                                            setBraveApiKey('');
+                                            setBraveKeyStatus('unknown');
+                                            setApiKeyMessage('Brave Search API key deleted');
                                         }}
                                         className="bg-red-100 hover:bg-red-200 text-red-700 font-semibold py-2 px-4 rounded-lg transition text-sm"
                                     >
                                         Delete
                                     </button>
                                 </div>
-                                {geminiKeyStatus !== 'unknown' && (
-                                    <p className="text-xs text-secondary-text mt-2">
-                                        {geminiKeyStatus === 'valid'
-                                            ? '✓ Key is saved and validated'
-                                            : '⚠ Key is saved but validation failed'}
-                                    </p>
-                                )}
+                                <p className="text-xs text-secondary-text mt-2">
+                                    {braveKeyStatus === 'valid'
+                                        ? '✓ Key is saved and validated'
+                                        : braveKeyStatus === 'invalid'
+                                            ? '⚠ Key is saved but validation failed'
+                                            : 'Optional: Used for web search grounding in newsletters'}
+                                </p>
                             </div>
 
                             {/* Stability API Key */}
@@ -422,17 +430,162 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                 )}
                             </div>
 
-                            {apiKeyMessage && (
-                                <p className={`text-sm p-3 rounded-lg ${
-                                    apiKeyMessage.includes('failed') || apiKeyMessage.includes('Invalid')
-                                        ? 'bg-red-50 text-red-700'
-                                        : 'bg-green-50 text-green-700'
-                                }`}>
-                                    {apiKeyMessage}
+                            {/* Google Integration Section */}
+                            <div className="border-t border-border-light pt-4 mt-4">
+                                <h4 className="text-md font-semibold text-primary-text mb-3">Google Integration</h4>
+                                <p className="text-xs text-secondary-text mb-3">
+                                    Configure Google Cloud credentials for Drive, Sheets, and Gmail integration.
                                 </p>
-                            )}
-                        </div>
-                    )}
+
+                                {/* Google API Key */}
+                                <div className="mb-4 p-4 bg-gray-50 rounded-lg border border-border-light">
+                                    <div className="flex items-center justify-between mb-2">
+                                        <label htmlFor="googleApiKey" className="block text-sm font-medium text-primary-text">
+                                            Google API Key
+                                        </label>
+                                        {googleApiKeyStatus !== 'unknown' && (
+                                            <span className={`text-xs font-semibold px-2 py-1 rounded ${
+                                                googleApiKeyStatus === 'valid'
+                                                    ? 'bg-green-100 text-green-700'
+                                                    : 'bg-red-100 text-red-700'
+                                            }`}>
+                                                {googleApiKeyStatus === 'valid' ? '✓ Valid' : '✗ Invalid'}
+                                            </span>
+                                        )}
+                                    </div>
+                                    <div className="flex gap-2">
+                                        <input
+                                            type="password"
+                                            id="googleApiKey"
+                                            value={googleApiKey}
+                                            onChange={(e) => setGoogleApiKey(e.target.value)}
+                                            placeholder="AIza..."
+                                            className="flex-1 bg-white border border-border-light rounded-lg p-2 focus:ring-2 focus:ring-accent-light-blue focus:outline-none transition text-primary-text"
+                                        />
+                                        <button
+                                            onClick={async () => {
+                                                setIsValidatingGoogleApiKey(true);
+                                                try {
+                                                    if (!authData?.email) {
+                                                        setApiKeyMessage('User email is required');
+                                                        return;
+                                                    }
+                                                    await saveApiKey({ service: 'google_api_key' as any, key: googleApiKey }, authData.email);
+                                                    setGoogleApiKeyStatus('valid');
+                                                    setApiKeyMessage('Google API key saved!');
+                                                } catch (error) {
+                                                    setGoogleApiKeyStatus('invalid');
+                                                    setApiKeyMessage('Failed to save Google API key');
+                                                } finally {
+                                                    setIsValidatingGoogleApiKey(false);
+                                                }
+                                            }}
+                                            disabled={isValidatingGoogleApiKey || !googleApiKey}
+                                            className="bg-accent-light-blue hover:bg-opacity-90 disabled:bg-accent-light-blue/40 text-white font-semibold py-2 px-4 rounded-lg transition text-sm"
+                                        >
+                                            {isValidatingGoogleApiKey ? 'Saving...' : 'Save'}
+                                        </button>
+                                        <button
+                                            onClick={async () => {
+                                                if (!authData?.email) {
+                                                    setApiKeyMessage('User email is required');
+                                                    return;
+                                                }
+                                                await deleteApiKey('google_api_key' as any, authData.email);
+                                                setGoogleApiKey('');
+                                                setGoogleApiKeyStatus('unknown');
+                                                setApiKeyMessage('Google API key deleted');
+                                            }}
+                                            className="bg-red-100 hover:bg-red-200 text-red-700 font-semibold py-2 px-4 rounded-lg transition text-sm"
+                                        >
+                                            Delete
+                                        </button>
+                                    </div>
+                                    <p className="text-xs text-secondary-text mt-2">
+                                        Get from Google Cloud Console &rarr; APIs & Services &rarr; Credentials
+                                    </p>
+                                </div>
+
+                                {/* Google OAuth Client ID */}
+                                <div className="mb-4 p-4 bg-gray-50 rounded-lg border border-border-light">
+                                    <div className="flex items-center justify-between mb-2">
+                                        <label htmlFor="googleClientId" className="block text-sm font-medium text-primary-text">
+                                            Google OAuth Client ID
+                                        </label>
+                                        {googleClientIdStatus !== 'unknown' && (
+                                            <span className={`text-xs font-semibold px-2 py-1 rounded ${
+                                                googleClientIdStatus === 'valid'
+                                                    ? 'bg-green-100 text-green-700'
+                                                    : 'bg-red-100 text-red-700'
+                                            }`}>
+                                                {googleClientIdStatus === 'valid' ? '✓ Valid' : '✗ Invalid'}
+                                            </span>
+                                        )}
+                                    </div>
+                                    <div className="flex gap-2">
+                                        <input
+                                            type="password"
+                                            id="googleClientId"
+                                            value={googleClientId}
+                                            onChange={(e) => setGoogleClientId(e.target.value)}
+                                            placeholder="123456789-xxx.apps.googleusercontent.com"
+                                            className="flex-1 bg-white border border-border-light rounded-lg p-2 focus:ring-2 focus:ring-accent-light-blue focus:outline-none transition text-primary-text text-sm"
+                                        />
+                                        <button
+                                            onClick={async () => {
+                                                setIsValidatingGoogleClientId(true);
+                                                try {
+                                                    if (!authData?.email) {
+                                                        setApiKeyMessage('User email is required');
+                                                        return;
+                                                    }
+                                                    await saveApiKey({ service: 'google_client_id' as any, key: googleClientId }, authData.email);
+                                                    setGoogleClientIdStatus('valid');
+                                                    setApiKeyMessage('Google Client ID saved!');
+                                                } catch (error) {
+                                                    setGoogleClientIdStatus('invalid');
+                                                    setApiKeyMessage('Failed to save Google Client ID');
+                                                } finally {
+                                                    setIsValidatingGoogleClientId(false);
+                                                }
+                                            }}
+                                            disabled={isValidatingGoogleClientId || !googleClientId}
+                                            className="bg-accent-light-blue hover:bg-opacity-90 disabled:bg-accent-light-blue/40 text-white font-semibold py-2 px-4 rounded-lg transition text-sm"
+                                        >
+                                            {isValidatingGoogleClientId ? 'Saving...' : 'Save'}
+                                        </button>
+                                        <button
+                                            onClick={async () => {
+                                                if (!authData?.email) {
+                                                    setApiKeyMessage('User email is required');
+                                                    return;
+                                                }
+                                                await deleteApiKey('google_client_id' as any, authData.email);
+                                                setGoogleClientId('');
+                                                setGoogleClientIdStatus('unknown');
+                                                setApiKeyMessage('Google Client ID deleted');
+                                            }}
+                                            className="bg-red-100 hover:bg-red-200 text-red-700 font-semibold py-2 px-4 rounded-lg transition text-sm"
+                                        >
+                                            Delete
+                                        </button>
+                                    </div>
+                                    <p className="text-xs text-secondary-text mt-2">
+                                        OAuth 2.0 Client ID from Google Cloud Console
+                                    </p>
+                                </div>
+                            </div>
+
+                        {apiKeyMessage && (
+                            <p className={`text-sm p-3 rounded-lg ${
+                                apiKeyMessage.includes('failed') || apiKeyMessage.includes('Invalid')
+                                    ? 'bg-red-50 text-red-700'
+                                    : 'bg-green-50 text-green-700'
+                            }`}>
+                                {apiKeyMessage}
+                            </p>
+                        )}
+                    </div>
 
                     {/* Workflow Actions Section */}
                     {authData?.access_token && (

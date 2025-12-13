@@ -1,63 +1,98 @@
 /**
  * useHistory Hook
  *
- * Manages newsletter generation history including:
- * - Local storage persistence
- * - Google Sheets sync
- * - History limit management
+ * Manages newsletter generation history using SQLite backend:
+ * - Loads newsletter history from SQLite on mount
+ * - Saves new newsletters to SQLite
+ * - Provides history navigation and management
  */
 
 import { useState, useCallback, useEffect } from 'react';
-import type { Newsletter, HistoryItem, GoogleSettings, GapiAuthData } from '../types';
-import * as googleApi from '../services/googleApiService';
+import type { Newsletter, HistoryItem } from '../types';
+import * as newsletterApi from '../services/newsletterClientService';
 
 interface UseHistoryReturn {
   history: HistoryItem[];
-  addToHistory: (newsletter: Newsletter, topics: string[]) => void;
+  isLoading: boolean;
+  error: string | null;
+  addToHistory: (newsletter: Newsletter, topics: string[]) => Promise<void>;
   loadFromHistory: (item: HistoryItem) => { newsletter: Newsletter; topics: string[] };
-  clearHistory: () => void;
-  loadFromGoogleSheets: (settings: GoogleSettings, accessToken: string) => Promise<void>;
+  deleteFromHistory: (id: string) => Promise<void>;
+  refreshHistory: () => Promise<void>;
 }
 
-const STORAGE_KEY = 'generationHistory';
 const MAX_HISTORY_ITEMS = 50;
+
+/**
+ * Convert SQLite Newsletter to HistoryItem format
+ */
+const newsletterToHistoryItem = (nl: newsletterApi.Newsletter): HistoryItem => ({
+  id: parseInt(nl.id, 10) || Date.now(),
+  date: new Date(nl.createdAt).toLocaleString(),
+  subject: nl.subject,
+  newsletter: {
+    id: nl.id,
+    subject: nl.subject,
+    introduction: nl.introduction,
+    sections: nl.sections,
+    conclusion: nl.conclusion,
+    promptOfTheDay: nl.promptOfTheDay,
+  },
+  topics: nl.topics,
+});
 
 export function useHistory(): UseHistoryReturn {
   const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  // Load history from localStorage on mount
-  useEffect(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      try {
-        setHistory(JSON.parse(stored));
-      } catch (e) {
-        console.error('[History] Failed to parse stored history:', e);
-      }
+  // Load history from SQLite on mount
+  const loadHistory = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const response = await newsletterApi.getNewsletters(MAX_HISTORY_ITEMS);
+      const items = response.newsletters.map(newsletterToHistoryItem);
+      setHistory(items);
+      console.log(`[History] Loaded ${items.length} newsletters from SQLite`);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Failed to load history';
+      console.error('[History] Error loading from SQLite:', e);
+      setError(msg);
+    } finally {
+      setIsLoading(false);
     }
   }, []);
 
-  const addToHistory = useCallback((newsletter: Newsletter, topics: string[]) => {
-    const newItem: HistoryItem = {
-      id: Date.now(),
-      date: new Date().toLocaleString(),
-      subject: newsletter.subject,
-      newsletter,
-      topics,
-    };
+  useEffect(() => {
+    loadHistory();
+  }, [loadHistory]);
 
-    setHistory(prev => {
-      const updated = [newItem, ...prev].slice(0, MAX_HISTORY_ITEMS);
+  const addToHistory = useCallback(async (newsletter: Newsletter, topics: string[]) => {
+    try {
+      // Save to SQLite
+      const saved = await newsletterApi.saveNewsletter(
+        {
+          id: newsletter.id || `nl_${Date.now()}`,
+          subject: newsletter.subject,
+          introduction: newsletter.introduction,
+          sections: newsletter.sections,
+          conclusion: newsletter.conclusion,
+          promptOfTheDay: newsletter.promptOfTheDay,
+        },
+        topics
+      );
 
-      // Persist to localStorage
-      try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-      } catch (e) {
-        console.warn('[History] Could not save to localStorage (quota exceeded):', e);
-      }
+      // Update local state with the new item at the top
+      const newItem = newsletterToHistoryItem(saved);
+      setHistory(prev => [newItem, ...prev].slice(0, MAX_HISTORY_ITEMS));
 
-      return updated;
-    });
+      console.log(`[History] Saved newsletter: ${saved.subject}`);
+    } catch (e) {
+      console.error('[History] Error saving newsletter:', e);
+      throw e;
+    }
   }, []);
 
   const loadFromHistory = useCallback((item: HistoryItem): { newsletter: Newsletter; topics: string[] } => {
@@ -67,45 +102,28 @@ export function useHistory(): UseHistoryReturn {
     };
   }, []);
 
-  const clearHistory = useCallback(() => {
-    setHistory([]);
-    localStorage.removeItem(STORAGE_KEY);
-  }, []);
-
-  const loadFromGoogleSheets = useCallback(async (settings: GoogleSettings, accessToken: string) => {
-    if (!accessToken) {
-      throw new Error('Not authenticated');
-    }
-
+  const deleteFromHistory = useCallback(async (id: string) => {
     try {
-      const sheetHistory = await googleApi.readHistoryFromSheet(
-        settings.logSheetName,
-        settings.driveFolderName
-      );
-
-      if (sheetHistory && sheetHistory.length > 0) {
-        setHistory(sheetHistory);
-
-        // Update localStorage to keep it in sync
-        try {
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(sheetHistory));
-        } catch (e) {
-          console.warn('[History] Could not update localStorage:', e);
-        }
-
-        console.log(`[History] Loaded ${sheetHistory.length} items from Google Sheets`);
-      }
+      await newsletterApi.deleteNewsletter(id);
+      setHistory(prev => prev.filter(item => String(item.newsletter.id) !== id));
+      console.log(`[History] Deleted newsletter: ${id}`);
     } catch (e) {
-      console.error('[History] Error loading from Google Sheets:', e);
+      console.error('[History] Error deleting newsletter:', e);
       throw e;
     }
   }, []);
 
+  const refreshHistory = useCallback(async () => {
+    await loadHistory();
+  }, [loadHistory]);
+
   return {
     history,
+    isLoading,
+    error,
     addToHistory,
     loadFromHistory,
-    clearHistory,
-    loadFromGoogleSheets,
+    deleteFromHistory,
+    refreshHistory,
   };
 }

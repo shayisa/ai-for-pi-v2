@@ -1,9 +1,11 @@
-import React from 'react';
+import React, { useState } from 'react';
 import type { TrendingTopic } from '../types';
 import { InspirationSources } from '../components/InspirationSources';
 import { InspirationSourcesPanel, TrendingSource } from '../components/InspirationSourcesPanel';
 import { Spinner } from '../components/Spinner';
-import { PlusIcon, RefreshIcon, SearchIcon, LightbulbIcon, XIcon } from '../components/IconComponents';
+import { PlusIcon, RefreshIcon, SearchIcon, LightbulbIcon, XIcon, HistoryIcon } from '../components/IconComponents';
+import { ArchiveBrowser } from '../components/ArchiveBrowser';
+import type { ArchiveContent } from '../services/archiveClientService';
 
 interface ActionableCapability {
     title: string;
@@ -49,6 +51,7 @@ interface DiscoverTopicsPageProps {
     selectedAudience: Record<string, boolean>;
     handleAudienceChange: (key: string) => void;
     trendingSources: TrendingSource[];
+    onLoadFromArchive: (content: ArchiveContent, audience: string[]) => void;
 }
 
 export const DiscoverTopicsPage: React.FC<DiscoverTopicsPageProps> = ({
@@ -73,8 +76,10 @@ export const DiscoverTopicsPage: React.FC<DiscoverTopicsPageProps> = ({
     selectedAudience,
     handleAudienceChange,
     trendingSources,
+    onLoadFromArchive,
 }) => {
     const isActionLoading = !!loading || isGeneratingTopics;
+    const [isArchiveBrowserOpen, setIsArchiveBrowserOpen] = useState(false);
 
     return (
         <div className="space-y-8">
@@ -114,7 +119,7 @@ export const DiscoverTopicsPage: React.FC<DiscoverTopicsPageProps> = ({
                     What's New & Trending in AI?
                 </h2>
                 <p className="text-secondary-text mb-6">Discover the latest and most impactful AI capabilities tailored to your audience. Explore actionable insights and essential tools to level up your AI game.</p>
-                <div className="mb-6">
+                <div className="mb-6 flex gap-3">
                     <button
                         onClick={fetchTrendingContent}
                         disabled={isFetchingTrending || !hasSelectedAudience}
@@ -122,6 +127,14 @@ export const DiscoverTopicsPage: React.FC<DiscoverTopicsPageProps> = ({
                     >
                         <RefreshIcon className="h-4 w-4" />
                         <span>{isFetchingTrending ? 'Fetching...' : 'Update Latest Trend'}</span>
+                    </button>
+                    <button
+                        onClick={() => setIsArchiveBrowserOpen(true)}
+                        className="flex items-center justify-center gap-2 text-sm bg-indigo-100 hover:bg-indigo-200 text-indigo-700 font-semibold py-2 px-4 rounded-lg transition duration-200"
+                        title="Load from saved archives (no token usage)"
+                    >
+                        <HistoryIcon className="h-4 w-4" />
+                        <span>View Archives</span>
                     </button>
                 </div>
 
@@ -328,6 +341,13 @@ export const DiscoverTopicsPage: React.FC<DiscoverTopicsPageProps> = ({
                     </div>
                 )}
             </div>
+
+            {/* Archive Browser Modal */}
+            <ArchiveBrowser
+                isOpen={isArchiveBrowserOpen}
+                onClose={() => setIsArchiveBrowserOpen(false)}
+                onLoadArchive={onLoadFromArchive}
+            />
         </div>
     );
 };
