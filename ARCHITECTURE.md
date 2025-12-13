@@ -1,0 +1,2094 @@
+# AI Newsletter Generator - Architecture Reference
+
+> **Comprehensive technical documentation** for understanding, maintaining, and extending the AI Newsletter Generator application.
+
+**Last Updated:** December 2024
+**Status:** Production-ready MVP
+
+---
+
+## Table of Contents
+
+1. [System Overview](#1-system-overview)
+2. [File Dependency Graph](#2-file-dependency-graph)
+3. [API Endpoint Reference](#3-api-endpoint-reference)
+4. [Service Layer Documentation](#4-service-layer-documentation)
+5. [Component Hierarchy](#5-component-hierarchy)
+6. [Data Flow Diagrams](#6-data-flow-diagrams)
+7. [External API Dependencies](#7-external-api-dependencies)
+8. [Database Schema](#8-database-schema)
+9. [Configuration Reference](#9-configuration-reference)
+10. [Type Definitions Reference](#10-type-definitions-reference)
+
+---
+
+## 1. System Overview
+
+### 1.1 Architecture Diagram
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              USER (Browser)                                  │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         FRONTEND (React + Vite)                              │
+│                            Port 5173                                         │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  App.tsx ──► Pages ──► Components                                           │
+│      │                                                                       │
+│      ├── services/claudeService.ts ────────────────┐                        │
+│      ├── services/googleApiService.ts ─────────────┼──► Google APIs         │
+│      ├── services/apiKeyService.ts ────────────────┼──► Supabase Edge Fn    │
+│      ├── services/trendingDataService.ts ──────────┤                        │
+│      └── lib/supabase.ts ──────────────────────────┘                        │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                    ┌─────────────────┴─────────────────┐
+                    ▼                                   ▼
+┌───────────────────────────────────┐   ┌─────────────────────────────────────┐
+│      BACKEND (Express.js)         │   │     SUPABASE EDGE FUNCTIONS         │
+│          Port 3001                │   │         (Deno Runtime)              │
+├───────────────────────────────────┤   ├─────────────────────────────────────┤
+│  server.ts                        │   │  save-api-key/                      │
+│    ├── /api/generateNewsletter    │   │  validate-api-key/                  │
+│    ├── /api/generateImage         │   │  get-api-key-statuses/              │
+│    ├── /api/generateTopicSugg...  │   │  setup-supabase-auth/               │
+│    ├── /api/generateTrending...   │   │  claude-api/ (proxy)                │
+│    ├── /api/fetchTrendingSources  │   │  gemini-api/ (proxy)                │
+│    └── /api/health                │   │                                     │
+└───────────────────────────────────┘   └─────────────────────────────────────┘
+                    │                                   │
+                    ▼                                   ▼
+┌───────────────────────────────────┐   ┌─────────────────────────────────────┐
+│        EXTERNAL APIs              │   │     SUPABASE DATABASE               │
+├───────────────────────────────────┤   │        (PostgreSQL)                 │
+│  • Anthropic Claude API           │   ├─────────────────────────────────────┤
+│  • Stability AI API               │   │  Tables:                            │
+│  • Brave Search API               │   │    • api_keys (encrypted)           │
+│  • Google Workspace APIs          │   │    • api_key_audit_log              │
+│    - Drive, Sheets, Gmail, Docs   │   │                                     │
+│  • Trending Sources (free):       │   │  Security:                          │
+│    - HackerNews, ArXiv, GitHub    │   │    • Row-Level Security (RLS)       │
+│    - Reddit, Dev.to               │   │    • pgcrypto encryption            │
+└───────────────────────────────────┘   └─────────────────────────────────────┘
+```
+
+### 1.2 Technology Stack
+
+| Layer | Technologies |
+|-------|-------------|
+| **Frontend** | React 19, TypeScript, Vite 7, TailwindCSS |
+| **Backend** | Node.js, Express 5, TypeScript |
+| **Database** | Supabase (PostgreSQL), pgcrypto |
+| **Edge Functions** | Supabase Functions (Deno) |
+| **AI Services** | Anthropic Claude 3.5 Sonnet, Stability AI |
+| **Search** | Brave Search API |
+| **Cloud** | Google Drive, Sheets, Gmail, Docs APIs |
+| **Auth** | Google OAuth 2.0, Supabase Auth |
+
+### 1.3 Application Purpose
+
+The AI Newsletter Generator automates the creation and distribution of AI-powered newsletters:
+
+1. **Content Generation** - Claude generates structured newsletter content with web search grounding
+2. **Image Generation** - Stability AI creates custom images for each section
+3. **Email Formatting** - Converts newsletters to responsive HTML with syntax highlighting
+4. **Cloud Storage** - Auto-saves newsletters to Google Drive as self-contained HTML
+5. **Distribution** - Sends newsletters via Gmail to subscriber lists (BCC)
+6. **Activity Tracking** - Logs all newsletters to Google Sheets with unique IDs
+7. **History & Reuse** - Load and resend previous newsletters
+
+---
+
+## 2. File Dependency Graph
+
+### 2.1 Project Structure
+
+```
+/
+├── App.tsx                          # Main React app (41KB) - State hub
+├── server.ts                        # Express backend (74KB) - All API endpoints
+├── types.ts                         # TypeScript interfaces
+├── vite.config.ts                   # Vite configuration
+├── tsconfig.json                    # TypeScript configuration
+├── package.json                     # Dependencies & scripts
+├── .env.local                       # Environment variables (not committed)
+│
+├── pages/                           # Page components (7 files)
+│   ├── AuthenticationPage.tsx       # Google OAuth login
+│   ├── DiscoverTopicsPage.tsx       # Topic selection & trending
+│   ├── DefineTonePage.tsx           # Tone & flavor selection
+│   ├── ImageStylePage.tsx           # Image style selection
+│   ├── GenerateNewsletterPage.tsx   # Main generation workflow
+│   ├── HistoryContentPage.tsx       # History browser
+│   └── SubscriberManagementPage.tsx # Subscriber CRUD
+│
+├── components/                      # UI components (15 files)
+│   ├── Header.tsx                   # Top navigation
+│   ├── SideNavigation.tsx           # Page navigation
+│   ├── NewsletterPreview.tsx        # Newsletter display/edit
+│   ├── ImageEditorModal.tsx         # Image editing modal
+│   ├── SettingsModal.tsx            # Settings & API keys
+│   ├── PresetsManager.tsx           # Preset CRUD
+│   ├── HistoryPanel.tsx             # History list
+│   ├── PromptOfTheDayEditor.tsx     # Daily prompt editor
+│   ├── LoadFromDriveModal.tsx       # Load from Drive UI
+│   ├── InspirationSources.tsx       # Web sources display
+│   ├── InspirationSourcesPanel.tsx  # Sources panel
+│   ├── EditableText.tsx             # Inline editing
+│   ├── ProgressGauge.tsx            # Progress display
+│   ├── Spinner.tsx                  # Loading indicator
+│   └── IconComponents.tsx           # 20+ SVG icons
+│
+├── services/                        # Service layer (6 files)
+│   ├── claudeService.ts             # Backend API client
+│   ├── geminiService.ts             # Gemini API (legacy)
+│   ├── googleApiService.ts          # Google Workspace integration
+│   ├── apiKeyService.ts             # Supabase key management
+│   ├── supabaseAuthHelper.ts        # Supabase auth setup
+│   └── trendingDataService.ts       # Trending data fetching
+│
+├── utils/                           # Utility functions (4 files)
+│   ├── emailGenerator.ts            # Newsletter → HTML
+│   ├── retry.ts                     # Retry with backoff
+│   ├── fileUtils.ts                 # File → Base64
+│   └── stringUtils.ts               # JSON extraction
+│
+├── lib/                             # Shared libraries
+│   └── supabase.ts                  # Supabase client config
+│
+└── supabase/                        # Supabase configuration
+    ├── config.toml                  # Project config
+    ├── functions/                   # Edge Functions (6 functions)
+    │   ├── save-api-key/
+    │   ├── validate-api-key/
+    │   ├── get-api-key-statuses/
+    │   ├── setup-supabase-auth/
+    │   ├── claude-api/
+    │   └── gemini-api/
+    └── migrations/                  # Database schema
+        └── *.sql
+```
+
+### 2.2 Import Dependency Map
+
+#### App.tsx Imports
+```
+App.tsx
+├── React (useState, useCallback, useEffect)
+├── types.ts
+│   └── Newsletter, NewsletterSection, TrendingTopic, GoogleSettings,
+│       GapiAuthData, Preset, HistoryItem, PromptOfTheDay, Subscriber, SubscriberList
+├── components/
+│   ├── Header.tsx
+│   ├── NewsletterPreview.tsx
+│   ├── ImageEditorModal.tsx
+│   ├── Spinner.tsx
+│   ├── SettingsModal.tsx
+│   ├── PresetsManager.tsx
+│   ├── HistoryPanel.tsx
+│   ├── PromptOfTheDayEditor.tsx
+│   ├── SideNavigation.tsx
+│   └── IconComponents.tsx (SparklesIcon, SearchIcon, etc.)
+├── pages/
+│   ├── AuthenticationPage.tsx
+│   ├── DiscoverTopicsPage.tsx
+│   ├── DefineTonePage.tsx
+│   ├── ImageStylePage.tsx
+│   ├── GenerateNewsletterPage.tsx
+│   ├── HistoryContentPage.tsx
+│   └── SubscriberManagementPage.tsx
+├── services/
+│   ├── claudeService.ts
+│   ├── trendingDataService.ts
+│   └── googleApiService.ts
+├── utils/
+│   ├── fileUtils.ts
+│   └── stringUtils.ts
+└── lib/
+    └── supabase.ts
+```
+
+#### server.ts Imports
+```
+server.ts
+├── express
+├── cors
+├── dotenv/config
+├── @anthropic-ai/sdk (Anthropic)
+└── node:fetch (for external API calls)
+```
+
+#### Service Dependencies
+```
+claudeService.ts
+├── utils/retry.ts (withRetry)
+└── Calls: Backend /api/* endpoints
+
+googleApiService.ts
+├── types.ts
+├── utils/emailGenerator.ts
+└── Calls: Google APIs directly (GIS + gapi)
+
+apiKeyService.ts
+├── lib/supabase.ts
+└── Calls: Supabase Edge Functions
+
+trendingDataService.ts
+└── Calls: Backend /api/fetchTrendingSources
+```
+
+### 2.3 Component Hierarchy
+
+```
+App.tsx
+├── Header
+│   └── Profile dropdown, Settings button
+├── SideNavigation
+│   └── 6 navigation items
+├── [Conditional Page Rendering]
+│   ├── AuthenticationPage (if not authenticated)
+│   ├── DiscoverTopicsPage
+│   │   ├── InspirationSources
+│   │   ├── InspirationSourcesPanel
+│   │   └── Spinner
+│   ├── DefineTonePage
+│   ├── ImageStylePage
+│   ├── GenerateNewsletterPage
+│   │   ├── PresetsManager
+│   │   ├── PromptOfTheDayEditor
+│   │   ├── ProgressGauge
+│   │   └── NewsletterPreview
+│   │       └── EditableText (multiple)
+│   ├── HistoryContentPage
+│   │   └── HistoryPanel
+│   └── SubscriberManagementPage
+├── SettingsModal (overlay)
+│   └── LoadFromDriveModal (nested)
+└── ImageEditorModal (overlay)
+```
+
+---
+
+## 3. API Endpoint Reference
+
+### 3.1 Backend Endpoints (server.ts)
+
+**Base URL:** `http://localhost:3001`
+
+#### POST /api/generateNewsletter
+
+Generates a complete newsletter with Claude API and web search grounding.
+
+**Request:**
+```typescript
+{
+  topics: string[],           // e.g., ["AI image generation", "LLM fine-tuning"]
+  audience: string[],         // e.g., ["academics", "business"]
+  tone: string,               // "professional" | "casual" | "witty" | "enthusiastic" | "informative"
+  flavors: string[],          // ["includeHumor", "useSlang", "useJargon", "useAnalogies", "citeData"]
+  imageStyle: string          // "photorealistic" | "vector" | "watercolor" | etc.
+}
+```
+
+**Response:**
+```typescript
+{
+  text: string  // JSON string of Newsletter object
+}
+```
+
+**Newsletter JSON Structure:**
+```typescript
+{
+  id: string,                 // "nl_1731527834000_a3x9k7m2"
+  subject: string,
+  introduction: string,
+  sections: [
+    {
+      title: string,
+      content: string,        // HTML with inline links
+      imagePrompt: string,
+      imageUrl?: string       // Populated after image generation
+    }
+  ],
+  conclusion: string,
+  promptOfTheDay?: {
+    title: string,
+    summary: string,
+    examplePrompts: string[],
+    promptCode: string
+  }
+}
+```
+
+**Internal Flow:**
+1. Build audience description via `getAudienceDescription()`
+2. Apply flavor instructions via `getFlavorInstructions()`
+3. Call Claude API with `web_search` tool definition
+4. Handle tool use in agentic loop (Claude requests → web search → Claude continues)
+5. Parse JSON response and sanitize emojis
+6. Return newsletter object
+
+**Claude Model:** `claude-3-5-sonnet-20241022`
+**Max Tokens:** 4096
+
+---
+
+#### POST /api/generateImage
+
+Generates an image using Stability AI.
+
+**Request:**
+```typescript
+{
+  prompt: string,             // Image description
+  imageStyle?: string         // Style modifier
+}
+```
+
+**Response:**
+```typescript
+{
+  image: string               // Base64-encoded PNG
+}
+```
+
+**Style Mappings:**
+| Input | Prompt Suffix |
+|-------|---------------|
+| `photorealistic` | "photorealistic, high detail, professional photography" |
+| `vector` | "vector illustration, flat design, clean lines" |
+| `watercolor` | "watercolor painting, soft edges, artistic" |
+| `pixel` | "pixel art, retro gaming style, 8-bit" |
+| `minimalist` | "minimalist line art, simple, elegant" |
+| `oilPainting` | "oil painting, classical art style, rich textures" |
+| `cyberpunk` | "cyberpunk style, neon colors, futuristic" |
+| `abstract` | "abstract art, geometric shapes, modern" |
+| `isometric` | "isometric 3D illustration, technical diagram" |
+
+**External API:** Stability AI v2beta (`stable-image/generate/core`)
+
+---
+
+#### POST /api/generateTopicSuggestions
+
+Generates 10 HOW-TO tutorial topic suggestions.
+
+**Request:**
+```typescript
+{
+  audience: string[],
+  sources?: string            // Optional formatted source list
+}
+```
+
+**Response:**
+```typescript
+{
+  text: string                // JSON array of 10 topic strings
+}
+```
+
+**Example Output:**
+```json
+[
+  "How to Build a RAG Pipeline with LangChain and Pinecone",
+  "How to Fine-tune Stable Diffusion for Custom Styles",
+  ...
+]
+```
+
+---
+
+#### POST /api/generateTrendingTopics
+
+Generates 2-3 trending topics as implementation guides.
+
+**Request:**
+```typescript
+{
+  audience: string[]
+}
+```
+
+**Response:**
+```typescript
+{
+  text: string                // JSON array of {title, summary} objects
+}
+```
+
+---
+
+#### POST /api/generateTrendingTopicsWithSources
+
+Analyzes real trending sources to identify relevant topics.
+
+**Request:**
+```typescript
+{
+  audience: string[],
+  sources: string             // Formatted source list from trending fetch
+}
+```
+
+**Response:**
+```typescript
+{
+  text: string                // JSON array of {title, summary} objects
+}
+```
+
+**Claude Model:** `claude-haiku-4-5-20251001` (lightweight)
+
+---
+
+#### POST /api/generateCompellingTrendingContent
+
+Extracts actionable insights from trending sources.
+
+**Request:**
+```typescript
+{
+  audience: string[],
+  sources: string             // Formatted trending sources
+}
+```
+
+**Response:**
+```typescript
+{
+  text: string                // JSON with actionableCapabilities and essentialTools
+}
+```
+
+**Output Structure:**
+```typescript
+{
+  actionableCapabilities: [
+    {
+      title: string,
+      description: string,
+      implementation: string,
+      tools: string[]
+    }
+  ],
+  essentialTools: [
+    {
+      name: string,
+      purpose: string,
+      integration: string
+    }
+  ]
+}
+```
+
+---
+
+#### GET /api/fetchTrendingSources
+
+Fetches trending data from 6 external sources.
+
+**Response:**
+```typescript
+{
+  sources: TrendingSource[]
+}
+```
+
+**TrendingSource Structure:**
+```typescript
+{
+  id: string,
+  title: string,
+  url: string,
+  author?: string,
+  publication?: string,
+  date?: string,
+  category: "hackernews" | "arxiv" | "github" | "reddit" | "dev" | "producthunt",
+  summary?: string,
+  score?: number              // Calculated relevance score
+}
+```
+
+**Sources Fetched:**
+| Source | Endpoint | Filter/Limit |
+|--------|----------|--------------|
+| HackerNews | Firebase API | Top 50, AI keywords, return 12 |
+| ArXiv | API query | AI/ML/CV papers, 60 days, return 15 |
+| GitHub | Search API | Python, 1000+ stars, return 15 |
+| Reddit | JSON API | 12 subreddits, top posts |
+| Dev.to | Public API | AI tag, return 8 |
+| Product Hunt | (mocked) | Return 10 |
+
+---
+
+#### POST /api/savePresets
+
+Saves presets to Google Sheets.
+
+**Request:**
+```typescript
+{
+  presets: Preset[],
+  accessToken: string         // Google OAuth token
+}
+```
+
+**Response:**
+```typescript
+{
+  message: string
+}
+```
+
+---
+
+#### GET /api/loadPresets
+
+Loads presets from Google Sheets.
+
+**Headers:**
+```
+Authorization: Bearer {accessToken}
+```
+
+**Response:**
+```typescript
+{
+  presets: Preset[]
+}
+```
+
+---
+
+#### GET /api/health
+
+Health check endpoint.
+
+**Response:**
+```typescript
+{
+  status: "ok"
+}
+```
+
+---
+
+### 3.2 Supabase Edge Functions
+
+**Base URL:** `https://{project}.supabase.co/functions/v1/`
+
+#### POST /save-api-key
+
+Securely saves encrypted API key to database.
+
+**Request:**
+```typescript
+{
+  service: "claude" | "gemini" | "stability",
+  key: string,
+  userEmail: string
+}
+```
+
+**Response:**
+```typescript
+{
+  success: boolean,
+  message?: string
+}
+```
+
+**Process:**
+1. Validate input (service, key, userEmail)
+2. Check if key exists for user+service
+3. Insert new or update existing (upsert)
+4. Log to `api_key_audit_log`
+
+---
+
+#### POST /validate-api-key
+
+Tests if stored API key is valid with the service.
+
+**Request:**
+```typescript
+{
+  service: "claude" | "gemini" | "stability",
+  userEmail: string
+}
+```
+
+**Response:**
+```typescript
+{
+  isValid: boolean,
+  validationError?: string,
+  lastValidated: string       // ISO timestamp
+}
+```
+
+**Validation Endpoints:**
+| Service | Test Endpoint |
+|---------|---------------|
+| Claude | `GET https://api.anthropic.com/v1/models` |
+| Gemini | `GET https://generativelanguage.googleapis.com/v1/models` |
+| Stability | `GET https://api.stability.ai/v1/engines/list` |
+
+---
+
+#### POST /get-api-key-statuses
+
+Lists all API key statuses for a user (without exposing keys).
+
+**Request:**
+```typescript
+{
+  userEmail: string
+}
+```
+
+**Response:**
+```typescript
+{
+  statuses: [
+    {
+      service: string,
+      isValid: boolean,
+      lastValidated: string | null
+    }
+  ]
+}
+```
+
+---
+
+#### POST /setup-supabase-auth
+
+Creates/confirms Supabase user from Google-verified email.
+
+**Request:**
+```typescript
+{
+  email: string,
+  name?: string               // Defaults to "Google User"
+}
+```
+
+**Response:**
+```typescript
+{
+  success: boolean,
+  message: string,
+  user?: {
+    id: string,
+    email: string
+  }
+}
+```
+
+---
+
+#### ANY /claude-api/*
+
+Proxies requests to Claude API using stored encrypted key.
+
+**Query Params or Headers:**
+- `userEmail` (query) or `x-user-email` (header)
+
+**Process:**
+1. Extract userEmail from request
+2. Retrieve encrypted key from database
+3. Decrypt key
+4. Forward request to `https://api.anthropic.com/*`
+5. Return response
+6. Log to audit table
+
+---
+
+#### ANY /gemini-api/*
+
+Proxies requests to Gemini API using stored encrypted key.
+
+Same pattern as `/claude-api/*`.
+
+---
+
+## 4. Service Layer Documentation
+
+### 4.1 claudeService.ts
+
+**Purpose:** Frontend API client that calls backend endpoints.
+
+**Exported Functions:**
+
+```typescript
+// Generate newsletter content
+generateNewsletterContent(
+  topics: string[],
+  audience: string[],
+  tone: string,
+  flavors: string[],
+  imageStyle: string
+): Promise<{ text: string }>
+
+// Generate topic suggestions
+generateTopicSuggestions(
+  audience: string[],
+  sources?: string
+): Promise<{ text: string }>
+
+// Generate trending topics
+generateTrendingTopics(
+  audience: string[]
+): Promise<{ text: string }>
+
+// Generate trending with real sources
+generateTrendingTopicsWithSources(
+  audience: string[],
+  trendingSources: TrendingSource[]
+): Promise<{ text: string, sources: TrendingSource[] }>
+
+// Generate compelling content from trending
+generateCompellingTrendingContent(
+  audience: string[]
+): Promise<{ text: string }>
+
+// Generate image
+generateImage(
+  prompt: string,
+  imageStyle?: string
+): Promise<string>  // Returns base64
+
+// Edit image (placeholder - returns original)
+editImage(
+  base64ImageData: string,
+  mimeType: string,
+  prompt: string
+): Promise<string>
+
+// Save presets to Google Sheets
+savePresetsToCloud(
+  presets: Preset[],
+  accessToken: string
+): Promise<{ message: string }>
+
+// Load presets from Google Sheets
+loadPresetsFromCloud(
+  accessToken: string
+): Promise<{ presets: Preset[] }>
+```
+
+**Internal Helpers:**
+- `getAudienceDescription(audience)` - Maps audience to detailed descriptions
+- `getFlavorInstructions(flavors)` - Maps flavors to prompt instructions
+
+**All async functions wrapped with `withRetry()` from utils/retry.ts**
+
+---
+
+### 4.2 apiKeyService.ts
+
+**Purpose:** Secure API key management using Supabase Edge Functions.
+
+**Exported Functions:**
+
+```typescript
+// Save API key to Supabase
+saveApiKey(
+  credentials: { service: string, key: string },
+  userEmail: string
+): Promise<boolean>
+
+// Get API key (from database, not recommended for frontend)
+getApiKey(
+  service: string,
+  userEmail: string
+): Promise<string | null>
+
+// Check if API key exists
+hasApiKey(
+  service: string,
+  userEmail: string
+): Promise<boolean>
+
+// Delete API key
+deleteApiKey(
+  service: string,
+  userEmail: string
+): Promise<boolean>
+
+// Get single key status
+getApiKeyStatus(
+  service: string,
+  userEmail: string
+): Promise<StoredApiKey | null>
+
+// List all key statuses
+listApiKeyStatuses(
+  userEmail: string
+): Promise<StoredApiKey[]>
+
+// Validate API key with service
+validateApiKey(
+  service: string,
+  userEmail: string
+): Promise<boolean>
+```
+
+**Types:**
+```typescript
+interface ApiKeyCredentials {
+  service: "claude" | "gemini" | "stability";
+  key: string;
+}
+
+interface StoredApiKey {
+  service: string;
+  isValid: boolean;
+  lastValidated: string | null;
+}
+```
+
+---
+
+### 4.3 googleApiService.ts
+
+**Purpose:** Google Workspace integration (Drive, Sheets, Gmail, Docs).
+
+**Key Exports:**
+
+```typescript
+// Authentication
+initClient(callback, onInitComplete): void
+signIn(): Promise<void>
+signOut(): void
+getIdToken(): string | null
+isAuthenticated(): boolean
+
+// Google Drive
+saveToDrive(newsletter, topics, settings): Promise<string>  // Returns file ID
+loadFromDrive(fileId): Promise<Newsletter>
+listNewslettersFromDrive(settings): Promise<DriveFile[]>
+
+// Google Sheets
+logToSheet(newsletter, topics, settings, flags): Promise<void>
+readAllSubscribers(settings): Promise<Subscriber[]>
+readAllLists(settings): Promise<SubscriberList[]>
+saveSubscriber(subscriber, settings): Promise<void>
+deleteSubscriber(email, settings): Promise<void>
+migrateSubscriberSheet(settings): Promise<void>
+
+// Gmail
+sendEmail(newsletter, topics, subscribers, settings): Promise<void>
+
+// User Profile
+getUserProfile(): Promise<{ email, name, picture }>
+```
+
+**Scopes Used:**
+- `https://www.googleapis.com/auth/drive.file`
+- `https://www.googleapis.com/auth/spreadsheets`
+- `https://www.googleapis.com/auth/gmail.send`
+- `https://www.googleapis.com/auth/documents`
+- `https://www.googleapis.com/auth/userinfo.email`
+- `https://www.googleapis.com/auth/userinfo.profile`
+
+---
+
+### 4.4 trendingDataService.ts
+
+**Purpose:** Fetch and filter trending sources.
+
+**Exported Functions:**
+
+```typescript
+// Fetch all trending sources from backend
+fetchAllTrendingSources(): Promise<TrendingSource[]>
+
+// Filter sources by audience
+filterSourcesByAudience(
+  sources: TrendingSource[],
+  audience: string[]
+): TrendingSource[]
+```
+
+**Audience to Category Mapping:**
+| Audience | Categories |
+|----------|------------|
+| academics | arxiv, github, dev |
+| business | hackernews, reddit, dev |
+| analysts | hackernews, reddit, github, dev |
+
+---
+
+### 4.5 supabaseAuthHelper.ts
+
+**Purpose:** Authenticate Supabase using Google-verified email.
+
+**Exported Function:**
+
+```typescript
+authenticateSupabaseWithGoogleEmail(
+  email: string,
+  name?: string
+): Promise<{ success: boolean, error?: string }>
+```
+
+**Process:**
+1. Check if already authenticated with Supabase
+2. Call `setup-supabase-auth` Edge Function
+3. Create/confirm user with email
+4. Attempt session refresh
+5. Return success status
+
+---
+
+### 4.6 geminiService.ts (Legacy)
+
+**Purpose:** Google Gemini API integration (deprecated, replaced by Claude).
+
+**Models:**
+- `gemini-2.5-flash` - Text generation
+- `gemini-2.5-flash-image` - Image generation
+
+**Note:** Present in codebase but not actively used.
+
+---
+
+## 5. Component Hierarchy
+
+### 5.1 Page Components
+
+#### AuthenticationPage.tsx
+
+**Purpose:** Google OAuth login interface
+
+**Props:**
+```typescript
+{
+  onSignIn: () => void;
+  isGoogleApiInitialized: boolean;
+  isLoading?: boolean;
+}
+```
+
+**Features:**
+- Auto-triggers sign-in when Google API ready
+- Displays feature list (Cloud Sync, Auto-Save, etc.)
+- Single "Sign in with Google" button
+
+---
+
+#### DiscoverTopicsPage.tsx
+
+**Purpose:** Topic selection with AI suggestions and trending data
+
+**Props:**
+```typescript
+{
+  selectedAudience: Record<string, boolean>;
+  handleAudienceChange: (audience: string) => void;
+  selectedTopics: string[];
+  customTopic: string;
+  setCustomTopic: (topic: string) => void;
+  handleAddTopic: (topic: string) => void;
+  handleRemoveTopic: (topic: string) => void;
+  suggestedTopics: string[];
+  handleSelectSuggestedTopic: (topic: string) => void;
+  handleGenerateSuggestions: () => void;
+  isGeneratingTopics: boolean;
+  trendingContent: TrendingTopic[];
+  compellingContent: CompellingContent | null;
+  isFetchingTrending: boolean;
+  handleAddTrendingTopic: (title: string) => void;
+  fetchTrendingContent: () => void;
+  trendingSources: TrendingSource[];
+  hasSelectedAudience: boolean;
+  loading: string | null;
+  error: Error | null;
+  audienceOptions: AudienceOption[];
+}
+```
+
+**Child Components:** InspirationSources, InspirationSourcesPanel, Spinner
+
+---
+
+#### DefineTonePage.tsx
+
+**Purpose:** Tone and flavor selection
+
+**Props:**
+```typescript
+{
+  selectedTone: string;
+  setSelectedTone: (tone: string) => void;
+  toneOptions: ToneOption[];
+  selectedFlavors: Record<string, boolean>;
+  handleFlavorChange: (flavor: string) => void;
+  flavorOptions: FlavorOption[];
+}
+```
+
+**Tone Options:** professional, casual, witty, enthusiastic, informative
+
+**Flavor Options:** humor, slang, jargon, analogies, data citation
+
+---
+
+#### ImageStylePage.tsx
+
+**Purpose:** Image style selection
+
+**Props:**
+```typescript
+{
+  selectedImageStyle: string;
+  setSelectedImageStyle: (style: string) => void;
+  imageStyleOptions: ImageStyleOption[];
+}
+```
+
+**Style Options:** photorealistic, vector, watercolor, pixel, minimalist, cyberpunk, abstract, oilPainting, isometric
+
+---
+
+#### GenerateNewsletterPage.tsx
+
+**Purpose:** Main newsletter generation workflow
+
+**Props:**
+```typescript
+{
+  selectedAudience: Record<string, boolean>;
+  selectedTone: string;
+  selectedFlavors: Record<string, boolean>;
+  selectedImageStyle: string;
+  selectedTopics: string[];
+  newsletter: Newsletter | null;
+  onEditImage: (index, src, mimeType, prompt) => void;
+  onImageUpload: (sectionIndex, file) => void;
+  onReorderSections: (sections) => void;
+  onUpdate: (field, value, sectionIndex?) => void;
+  handleGenerateNewsletter: () => void;
+  loading: string | null;
+  progress: number;
+  error: Error | null;
+  presets: Preset[];
+  onSavePreset: (name) => void;
+  onLoadPreset: (preset) => void;
+  onDeletePreset: (name) => void;
+  onSyncToCloud: () => void;
+  onLoadFromCloud: () => void;
+  promptOfTheDay: PromptOfTheDay | null;
+  onSavePromptOfTheDay: (prompt) => void;
+}
+```
+
+**Child Components:** PresetsManager, PromptOfTheDayEditor, ProgressGauge, NewsletterPreview
+
+---
+
+#### HistoryContentPage.tsx
+
+**Purpose:** Browse generated newsletter history
+
+**Props:**
+```typescript
+{
+  history: HistoryItem[];
+  onLoad: (item: HistoryItem) => void;
+  onClear: () => void;
+}
+```
+
+**Child Component:** HistoryPanel
+
+---
+
+#### SubscriberManagementPage.tsx
+
+**Purpose:** Subscriber and list management
+
+**Props:**
+```typescript
+{
+  subscribers: Subscriber[];
+  subscriberLists: SubscriberList[];
+  googleSettings: GoogleSettings;
+  authData: GapiAuthData | null;
+  onListsChanged: () => void;
+}
+```
+
+**Features:**
+- Subscriber CRUD operations
+- List management
+- Bulk import/export
+- Google Sheets integration
+
+---
+
+### 5.2 UI Components
+
+#### NewsletterPreview.tsx
+
+Displays and enables editing of generated newsletter.
+
+**Props:**
+```typescript
+{
+  newsletter: Newsletter | null;
+  topics: string[];
+  onEditImage: (index, src, mimeType, prompt) => void;
+  onImageUpload: (sectionIndex, file) => void;
+  onReorderSections: (sections) => void;
+  onUpdate: (field, value, sectionIndex?) => void;
+  isLoading: boolean;
+}
+```
+
+**Features:**
+- Drag-and-drop section reordering
+- Inline text editing (EditableText)
+- Image upload per section
+- Image edit button per section
+
+---
+
+#### SettingsModal.tsx
+
+Settings and API key management modal.
+
+**Props:**
+```typescript
+{
+  isOpen: boolean;
+  onClose: () => void;
+  onSave: (settings) => void;
+  initialSettings: GoogleSettings;
+  authData: GapiAuthData | null;
+  onSignIn: () => void;
+  onSignOut: () => void;
+  isGoogleApiInitialized: boolean;
+  newsletter: Newsletter | null;
+  onWorkflowAction: (action) => void;
+  onLoadFromDrive: () => void;
+  workflowStatus: string | null;
+}
+```
+
+**Tabs:**
+- Google Workspace settings (Drive folder, Sheet names)
+- API Key Management (Claude, Gemini, Stability)
+- Workflow Actions (Save, Log, Send, Load)
+
+---
+
+#### ImageEditorModal.tsx
+
+Image editing and regeneration modal.
+
+**Props:**
+```typescript
+{
+  isOpen: boolean;
+  onClose: () => void;
+  imageSrc: string;
+  imageMimeType: string;
+  originalPrompt: string;
+  onSave: (newImageBase64) => void;
+}
+```
+
+**Features:**
+- Preview current image
+- Edit prompt input
+- Quick edit presets (Retro, B&W, Brighter, Add Text)
+- Regenerate button
+- Download button
+
+---
+
+#### PresetsManager.tsx
+
+Preset save/load/delete and cloud sync.
+
+**Props:**
+```typescript
+{
+  presets: Preset[];
+  onSave: (name) => void;
+  onLoad: (preset) => void;
+  onDelete: (name) => void;
+  onSyncToCloud: () => void;
+  onLoadFromCloud: () => void;
+  isAuthenticated: boolean;
+}
+```
+
+---
+
+#### PromptOfTheDayEditor.tsx
+
+Edit optional daily prompt section.
+
+**Props:**
+```typescript
+{
+  initialPrompt: PromptOfTheDay | null;
+  onSave: (prompt: PromptOfTheDay | null) => void;
+}
+```
+
+**Fields:** title, summary, examplePrompts[], promptCode
+
+---
+
+## 6. Data Flow Diagrams
+
+### 6.1 Newsletter Generation Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         USER SELECTS OPTIONS                                 │
+│  Topics: ["AI image gen", "LLM fine-tuning"]                                │
+│  Audience: ["academics", "business"]                                         │
+│  Tone: "professional"                                                        │
+│  Flavors: ["useJargon", "citeData"]                                         │
+│  Image Style: "vector"                                                       │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    App.tsx: handleGenerateNewsletter()                       │
+│  1. setLoading("Generating newsletter content...")                          │
+│  2. setProgress(10)                                                          │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                claudeService.generateNewsletterContent()                     │
+│  POST /api/generateNewsletter                                               │
+│  Body: { topics, audience, tone, flavors, imageStyle }                      │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         server.ts: Backend                                   │
+│  1. Build system prompt with audience descriptions                          │
+│  2. Apply flavor instructions                                               │
+│  3. Call Claude API with web_search tool                                    │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    CLAUDE API (Agentic Loop)                                │
+│                                                                              │
+│  Claude: "I need to search for current AI tools..."                         │
+│  → Returns: tool_use { name: "web_search", query: "..." }                   │
+│                                                                              │
+│  Backend: processToolCall("web_search", { query })                          │
+│  → Calls Brave Search API                                                   │
+│  → Returns: formatted search results                                         │
+│                                                                              │
+│  Claude: Continues with search context                                       │
+│  → Returns: Newsletter JSON                                                  │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                      Backend: Post-Processing                                │
+│  1. Parse JSON response                                                      │
+│  2. sanitizeNewsletter() - remove emojis                                    │
+│  3. Generate unique ID: "nl_1731527834000_a3x9k7m2"                         │
+│  4. Return { text: JSON.stringify(newsletter) }                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    App.tsx: Process Newsletter                              │
+│  1. Parse JSON response                                                      │
+│  2. setProgress(35)                                                          │
+│  3. setLoading("Generating images...")                                      │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│              claudeService.generateImage() × N sections                     │
+│  (Parallel requests)                                                         │
+│                                                                              │
+│  For each section:                                                           │
+│    POST /api/generateImage                                                  │
+│    Body: { prompt: section.imagePrompt, imageStyle }                        │
+│    → Stability AI API                                                       │
+│    → Returns: { image: base64 }                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    App.tsx: Finalize Newsletter                             │
+│  1. Attach images to sections (imageUrl = base64)                           │
+│  2. setProgress(75)                                                          │
+│  3. addToHistory(newsletter)                                                │
+│  4. Auto-save to Google Drive                                               │
+│  5. Auto-log to Google Sheets                                               │
+│  6. setProgress(90)                                                          │
+│  7. setNewsletter(newsletter)                                               │
+│  8. setLoading(null)                                                        │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                      NewsletterPreview: Display                             │
+│  • Subject line                                                              │
+│  • Introduction                                                              │
+│  • Sections with images                                                      │
+│  • Conclusion                                                                │
+│  • Prompt of the Day (if present)                                           │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 6.2 Authentication Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         USER: Click "Sign in with Google"                    │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                googleApiService.signIn()                                    │
+│  1. Initialize Google Identity Services (GIS)                               │
+│  2. Request access token with scopes                                        │
+│  3. Open Google OAuth popup                                                 │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                      GOOGLE OAUTH SERVER                                    │
+│  1. User enters credentials                                                 │
+│  2. User grants permissions                                                 │
+│  3. Returns access_token to callback                                        │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│              googleApiService.handleAuthResponse()                          │
+│  1. Store access_token                                                      │
+│  2. Fetch user profile (email, name, picture)                               │
+│  3. Return authData to App.tsx                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                 App.tsx: setAuthData(authData)                              │
+│  authData = { access_token, email, name }                                   │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│           supabaseAuthHelper.authenticateSupabaseWithGoogleEmail()          │
+│  POST /functions/v1/setup-supabase-auth                                     │
+│  Body: { email, name }                                                      │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│              SUPABASE EDGE FUNCTION: setup-supabase-auth                    │
+│  1. Create user with Supabase Admin API                                     │
+│  2. Auto-confirm email (no verification needed)                             │
+│  3. Return { success: true, user: { id, email } }                          │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                      App.tsx: Post-Authentication                           │
+│  1. Navigate to 'discoverTopics' page                                       │
+│  2. Load subscriber lists from Google Sheets                                │
+│  3. Load presets from cloud (if any)                                        │
+│  4. Load history from localStorage                                          │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 6.3 API Key Management Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│               USER: Settings → API Key Management → Claude                   │
+│               Enters API key: "sk-ant-api03-..."                            │
+│               Clicks "Save"                                                  │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                  apiKeyService.saveApiKey()                                 │
+│  POST /functions/v1/save-api-key                                            │
+│  Body: { service: "claude", key: "sk-ant-...", userEmail: "user@..." }     │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│              SUPABASE EDGE FUNCTION: save-api-key                           │
+│  1. Validate input (service, key, userEmail)                                │
+│  2. Create Supabase admin client                                            │
+│  3. Check if key exists for user+service                                    │
+│  4. INSERT or UPDATE api_keys table                                         │
+│     - encrypted_key stored with pgcrypto                                    │
+│  5. INSERT into api_key_audit_log                                           │
+│  6. Return { success: true }                                                │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│               SettingsModal: Show success, trigger validation               │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                  apiKeyService.validateApiKey()                             │
+│  POST /functions/v1/validate-api-key                                        │
+│  Body: { service: "claude", userEmail: "user@..." }                        │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│              SUPABASE EDGE FUNCTION: validate-api-key                       │
+│  1. Retrieve encrypted key from database                                    │
+│  2. Decrypt key                                                              │
+│  3. Test with Claude API:                                                   │
+│     GET https://api.anthropic.com/v1/models                                │
+│     Headers: x-api-key: {decrypted_key}                                    │
+│  4. UPDATE api_keys: key_valid = true, last_validated_at = NOW()           │
+│  5. INSERT audit log entry                                                  │
+│  6. Return { isValid: true, lastValidated: "2024-..." }                    │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│             SettingsModal: Display ✓ Valid indicator                        │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 6.4 Google Workspace Integration Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│             AUTO-SAVE TO DRIVE (after newsletter generation)                │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│               googleApiService.saveToDrive()                                │
+│  1. Check if folder exists (by name from settings)                          │
+│  2. If not, create folder via Drive API                                     │
+│  3. Generate HTML with embedded JSON:                                       │
+│     <script type="application/json" id="newsletter-data">                  │
+│       { newsletter, topics }                                                │
+│     </script>                                                                │
+│  4. Upload file to folder                                                   │
+│  5. Return file ID                                                          │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│               googleApiService.logToSheet()                                 │
+│  1. Find or create log sheet                                                │
+│  2. Check if newsletter ID exists (upsert logic)                            │
+│  3. If exists: UPDATE row                                                   │
+│  4. If not: APPEND new row                                                  │
+│  Columns: ID | Date | Subject | Topics | Saved | Sent | Intro | Conclusion │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    SEND EMAIL (user clicks Send)                            │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│               googleApiService.sendEmail()                                  │
+│  1. Read subscribers from Sheet (active only)                               │
+│  2. Generate HTML email via emailGenerator.ts                               │
+│  3. Build email message:                                                    │
+│     From: authenticated user email                                          │
+│     To: authenticated user email                                            │
+│     Bcc: all subscribers (privacy)                                          │
+│  4. Base64 encode (standard, not URL-safe)                                 │
+│  5. Send via Gmail API                                                      │
+│  6. Update tracking state                                                   │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│               Auto-log to Sheet with Sent: Yes                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                 LOAD FROM DRIVE (user clicks Load)                          │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│               googleApiService.listNewslettersFromDrive()                   │
+│  1. Search Drive for HTML files in folder                                   │
+│  2. Sort by modified date (newest first)                                    │
+│  3. Return list with { id, name, modifiedTime }                            │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│               LoadFromDriveModal: User selects file                         │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│               googleApiService.loadFromDrive(fileId)                        │
+│  1. Download file content                                                   │
+│  2. Parse embedded JSON from <script> tag                                   │
+│  3. Reconstruct Newsletter + topics                                         │
+│  4. Return to App.tsx                                                       │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 6.5 Trending Data Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│            USER: DiscoverTopicsPage → Click "Fetch Trending"                │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│              trendingDataService.fetchAllTrendingSources()                  │
+│  GET /api/fetchTrendingSources                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    server.ts: fetchAllTrendingSources()                     │
+│  (Parallel fetches)                                                         │
+│                                                                              │
+│  ├── fetchHackerNewsTopics()                                               │
+│  │   GET https://hacker-news.firebaseio.com/v0/topstories.json            │
+│  │   → Filter for AI keywords → Return top 12                              │
+│  │                                                                          │
+│  ├── fetchArxivTopics()                                                    │
+│  │   GET https://export.arxiv.org/api/query?search_query=...              │
+│  │   → AI/ML/CV papers, last 60 days → Return 15                          │
+│  │                                                                          │
+│  ├── fetchGitHubTopics()                                                   │
+│  │   GET https://api.github.com/search/repositories?q=...                 │
+│  │   → Python, 1000+ stars → Return 15                                    │
+│  │                                                                          │
+│  ├── fetchRedditTopics()                                                   │
+│  │   GET https://www.reddit.com/r/{sub}/top.json                          │
+│  │   → 12 subreddits → Return top posts                                   │
+│  │                                                                          │
+│  ├── fetchDevToTopics()                                                    │
+│  │   GET https://dev.to/api/articles?tag=ai                               │
+│  │   → Return 8 articles                                                   │
+│  │                                                                          │
+│  └── fetchProductHuntTopics()                                              │
+│      → Return mock data (10 products)                                      │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│              server.ts: scoreSourceForPracticality()                        │
+│  For each source, calculate score:                                          │
+│  • Recency: 0-30 pts (today=30, week=10)                                   │
+│  • Engagement: 0-25 pts (stars, upvotes)                                   │
+│  • Practicality keywords: 5 pts each                                        │
+│  • Domain keywords: 8 pts each (60 keywords)                               │
+│  • Source type bonus: +15 (ArXiv, GitHub)                                  │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│              trendingDataService.filterSourcesByAudience()                  │
+│  Map audience → preferred categories                                        │
+│  Shuffle and limit to 12 sources                                            │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                   DiscoverTopicsPage: Display sources                       │
+│  • InspirationSourcesPanel shows source list                               │
+│  • User can click to add topics                                            │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│           claudeService.generateCompellingTrendingContent()                 │
+│  POST /api/generateCompellingTrendingContent                                │
+│  → Claude analyzes sources                                                  │
+│  → Returns actionableCapabilities + essentialTools                          │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 7. External API Dependencies
+
+### 7.1 AI & Search APIs
+
+| API | Purpose | Auth Method | Rate Limits | Files Using |
+|-----|---------|-------------|-------------|-------------|
+| **Anthropic Claude** | Newsletter generation, topic suggestions | API Key (`x-api-key` header) | Per account | `server.ts` |
+| **Stability AI** | Image generation | API Key (Bearer token) | Per account | `server.ts` |
+| **Brave Search** | Web search for grounding | API Key (`X-Subscription-Token`) | 10 req/sec | `server.ts` |
+
+### 7.2 Google Workspace APIs
+
+| API | Purpose | Auth Method | Scopes | Files Using |
+|-----|---------|-------------|--------|-------------|
+| **Google Drive v3** | Save/load newsletters | OAuth 2.0 | `drive.file` | `googleApiService.ts` |
+| **Google Sheets v4** | Logging, subscribers, presets | OAuth 2.0 | `spreadsheets` | `googleApiService.ts`, `server.ts` |
+| **Gmail v1** | Send newsletters | OAuth 2.0 | `gmail.send` | `googleApiService.ts` |
+| **Google Docs v1** | Document creation | OAuth 2.0 | `documents` | `googleApiService.ts` |
+| **Google OAuth2** | User profile | OAuth 2.0 | `userinfo.email`, `userinfo.profile` | `googleApiService.ts` |
+
+### 7.3 Trending Data Sources (Free, No Auth)
+
+| Source | Endpoint | Data Retrieved |
+|--------|----------|----------------|
+| **HackerNews** | `hacker-news.firebaseio.com/v0/` | Top stories, filtered for AI |
+| **ArXiv** | `export.arxiv.org/api/query` | AI/ML/CV papers |
+| **GitHub** | `api.github.com/search/repositories` | Trending AI repos |
+| **Reddit** | `reddit.com/r/{sub}/top.json` | Posts from 12 subreddits |
+| **Dev.to** | `dev.to/api/articles` | AI-tagged articles |
+| **Product Hunt** | (mocked) | Sample products |
+
+### 7.4 Supabase
+
+| Service | Purpose | Auth Method | Files Using |
+|---------|---------|-------------|-------------|
+| **Database** | API key storage | Service Role Key | Edge Functions |
+| **Edge Functions** | Serverless logic | Anon Key | `apiKeyService.ts` |
+| **Auth** | User management | Admin API | `supabaseAuthHelper.ts` |
+
+---
+
+## 8. Database Schema
+
+### 8.1 Tables
+
+#### api_keys
+
+Stores encrypted API keys per user per service.
+
+```sql
+CREATE TABLE api_keys (
+  id              BIGSERIAL PRIMARY KEY,
+  user_id         TEXT,                           -- Optional Supabase user ID
+  user_email      TEXT NOT NULL,                  -- Primary identifier
+  service         TEXT NOT NULL                   -- 'claude', 'gemini', 'stability'
+                  CHECK (service IN ('claude', 'gemini', 'stability')),
+  encrypted_key   TEXT NOT NULL,                  -- Encrypted with pgcrypto
+  key_valid       BOOLEAN DEFAULT false,          -- Last validation result
+  last_validated_at TIMESTAMP WITH TIME ZONE,     -- When last validated
+  created_at      TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at      TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+
+  UNIQUE(user_email, service)                     -- One key per service per user
+);
+
+-- Indexes
+CREATE INDEX idx_api_keys_user_email ON api_keys(user_email);
+CREATE INDEX idx_api_keys_service ON api_keys(service);
+```
+
+#### api_key_audit_log
+
+Audit trail for all API key operations.
+
+```sql
+CREATE TABLE api_key_audit_log (
+  id              BIGSERIAL PRIMARY KEY,
+  user_id         TEXT,                           -- Optional Supabase user ID
+  user_email      TEXT NOT NULL,                  -- Who performed action
+  action          TEXT NOT NULL,                  -- 'created', 'updated', 'validated', 'deleted'
+  service         TEXT,                           -- Which service
+  ip_address      TEXT,                           -- Request IP
+  created_at      TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Indexes
+CREATE INDEX idx_audit_log_user_email ON api_key_audit_log(user_email);
+CREATE INDEX idx_audit_log_created_at ON api_key_audit_log(created_at);
+```
+
+### 8.2 Row-Level Security (RLS)
+
+```sql
+-- Enable RLS
+ALTER TABLE api_keys ENABLE ROW LEVEL SECURITY;
+ALTER TABLE api_key_audit_log ENABLE ROW LEVEL SECURITY;
+
+-- api_keys: Service role only
+CREATE POLICY "Service role access" ON api_keys
+  FOR ALL USING (auth.role() = 'service_role');
+
+-- api_key_audit_log: Insert only for authenticated
+CREATE POLICY "Insert audit logs" ON api_key_audit_log
+  FOR INSERT WITH CHECK (true);
+```
+
+### 8.3 Encryption
+
+API keys are encrypted at rest using PostgreSQL's pgcrypto extension:
+
+```sql
+-- Encryption (in Edge Function)
+SELECT pgp_sym_encrypt(api_key, encryption_secret);
+
+-- Decryption (in Edge Function)
+SELECT pgp_sym_decrypt(encrypted_key::bytea, encryption_secret);
+```
+
+---
+
+## 9. Configuration Reference
+
+### 9.1 Environment Variables
+
+#### Required (.env.local)
+
+| Variable | Purpose | Used By |
+|----------|---------|---------|
+| `VITE_SUPABASE_URL` | Supabase project URL | `lib/supabase.ts` |
+| `VITE_SUPABASE_ANON_KEY` | Supabase anon key | `lib/supabase.ts` |
+
+#### Backend (server.ts)
+
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `PORT` | Express server port | 3001 |
+| `VITE_ANTHROPIC_API_KEY` | Claude API key | - |
+| `VITE_STABILITY_API_KEY` | Stability AI key | - |
+| `VITE_BRAVE_SEARCH_API_KEY` | Brave Search key | - |
+
+#### Optional
+
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `VITE_API_URL` | Backend URL for frontend | `http://localhost:3001` |
+
+### 9.2 Google Configuration (config.js)
+
+```javascript
+const GOOGLE_CONFIG = {
+  API_KEY: 'your-google-api-key',
+  CLIENT_ID: 'your-oauth-client-id.apps.googleusercontent.com',
+  SCOPES: [
+    'https://www.googleapis.com/auth/drive.file',
+    'https://www.googleapis.com/auth/spreadsheets',
+    'https://www.googleapis.com/auth/gmail.send',
+    'https://www.googleapis.com/auth/documents',
+    'https://www.googleapis.com/auth/userinfo.email',
+    'https://www.googleapis.com/auth/userinfo.profile'
+  ]
+};
+
+export default GOOGLE_CONFIG;
+```
+
+**Note:** This file must be created manually and added to `.gitignore`.
+
+### 9.3 NPM Scripts
+
+| Script | Command | Purpose |
+|--------|---------|---------|
+| `dev` | `vite` | Start frontend dev server (port 5173) |
+| `dev:server` | `ts-node server.ts` | Start backend server (port 3001) |
+| `dev:all` | `concurrently "npm run dev" "npm run dev:server"` | Start both |
+| `build` | `tsc && vite build` | Production build |
+| `lint` | `eslint . --ext ts,tsx --max-warnings 0` | Lint code |
+| `preview` | `vite preview` | Preview production build |
+
+### 9.4 TypeScript Configuration
+
+```json
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "paths": {
+      "@/*": ["./*"]
+    }
+  },
+  "include": ["**/*.ts", "**/*.tsx"],
+  "exclude": ["node_modules", "dist", "supabase/functions"]
+}
+```
+
+---
+
+## 10. Type Definitions Reference
+
+### 10.1 Core Business Types (types.ts)
+
+#### Newsletter
+
+```typescript
+interface Newsletter {
+  id?: string;                        // "nl_1731527834000_a3x9k7m2"
+  subject: string;                    // Email subject line
+  introduction: string;               // Opening paragraph
+  sections: NewsletterSection[];      // Content sections
+  conclusion: string;                 // Closing paragraph
+  promptOfTheDay?: PromptOfTheDay;    // Optional daily prompt
+}
+```
+
+**Used in:** `App.tsx`, `NewsletterPreview.tsx`, `GenerateNewsletterPage.tsx`, `emailGenerator.ts`, `googleApiService.ts`
+
+#### NewsletterSection
+
+```typescript
+interface NewsletterSection {
+  title: string;                      // Section heading
+  content: string;                    // HTML content with links
+  imagePrompt: string;                // Prompt used to generate image
+  imageUrl?: string;                  // Base64 data URI
+}
+```
+
+**Used in:** `NewsletterPreview.tsx`, `claudeService.ts`
+
+#### PromptOfTheDay
+
+```typescript
+interface PromptOfTheDay {
+  title: string;                      // "Advanced RAG Pipeline"
+  summary: string;                    // Brief description
+  examplePrompts: string[];           // 3 example uses
+  promptCode: string;                 // Full XML prompt code
+}
+```
+
+**Used in:** `PromptOfTheDayEditor.tsx`, `emailGenerator.ts`
+
+#### TrendingTopic
+
+```typescript
+interface TrendingTopic {
+  title: string;
+  summary: string;
+}
+```
+
+**Used in:** `DiscoverTopicsPage.tsx`, `claudeService.ts`
+
+#### Subscriber
+
+```typescript
+interface Subscriber {
+  email: string;                      // Primary key
+  name?: string;
+  status: 'active' | 'inactive';
+  lists: string;                      // Comma-separated list IDs
+  dateAdded: string;                  // ISO timestamp
+  dateRemoved?: string;
+  source?: string;                    // How they subscribed
+}
+```
+
+**Used in:** `SubscriberManagementPage.tsx`, `googleApiService.ts`
+
+#### SubscriberList
+
+```typescript
+interface SubscriberList {
+  id: string;                         // 5-char unique ID
+  name: string;
+  description?: string;
+  dateCreated: string;
+  subscriberCount: number;
+}
+```
+
+**Used in:** `SubscriberManagementPage.tsx`
+
+#### GoogleSettings
+
+```typescript
+interface GoogleSettings {
+  driveFolderName: string;            // "AI for PI Newsletters"
+  logSheetName: string;               // "AI for PI Newsletter Log"
+  subscribersSheetName: string;       // "Newsletter Subscribers"
+  groupListSheetName?: string;        // "Subscriber Lists"
+}
+```
+
+**Used in:** `SettingsModal.tsx`, `googleApiService.ts`
+
+#### Preset
+
+```typescript
+interface Preset {
+  name: string;
+  settings: {
+    selectedAudience: Record<string, boolean>;
+    selectedTone: string;
+    selectedFlavors: Record<string, boolean>;
+    selectedImageStyle: string;
+    selectedTopics: string[];
+  };
+}
+```
+
+**Used in:** `PresetsManager.tsx`, `App.tsx`
+
+#### HistoryItem
+
+```typescript
+interface HistoryItem {
+  id: string;
+  date: string;                       // ISO timestamp
+  subject: string;
+  newsletter: Newsletter;
+  topics: string[];
+}
+```
+
+**Used in:** `HistoryPanel.tsx`, `HistoryContentPage.tsx`
+
+#### GapiAuthData
+
+```typescript
+interface GapiAuthData {
+  access_token: string;
+  email: string;
+  name: string;
+}
+```
+
+**Used in:** `App.tsx`, `googleApiService.ts`
+
+### 10.2 Service Types
+
+#### TrendingSource (trendingDataService.ts)
+
+```typescript
+interface TrendingSource {
+  id: string;
+  title: string;
+  url: string;
+  author?: string;
+  publication?: string;
+  date?: string;
+  category: 'hackernews' | 'arxiv' | 'github' | 'reddit' | 'dev' | 'producthunt';
+  summary?: string;
+  score?: number;
+}
+```
+
+#### ApiKeyCredentials (apiKeyService.ts)
+
+```typescript
+interface ApiKeyCredentials {
+  service: 'claude' | 'gemini' | 'stability';
+  key: string;
+}
+```
+
+#### StoredApiKey (apiKeyService.ts)
+
+```typescript
+interface StoredApiKey {
+  service: string;
+  isValid: boolean;
+  lastValidated: string | null;
+}
+```
+
+### 10.3 Database Types (lib/supabase.ts)
+
+#### ApiKey
+
+```typescript
+interface ApiKey {
+  id: number;
+  user_id?: string;
+  user_email: string;
+  service: 'claude' | 'gemini';
+  encrypted_key: string;
+  key_valid: boolean;
+  last_validated_at?: string;
+  created_at: string;
+  updated_at: string;
+}
+```
+
+#### ApiKeyAuditLog
+
+```typescript
+interface ApiKeyAuditLog {
+  id: number;
+  user_id?: string;
+  user_email: string;
+  action: string;
+  service?: string;
+  ip_address?: string;
+  created_at: string;
+}
+```
+
+---
+
+## Quick Reference
+
+### Common Operations
+
+| Task | Function | File |
+|------|----------|------|
+| Generate newsletter | `generateNewsletterContent()` | `claudeService.ts` |
+| Generate image | `generateImage()` | `claudeService.ts` |
+| Save to Drive | `saveToDrive()` | `googleApiService.ts` |
+| Send email | `sendEmail()` | `googleApiService.ts` |
+| Save API key | `saveApiKey()` | `apiKeyService.ts` |
+| Fetch trending | `fetchAllTrendingSources()` | `trendingDataService.ts` |
+
+### Ports
+
+| Service | Port |
+|---------|------|
+| Frontend (Vite) | 5173 |
+| Backend (Express) | 3001 |
+
+### Key Files for Each Feature
+
+| Feature | Primary Files |
+|---------|---------------|
+| Newsletter Gen | `server.ts`, `claudeService.ts`, `GenerateNewsletterPage.tsx` |
+| Images | `server.ts` (Stability AI), `ImageEditorModal.tsx` |
+| Google Drive | `googleApiService.ts`, `SettingsModal.tsx` |
+| Email | `googleApiService.ts`, `emailGenerator.ts` |
+| API Keys | `apiKeyService.ts`, Edge Functions |
+| Trending | `server.ts`, `trendingDataService.ts`, `DiscoverTopicsPage.tsx` |
+
+---
+
+## Appendix: Documentation Files
+
+### Recommended Documentation Structure
+
+| File | Purpose | Status |
+|------|---------|--------|
+| `README.md` | Quick start, project overview | Keep (simplify) |
+| `ARCHITECTURE.md` | This file - comprehensive reference | New |
+| `GETTING_STARTED.md` | Setup instructions | Keep |
+| `SUPABASE_SETUP.md` | Database setup | Keep |
+| `CHECKPOINT.md` | Feature status | **Delete** (absorbed here) |
+| `CLAUDE.md` | Migration guide | **Delete** (obsolete) |

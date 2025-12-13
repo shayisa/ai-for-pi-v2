@@ -1,0 +1,21 @@
+// Google Cloud credentials for Google Workspace integration
+//
+// SETUP INSTRUCTIONS:
+// 1. Copy this file to config.js
+// 2. Go to https://console.cloud.google.com/
+// 3. Navigate to APIs & Services > Credentials
+// 4. Find your OAuth 2.0 Client ID
+// 5. Copy the API_KEY and CLIENT_ID from your Google Cloud project
+// 6. Paste them below
+// 7. Keep config.js in .gitignore to prevent credential exposure
+
+window.GOOGLE_CONFIG = {
+  // Your Google API Key
+  // Get from: https://console.cloud.google.com/apis/credentials
+  API_KEY: 'YOUR_GOOGLE_API_KEY_HERE',
+
+  // Your Google OAuth 2.0 Client ID
+  // Get from: https://console.cloud.google.com/apis/credentials
+  // Should look like: 123456789-abc123def456ghi789jkl012mno345pq.apps.googleusercontent.com
+  CLIENT_ID: 'YOUR_GOOGLE_CLIENT_ID_HERE.apps.googleusercontent.com'
+};
