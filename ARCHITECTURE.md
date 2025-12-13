@@ -1,9 +1,21 @@
-# AI Newsletter Generator - Architecture Reference
+# AI Newsletter Generator v2 - Architecture Reference
 
 > **Comprehensive technical documentation** for understanding, maintaining, and extending the AI Newsletter Generator application.
 
 **Last Updated:** December 2024
+**Version:** 2.0 (Refactored)
 **Status:** Production-ready MVP
+
+## What's New in v2
+
+| Improvement | Before | After |
+|-------------|--------|-------|
+| **Token Cost** | ~12,000 tokens/newsletter | <5,000 tokens (65% reduction) |
+| **State Management** | 30+ variables in App.tsx | Modular hooks in `/hooks/` |
+| **Mock Data** | 200+ lines fake data | Real data only with graceful fallbacks |
+| **Testing** | None | 24 unit tests with Vitest |
+| **Error Handling** | Ad-hoc | Error boundaries + typed errors |
+| **Progress UI** | Simple gauge | Stage-based progress with indicators |
 
 ---
 
@@ -108,13 +120,25 @@ The AI Newsletter Generator automates the creation and distribution of AI-powere
 
 ```
 /
-├── App.tsx                          # Main React app (41KB) - State hub
-├── server.ts                        # Express backend (74KB) - All API endpoints
+├── App.tsx                          # Main React app - orchestrates pages
+├── server.ts                        # Express backend - API endpoints
 ├── types.ts                         # TypeScript interfaces
-├── vite.config.ts                   # Vite configuration
+├── vite.config.ts                   # Vite + Vitest configuration
 ├── tsconfig.json                    # TypeScript configuration
 ├── package.json                     # Dependencies & scripts
 ├── .env.local                       # Environment variables (not committed)
+│
+├── hooks/                           # Custom React hooks (v2 NEW)
+│   ├── index.ts                     # Hook exports
+│   ├── useNewsletterGeneration.ts   # Newsletter state, generate, edit
+│   ├── useTopicSelection.ts         # Topics, suggestions, trending
+│   ├── useGoogleWorkspace.ts        # OAuth, Drive, Sheets, Gmail
+│   ├── usePresets.ts                # Preset save/load/delete
+│   ├── useHistory.ts                # Generation history management
+│   └── __tests__/                   # Hook unit tests (v2 NEW)
+│       ├── useNewsletterGeneration.test.ts
+│       ├── usePresets.test.ts
+│       └── useHistory.test.ts
 │
 ├── pages/                           # Page components (7 files)
 │   ├── AuthenticationPage.tsx       # Google OAuth login
@@ -125,7 +149,7 @@ The AI Newsletter Generator automates the creation and distribution of AI-powere
 │   ├── HistoryContentPage.tsx       # History browser
 │   └── SubscriberManagementPage.tsx # Subscriber CRUD
 │
-├── components/                      # UI components (15 files)
+├── components/                      # UI components (17 files)
 │   ├── Header.tsx                   # Top navigation
 │   ├── SideNavigation.tsx           # Page navigation
 │   ├── NewsletterPreview.tsx        # Newsletter display/edit
@@ -138,9 +162,21 @@ The AI Newsletter Generator automates the creation and distribution of AI-powere
 │   ├── InspirationSources.tsx       # Web sources display
 │   ├── InspirationSourcesPanel.tsx  # Sources panel
 │   ├── EditableText.tsx             # Inline editing
-│   ├── ProgressGauge.tsx            # Progress display
+│   ├── ProgressGauge.tsx            # Circular progress display
+│   ├── GenerationProgress.tsx       # Stage-based progress (v2 NEW)
 │   ├── Spinner.tsx                  # Loading indicator
 │   └── IconComponents.tsx           # 20+ SVG icons
+│
+├── src/
+│   ├── components/
+│   │   └── ErrorBoundary.tsx        # React error boundaries (v2 NEW)
+│   ├── types/
+│   │   └── apiContracts.ts          # Zod schemas & API types (v2 NEW)
+│   └── test/
+│       └── setup.ts                 # Vitest test setup (v2 NEW)
+│
+├── __mocks__/                       # Test mocks (v2 NEW)
+│   └── services.ts                  # Mock API services
 │
 ├── services/                        # Service layer (6 files)
 │   ├── claudeService.ts             # Backend API client
@@ -158,6 +194,11 @@ The AI Newsletter Generator automates the creation and distribution of AI-powere
 │
 ├── lib/                             # Shared libraries
 │   └── supabase.ts                  # Supabase client config
+│
+├── docs/                            # Documentation (v2 NEW)
+│   ├── API_CONTRACTS.md             # Request/response schemas
+│   ├── ERROR_HANDLING.md            # Error types & recovery
+│   └── TESTING_STRATEGY.md          # Test approach
 │
 └── supabase/                        # Supabase configuration
     ├── config.toml                  # Project config
@@ -522,7 +563,8 @@ Fetches trending data from 6 external sources.
 | GitHub | Search API | Python, 1000+ stars, return 15 |
 | Reddit | JSON API | 12 subreddits, top posts |
 | Dev.to | Public API | AI tag, return 8 |
-| Product Hunt | (mocked) | Return 10 |
+
+**Note:** Product Hunt mock data was removed in v2. All sources now use real data only.
 
 ---
 
@@ -715,6 +757,166 @@ Proxies requests to Claude API using stored encrypted key.
 Proxies requests to Gemini API using stored encrypted key.
 
 Same pattern as `/claude-api/*`.
+
+---
+
+## 3.5 Custom Hooks (v2 NEW)
+
+The v2 refactor extracts state management from App.tsx into focused custom hooks in `/hooks/`.
+
+### useNewsletterGeneration
+
+**Purpose:** Manages newsletter generation state and actions.
+
+**File:** `hooks/useNewsletterGeneration.ts`
+
+**Returns:**
+```typescript
+{
+  // State
+  newsletter: Newsletter | null;
+  loading: string | null;        // Current loading message
+  progress: number;              // 0-100
+  error: ErrorState | null;
+  editingImage: EditingImage | null;
+
+  // Actions
+  generate: (params: GenerateParams) => Promise<Newsletter | null>;
+  reset: () => void;
+  setNewsletter: Dispatch<SetStateAction<Newsletter | null>>;
+  setEditingImage: Dispatch<SetStateAction<EditingImage | null>>;
+  clearError: () => void;
+
+  // Newsletter editing
+  updateNewsletter: (field, value, sectionIndex?) => void;
+  reorderSections: (newSections) => void;
+  saveImageEdit: (newImageUrl) => void;
+}
+```
+
+**Usage:**
+```typescript
+const { newsletter, loading, progress, generate, reset } = useNewsletterGeneration();
+
+await generate({
+  topics: ['AI tools'],
+  audience: ['business'],
+  tone: 'professional',
+  flavors: [],
+  imageStyle: 'photorealistic'
+});
+```
+
+---
+
+### useTopicSelection
+
+**Purpose:** Manages topic selection, AI suggestions, and trending content.
+
+**File:** `hooks/useTopicSelection.ts`
+
+**Returns:**
+```typescript
+{
+  // State
+  selectedTopics: string[];
+  customTopic: string;
+  suggestedTopics: string[];
+  trendingContent: TrendingTopic[] | null;
+  compellingContent: any;
+  trendingSources: TrendingSource[];
+  isGeneratingTopics: boolean;
+  isFetchingTrending: boolean;
+  error: ErrorState | null;
+
+  // Actions
+  setCustomTopic: (topic) => void;
+  addTopic: () => void;
+  removeTopic: (index) => void;
+  selectSuggestedTopic: (topic) => void;
+  addTrendingTopic: (topic) => void;
+
+  // Async actions
+  generateSuggestions: (audience) => Promise<void>;
+  fetchTrendingContent: (audience) => Promise<void>;
+  clearError: () => void;
+}
+```
+
+---
+
+### useGoogleWorkspace
+
+**Purpose:** Manages Google OAuth authentication and workspace operations.
+
+**File:** `hooks/useGoogleWorkspace.ts`
+
+**Returns:**
+```typescript
+{
+  // Auth state
+  authData: GapiAuthData | null;
+  isGoogleApiInitialized: boolean;
+  isAuthenticated: boolean;
+
+  // Settings
+  googleSettings: GoogleSettings | null;
+  setGoogleSettings: Dispatch<SetStateAction<GoogleSettings | null>>;
+  saveSettings: (settings) => void;
+
+  // Workflow
+  workflowStatus: WorkflowStatus | null;
+  workflowActions: WorkflowActions;
+
+  // Actions
+  signIn: () => Promise<void>;
+  signOut: () => Promise<void>;
+  executeWorkflowAction: (action, newsletter, topics, lists?) => Promise<void>;
+  saveToDrive: (newsletter, topics) => Promise<string>;
+  loadFromDrive: (fileId) => Promise<{ newsletter, topics }>;
+}
+```
+
+---
+
+### usePresets
+
+**Purpose:** Manages preset save/load/delete with local storage and cloud sync.
+
+**File:** `hooks/usePresets.ts`
+
+**Returns:**
+```typescript
+{
+  presets: Preset[];
+  savePreset: (name, settings) => void;
+  loadPreset: (preset) => Preset['settings'];
+  deletePreset: (name) => void;
+  syncToCloud: (accessToken) => Promise<void>;
+  loadFromCloud: (accessToken) => Promise<void>;
+}
+```
+
+---
+
+### useHistory
+
+**Purpose:** Manages newsletter generation history with local storage persistence.
+
+**File:** `hooks/useHistory.ts`
+
+**Returns:**
+```typescript
+{
+  history: HistoryItem[];
+  addToHistory: (newsletter, topics) => void;
+  loadFromHistory: (item) => { newsletter, topics };
+  clearHistory: () => void;
+  loadFromGoogleSheets: (settings, accessToken) => Promise<void>;
+}
+```
+
+**Note:** History is limited to 50 items to prevent localStorage quota issues.
 
 ---
 
@@ -1810,6 +2012,10 @@ export default GOOGLE_CONFIG;
 | `build` | `tsc && vite build` | Production build |
 | `lint` | `eslint . --ext ts,tsx --max-warnings 0` | Lint code |
 | `preview` | `vite preview` | Preview production build |
+| `test` | `vitest` | Run tests in watch mode (v2 NEW) |
+| `test:unit` | `vitest run` | Run tests once (v2 NEW) |
+| `test:watch` | `vitest watch` | Run tests in watch mode (v2 NEW) |
+| `test:coverage` | `vitest run --coverage` | Run tests with coverage (v2 NEW) |
 
 ### 9.4 TypeScript Configuration
 
@@ -1988,7 +2194,7 @@ interface TrendingSource {
   author?: string;
   publication?: string;
   date?: string;
-  category: 'hackernews' | 'arxiv' | 'github' | 'reddit' | 'dev' | 'producthunt';
+  category: 'hackernews' | 'arxiv' | 'github' | 'reddit' | 'dev';  // v2: removed 'producthunt'
   summary?: string;
   score?: number;
 }
@@ -2044,6 +2250,67 @@ interface ApiKeyAuditLog {
   created_at: string;
 }
 ```
+
+---
+
+## 11. Testing (v2 NEW)
+
+### 11.1 Test Infrastructure
+
+**Framework:** Vitest with React Testing Library
+
+**Configuration:** `vite.config.ts`
+```typescript
+export default defineConfig({
+  test: {
+    globals: true,
+    environment: 'jsdom',
+    setupFiles: './src/test/setup.ts',
+    include: ['**/*.{test,spec}.{ts,tsx}'],
+    exclude: ['node_modules', 'dist'],
+  },
+})
+```
+
+### 11.2 Test Files
+
+| File | Tests | Purpose |
+|------|-------|---------|
+| `useNewsletterGeneration.test.ts` | 10 | Validation, generation, errors, reset |
+| `usePresets.test.ts` | 7 | Save, load, delete, ordering |
+| `useHistory.test.ts` | 7 | Add, load, clear, limit management |
+
+### 11.3 Mock Services
+
+**File:** `__mocks__/services.ts`
+
+Provides pre-defined responses for:
+- `generateNewsletterContent` - Returns mock newsletter JSON
+- `generateImage` - Returns base64 placeholder
+- `generateTopicSuggestions` - Returns mock topic array
+- `generateCompellingTrendingContent` - Returns mock actionable content
+- `savePresetsToCloud` / `loadPresetsFromCloud` - Mock cloud operations
+
+### 11.4 Running Tests
+
+```bash
+# Interactive watch mode
+npm test
+
+# Single run (CI/CD)
+npm run test:unit
+
+# With coverage report
+npm run test:coverage
+```
+
+### 11.5 Test Setup
+
+**File:** `src/test/setup.ts`
+
+- Mocks `localStorage` with vitest spies
+- Suppresses console.log/warn in tests
+- Resets mocks between tests via `beforeEach`
 
 ---
 
