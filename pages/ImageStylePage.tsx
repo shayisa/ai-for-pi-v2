@@ -1,5 +1,7 @@
 import React from 'react';
+import { motion } from 'framer-motion';
 import { ImageIcon } from '../components/IconComponents';
+import { fadeInUp, staggerContainer, staggerItem } from '../utils/animations';
 
 interface ImageStylePageProps {
     selectedImageStyle: string;
@@ -13,21 +15,40 @@ export const ImageStylePage: React.FC<ImageStylePageProps> = ({
     imageStyleOptions,
 }) => {
     return (
-        <div className="space-y-8">
-            <h1 className="text-3xl md:text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-accent-light-blue to-accent-salmon mb-6">
-                Select Image Style
-            </h1>
+        <motion.div
+            variants={fadeInUp}
+            initial="hidden"
+            animate="visible"
+            className="space-y-10"
+        >
+            {/* Page Header */}
+            <header className="border-b-2 border-ink pb-6">
+                <h1 className="font-display text-h1 text-ink">
+                    Image Style
+                </h1>
+                <p className="font-serif text-body text-slate mt-2">
+                    Choose the visual aesthetic for generated images
+                </p>
+            </header>
 
-            {/* Select Image Style */}
-            <div className="bg-white rounded-2xl shadow-lg p-6 md:p-8 border border-border-light">
-                <h2 className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-accent-muted-blue to-accent-salmon mb-4 flex items-center gap-2">
-                    <ImageIcon className="h-6 w-6" />
-                    1. Choose Image Aesthetic
-                </h2>
-                <p className="text-secondary-text mb-6">Determine the artistic style for all AI-generated images in your newsletter.</p>
-                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
+            {/* Image Style Selection */}
+            <section className="bg-paper border border-border-subtle p-8">
+                <div className="flex items-baseline gap-3 mb-4">
+                    <span className="text-overline text-slate uppercase tracking-widest font-sans">Select</span>
+                    <h2 className="font-display text-h3 text-ink">Image Aesthetic</h2>
+                </div>
+                <p className="font-sans text-ui text-slate mb-6">
+                    Determine the artistic style for all AI-generated images
+                </p>
+
+                <motion.div
+                    variants={staggerContainer}
+                    initial="hidden"
+                    animate="visible"
+                    className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4"
+                >
                     {Object.entries(imageStyleOptions).map(([key, { label, description }]) => (
-                        <div key={key}>
+                        <motion.div key={key} variants={staggerItem}>
                             <input
                                 type="radio"
                                 id={`style-${key}`}
@@ -37,21 +58,25 @@ export const ImageStylePage: React.FC<ImageStylePageProps> = ({
                                 onChange={() => setSelectedImageStyle(key)}
                                 className="sr-only peer"
                             />
-                            <label 
+                            <label
                                 htmlFor={`style-${key}`}
-                                className="flex flex-col items-center text-center p-3 rounded-lg bg-gray-50 border border-border-light hover:bg-gray-100 transition cursor-pointer peer-checked:bg-accent-salmon peer-checked:border-transparent"
+                                className={`
+                                    flex flex-col items-center text-center p-6 cursor-pointer transition-all duration-200
+                                    border ${selectedImageStyle === key
+                                        ? 'border-ink bg-ink text-paper'
+                                        : 'border-border-subtle bg-paper hover:bg-pearl text-ink'}
+                                `}
                             >
-                                {/* Removed image block, displaying ImageIcon and text directly */}
-                                <div className="flex flex-col items-center justify-center mb-2">
-                                    <ImageIcon className="h-10 w-10 text-gray-400 peer-checked:text-white mb-2" />
-                                    <span className="font-medium text-primary-text peer-checked:text-white">{label}</span>
-                                </div>
-                                <p className="text-sm text-secondary-text peer-checked:text-white/90 mt-1">{description}</p>
+                                <ImageIcon className={`h-10 w-10 mb-3 ${selectedImageStyle === key ? 'text-silver' : 'text-slate'}`} />
+                                <span className="font-sans text-ui font-medium block mb-1">{label}</span>
+                                <p className={`font-sans text-caption ${selectedImageStyle === key ? 'text-silver' : 'text-slate'}`}>
+                                    {description}
+                                </p>
                             </label>
-                        </div>
+                        </motion.div>
                     ))}
-                </div>
-            </div>
-        </div>
+                </motion.div>
+            </section>
+        </motion.div>
     );
 };

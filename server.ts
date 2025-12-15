@@ -6,8 +6,17 @@ import { trendingCache } from './server/cache/trendingCache.ts';
 import { searchCache } from './server/cache/searchCache.ts';
 import * as archiveService from './server/services/archiveService.ts';
 import * as newsletterDbService from './server/services/newsletterDbService.ts';
+import * as promptDbService from './server/services/promptDbService.ts';
 import * as subscriberDbService from './server/services/subscriberDbService.ts';
 import * as apiKeyDbService from './server/services/apiKeyDbService.ts';
+import * as googleOAuthService from './server/services/googleOAuthService.ts';
+import * as googleDriveService from './server/services/googleDriveService.ts';
+import * as googleGmailService from './server/services/googleGmailService.ts';
+import * as sourceFetchingService from './server/services/sourceFetchingService.ts';
+import * as articleExtractorService from './server/services/articleExtractorService.ts';
+import * as audienceGenerationService from './server/services/audienceGenerationService.ts';
+import * as logDbService from './server/services/logDbService.ts';
+import type { EnhancedNewsletter, AudienceConfig } from './types.ts';
 
 // Load environment variables
 dotenv.config({ path: '.env.local' });
@@ -884,7 +893,7 @@ You have access to web search to find the latest, most relevant information. The
 
     // Agentic loop for tool use
     let response = await (await getAnthropicClient()).messages.create({
-      model: "claude-3-5-sonnet-20241022",
+      model: "claude-sonnet-4-20250514",
       max_tokens: 4096,
       system: systemPrompt,
       tools: [webSearchTool],
@@ -928,7 +937,7 @@ You have access to web search to find the latest, most relevant information. The
       });
 
       response = await (await getAnthropicClient()).messages.create({
-        model: "claude-3-5-sonnet-20241022",
+        model: "claude-sonnet-4-20250514",
         max_tokens: 4096,
         system: systemPrompt,
         tools: [webSearchTool],
@@ -936,8 +945,49 @@ You have access to web search to find the latest, most relevant information. The
       });
     }
 
-    if (iterations >= MAX_SEARCH_ITERATIONS) {
-      console.log(`[Newsletter] Reached max iterations (${MAX_SEARCH_ITERATIONS}), proceeding with current results`);
+    // If we hit max iterations and response is still tool_use, force a final text response
+    if (iterations >= MAX_SEARCH_ITERATIONS && response.stop_reason === "tool_use") {
+      console.log(`[Newsletter] Reached max iterations (${MAX_SEARCH_ITERATIONS}), forcing final response`);
+
+      // Extract tool_use blocks from response
+      const toolUseBlocks = response.content.filter(
+        (block): block is Anthropic.Messages.ToolUseBlock => block.type === "tool_use"
+      );
+
+      // Add the assistant message with tool_use
+      messages.push({
+        role: "assistant",
+        content: response.content,
+      });
+
+      // Add tool_result blocks for each tool_use (required by API)
+      // Include an explicit instruction after the tool results
+      const toolResultContent: (Anthropic.Messages.ToolResultBlockParam | Anthropic.Messages.TextBlockParam)[] = [
+        ...toolUseBlocks.map(block => ({
+          type: "tool_result" as const,
+          tool_use_id: block.id,
+          content: "[Max iterations reached - proceeding with gathered information]",
+        })),
+        {
+          type: "text" as const,
+          text: "Now please generate the newsletter based on the search results you gathered. Return only the JSON response.",
+        }
+      ];
+
+      messages.push({
+        role: "user",
+        content: toolResultContent,
+      });
+
+      // Final call WITHOUT tools to force text output
+      response = await (await getAnthropicClient()).messages.create({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 4096,
+        system: systemPrompt,
+        messages: messages,
+      });
+      console.log('[Newsletter] Final response stop_reason:', response.stop_reason);
+      console.log('[Newsletter] Final response content types:', response.content.map(b => b.type));
     }
 
     const textBlock = response.content.find(
@@ -952,6 +1002,30 @@ You have access to web search to find the latest, most relevant information. The
     try {
       const newsletter = JSON.parse(textBlock.text);
       const sanitized = sanitizeNewsletter(newsletter);
+
+      // Auto-save newsletter to SQLite
+      const newsletterId = `nl_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+      try {
+        newsletterDbService.saveNewsletter(
+          {
+            id: newsletterId,
+            subject: sanitized.subject || 'Untitled Newsletter',
+            introduction: sanitized.introduction || '',
+            sections: sanitized.sections || [],
+            conclusion: sanitized.conclusion || '',
+            promptOfTheDay: sanitized.promptOfTheDay,
+          },
+          topics,
+          { audience, tone, imageStyle }
+        );
+        console.log(`[Newsletter] Auto-saved to SQLite: ${newsletterId}`);
+        // Include the ID in the response so frontend knows the saved ID
+        sanitized.id = newsletterId;
+      } catch (saveError) {
+        console.error('[Newsletter] Failed to auto-save:', saveError);
+        // Continue even if save fails - newsletter was still generated
+      }
+
       res.json({ text: JSON.stringify(sanitized) });
     } catch {
       // If JSON parsing fails, return the text as-is
@@ -963,6 +1037,275 @@ You have access to web search to find the latest, most relevant information. The
     console.error("Full error:", error);
     res.status(500).json({ error: "Failed to generate newsletter", details: errorMessage });
   }
+});
+
+// ============================================================================
+// Enhanced Newsletter Generation (v2 Format)
+// ============================================================================
+
+// Generate Enhanced Newsletter with multi-source fetching and structured format
+app.post("/api/generateEnhancedNewsletter", async (req, res) => {
+  try {
+    const { topics, audiences, imageStyle, promptOfTheDay: userPromptOfTheDay } = req.body as {
+      topics: string[];
+      audiences: AudienceConfig[];
+      imageStyle?: string;
+      promptOfTheDay?: {
+        title: string;
+        summary: string;
+        examplePrompts: string[];
+        promptCode: string;
+      } | null;
+    };
+
+    console.log('[EnhancedNewsletter] Starting generation for audiences:', audiences.map(a => a.name));
+    if (userPromptOfTheDay) {
+      console.log('[EnhancedNewsletter] User-supplied promptOfTheDay:', userPromptOfTheDay.title);
+    }
+
+    // Step 1: Collect keywords and config from all audiences
+    const allKeywords: string[] = [];
+    const allSubreddits: string[] = [];
+    const allArxivCategories: string[] = [];
+
+    for (const audience of audiences) {
+      if (audience.generated) {
+        allKeywords.push(...(audience.generated.relevance_keywords || []));
+        allSubreddits.push(...(audience.generated.subreddits || []));
+        allArxivCategories.push(...(audience.generated.arxiv_categories || []));
+      }
+    }
+
+    // Add topics to keywords
+    allKeywords.push(...topics);
+
+    // Deduplicate
+    const uniqueKeywords = [...new Set(allKeywords)].slice(0, 10);
+    const uniqueSubreddits = [...new Set(allSubreddits)].slice(0, 5);
+    const uniqueArxivCategories = [...new Set(allArxivCategories)].slice(0, 4);
+
+    // Step 2: Fetch sources from multiple APIs
+    console.log('[EnhancedNewsletter] Fetching sources...');
+    const sourceResult = await sourceFetchingService.fetchAllSources({
+      keywords: uniqueKeywords,
+      subreddits: uniqueSubreddits,
+      arxivCategories: uniqueArxivCategories,
+      limit: 5,
+    });
+    console.log(`[EnhancedNewsletter] Fetched ${sourceResult.totalCount} articles`);
+
+    // Step 3: Extract article content
+    console.log('[EnhancedNewsletter] Extracting article content...');
+    const extractionResult = await articleExtractorService.extractMultipleArticles(
+      sourceResult.articles,
+      { maxArticles: 10, maxContentLength: 3000, delayMs: 200 }
+    );
+    console.log(`[EnhancedNewsletter] Extracted ${extractionResult.successCount} articles`);
+
+    // Step 4: Build source context for Claude
+    const sourceContext = articleExtractorService.buildSourceContext(
+      extractionResult.extracted,
+      { maxTotalLength: 25000, maxPerArticle: 2000 }
+    );
+
+    // Step 5: Build audience descriptions
+    const audienceDescriptions = audienceGenerationService.getAudiencePromptDescription(audiences);
+
+    // Step 6: Generate enhanced newsletter with Claude
+    console.log('[EnhancedNewsletter] Generating newsletter with Claude...');
+
+    const enhancedSystemPrompt = `You are an expert newsletter writer for "AI for PI" - a newsletter helping professionals leverage AI tools in their work.
+
+Your task is to generate a newsletter in the ENHANCED FORMAT with:
+1. Editor's Note - Personal, conversational opening that sets the tone (2-3 sentences)
+2. Tool of the Day - One standout tool featured prominently from the sources
+3. Audience Sections - ONE section per audience with specific relevance
+4. Practical Prompts - Ready-to-use AI prompts for each section
+5. CTAs - Clear calls to action
+6. Source Citations - Every claim cites its source URL
+7. Prompt of the Day - A featured prompt technique with title, summary, example variations, and full structured promptCode with XML-like tags
+
+RULES:
+- Every factual claim MUST cite its source URL from the provided sources
+- Each audience section MUST have a "Why It Matters" explanation specific to that audience
+- Practical prompts should be immediately usable - copy-paste ready
+- Keep the tone authoritative but accessible
+- NO hallucinated tools or statistics - use ONLY what's in the provided sources
+- Do NOT use emojis in titles or section headers
+
+Return ONLY valid JSON matching this exact schema (no markdown, no explanation):
+{
+  "editorsNote": { "message": "string" },
+  "toolOfTheDay": { "name": "string", "url": "string", "whyNow": "string", "quickStart": "string" },
+  "audienceSections": [{
+    "audienceId": "string",
+    "audienceName": "string",
+    "title": "string",
+    "whyItMatters": "string",
+    "content": "string (can include <a href='url'>text</a> links)",
+    "practicalPrompt": { "scenario": "string", "prompt": "string", "isToolSpecific": boolean },
+    "cta": { "text": "string", "action": "copy_prompt" },
+    "sources": [{ "url": "string", "title": "string" }],
+    "imagePrompt": "string - A descriptive prompt for AI image generation showing this concept visually"
+  }],
+  "promptOfTheDay": {
+    "title": "string - A catchy title for the featured prompt technique",
+    "summary": "string - 2-3 sentences explaining what this prompt technique does and why it's valuable",
+    "examplePrompts": ["string - 3 example variations of how to use this prompt technique"],
+    "promptCode": "string - The full structured prompt with XML-like tags (e.g., <role>...</role><context>...</context><task>...</task>)"
+  },
+  "conclusion": "string",
+  "subject": "string - A compelling email subject line"
+}`;
+
+    const enhancedUserPrompt = `Generate an enhanced newsletter for these audiences:
+
+AUDIENCES:
+${audienceDescriptions}
+
+TOPICS TO COVER:
+${topics.join(', ')}
+
+SOURCE CONTENT (use these for citations):
+${sourceContext}
+
+Generate the newsletter JSON now. Remember:
+- ONE section per audience (${audiences.length} sections total)
+- Cite sources with URLs from the SOURCE CONTENT above
+- Include practical, ready-to-use prompts that readers can copy directly
+- Make "Why It Matters" specific and compelling for each audience
+- Include an imagePrompt for each section - a descriptive prompt for AI image generation
+- Include a compelling subject line for the email
+- Include promptOfTheDay with a useful prompt technique - include title, summary, 3 examplePrompts variations, and full promptCode with XML-style tags like <role>, <context>, <task>, etc.`;
+
+    const response = await (await getAnthropicClient()).messages.create({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 4096,
+      system: enhancedSystemPrompt,
+      messages: [{ role: "user", content: enhancedUserPrompt }],
+    });
+
+    const textBlock = response.content.find(
+      (block): block is Anthropic.Messages.TextBlock => block.type === "text"
+    );
+
+    if (!textBlock) {
+      throw new Error("No text response from Claude");
+    }
+
+    // Parse JSON response
+    let jsonText = textBlock.text.trim();
+    if (jsonText.startsWith('```')) {
+      jsonText = jsonText.replace(/^```json?\n?/, '').replace(/\n?```$/, '');
+    }
+
+    const newsletter: EnhancedNewsletter = JSON.parse(jsonText);
+
+    // If user supplied a promptOfTheDay, use it instead of the LLM-generated one
+    if (userPromptOfTheDay) {
+      newsletter.promptOfTheDay = userPromptOfTheDay;
+      console.log('[EnhancedNewsletter] Using user-supplied promptOfTheDay:', userPromptOfTheDay.title);
+    }
+
+    // Generate a subject from the content
+    newsletter.subject = newsletter.audienceSections[0]?.title ||
+      `AI Tools Update: ${newsletter.toolOfTheDay?.name || 'This Week'}`;
+
+    // Auto-save to SQLite
+    const newsletterId = `enl_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+    try {
+      newsletterDbService.saveEnhancedNewsletter(
+        { ...newsletter, id: newsletterId },
+        topics,
+        { audience: audiences.map(a => a.id), imageStyle }
+      );
+      console.log(`[EnhancedNewsletter] Saved to SQLite: ${newsletterId}`);
+      newsletter.id = newsletterId;
+    } catch (saveError) {
+      console.error('[EnhancedNewsletter] Failed to save:', saveError);
+    }
+
+    console.log('[EnhancedNewsletter] Generation complete');
+    res.json({ newsletter, sources: sourceResult.sources });
+
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("Error generating enhanced newsletter:", errorMessage);
+    res.status(500).json({ error: "Failed to generate enhanced newsletter", details: errorMessage });
+  }
+});
+
+// Generate Audience Configuration using AI
+app.post("/api/generateAudienceConfig", async (req, res) => {
+  try {
+    const { name, description } = req.body as { name: string; description: string };
+
+    if (!name || !description) {
+      return res.status(400).json({ error: "Name and description are required" });
+    }
+
+    // Get API key
+    const adminEmail = process.env.ADMIN_EMAIL;
+    let apiKey = adminEmail ? apiKeyDbService.getApiKey(adminEmail, 'claude') : null;
+    if (!apiKey) {
+      apiKey = process.env.VITE_ANTHROPIC_API_KEY || null;
+    }
+
+    if (!apiKey) {
+      return res.status(500).json({ error: "Claude API key not configured" });
+    }
+
+    const result = await audienceGenerationService.generateAudienceConfig(
+      apiKey,
+      name,
+      description
+    );
+
+    if (!result.success) {
+      return res.status(500).json({ error: result.error || "Failed to generate config" });
+    }
+
+    res.json({
+      config: result.config,
+      timeMs: result.timeMs,
+      tokensUsed: result.tokensUsed,
+    });
+
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("Error generating audience config:", errorMessage);
+    res.status(500).json({ error: "Failed to generate audience config", details: errorMessage });
+  }
+});
+
+// Fetch sources from multiple APIs
+app.get("/api/fetchMultiSources", async (req, res) => {
+  try {
+    const keywords = (req.query.keywords as string)?.split(',') || ['artificial intelligence'];
+    const subreddits = (req.query.subreddits as string)?.split(',') || ['MachineLearning'];
+    const arxivCategories = (req.query.arxiv as string)?.split(',') || ['cs.AI'];
+    const limit = parseInt(req.query.limit as string) || 5;
+
+    const result = await sourceFetchingService.fetchAllSources({
+      keywords,
+      subreddits,
+      arxivCategories,
+      limit,
+    });
+
+    res.json(result);
+
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("Error fetching sources:", errorMessage);
+    res.status(500).json({ error: "Failed to fetch sources", details: errorMessage });
+  }
+});
+
+// Get default audiences with their generated configs
+app.get("/api/defaultAudiences", (_req, res) => {
+  const audiences = audienceGenerationService.getDefaultAudiences();
+  res.json({ audiences });
 });
 
 // Generate Topic Suggestions (based on real trending sources)
@@ -1043,7 +1386,7 @@ app.post("/api/generateTopicSuggestions", async (req, res) => {
     ];
 
     let response = await (await getAnthropicClient()).messages.create({
-      model: "claude-3-5-sonnet-20241022",
+      model: "claude-sonnet-4-20250514",
       max_tokens: 2048,
       system: systemPrompt,
       tools: [webSearchTool],
@@ -1087,10 +1430,36 @@ app.post("/api/generateTopicSuggestions", async (req, res) => {
       });
 
       response = await (await getAnthropicClient()).messages.create({
-        model: "claude-3-5-sonnet-20241022",
+        model: "claude-sonnet-4-20250514",
         max_tokens: 2048,
         system: systemPrompt,
         tools: [webSearchTool],
+        messages: messages,
+      });
+    }
+
+    // If we hit max iterations and response is still tool_use, force a final text response
+    if (suggestIterations >= MAX_SEARCH_ITERATIONS && response.stop_reason === "tool_use") {
+      console.log(`[TopicSuggestions] Reached max iterations, forcing final response`);
+      const toolUseBlocks = response.content.filter(
+        (block): block is Anthropic.Messages.ToolUseBlock => block.type === "tool_use"
+      );
+      messages.push({ role: "assistant", content: response.content });
+      messages.push({
+        role: "user",
+        content: [
+          ...toolUseBlocks.map(block => ({
+            type: "tool_result" as const,
+            tool_use_id: block.id,
+            content: "[Max iterations reached]",
+          })),
+          { type: "text" as const, text: "Now please generate the topic suggestions based on the search results." }
+        ],
+      });
+      response = await (await getAnthropicClient()).messages.create({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 2048,
+        system: systemPrompt,
         messages: messages,
       });
     }
@@ -1178,7 +1547,7 @@ app.post("/api/generateTrendingTopics", async (req, res) => {
     ];
 
     let response = await (await getAnthropicClient()).messages.create({
-      model: "claude-3-5-sonnet-20241022",
+      model: "claude-sonnet-4-20250514",
       max_tokens: 2048,
       system: systemPrompt,
       tools: [webSearchTool],
@@ -1222,10 +1591,36 @@ app.post("/api/generateTrendingTopics", async (req, res) => {
       });
 
       response = await (await getAnthropicClient()).messages.create({
-        model: "claude-3-5-sonnet-20241022",
+        model: "claude-sonnet-4-20250514",
         max_tokens: 2048,
         system: systemPrompt,
         tools: [webSearchTool],
+        messages: messages,
+      });
+    }
+
+    // If we hit max iterations and response is still tool_use, force a final text response
+    if (trendingIterations >= MAX_SEARCH_ITERATIONS && response.stop_reason === "tool_use") {
+      console.log(`[TrendingTopics] Reached max iterations, forcing final response`);
+      const toolUseBlocks = response.content.filter(
+        (block): block is Anthropic.Messages.ToolUseBlock => block.type === "tool_use"
+      );
+      messages.push({ role: "assistant", content: response.content });
+      messages.push({
+        role: "user",
+        content: [
+          ...toolUseBlocks.map(block => ({
+            type: "tool_result" as const,
+            tool_use_id: block.id,
+            content: "[Max iterations reached]",
+          })),
+          { type: "text" as const, text: "Now please generate the trending topics based on the search results." }
+        ],
+      });
+      response = await (await getAnthropicClient()).messages.create({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 2048,
+        system: systemPrompt,
         messages: messages,
       });
     }
@@ -1343,6 +1738,32 @@ app.post("/api/generateTrendingTopicsWithSources", async (req, res) => {
       });
     }
 
+    // If we hit max iterations and response is still tool_use, force a final text response
+    if (srcIterations >= MAX_SEARCH_ITERATIONS && response.stop_reason === "tool_use") {
+      console.log(`[TrendingWithSources] Reached max iterations, forcing final response`);
+      const toolUseBlocks = response.content.filter(
+        (block): block is Anthropic.Messages.ToolUseBlock => block.type === "tool_use"
+      );
+      messages.push({ role: "assistant", content: response.content });
+      messages.push({
+        role: "user",
+        content: [
+          ...toolUseBlocks.map(block => ({
+            type: "tool_result" as const,
+            tool_use_id: block.id,
+            content: "[Max iterations reached]",
+          })),
+          { type: "text" as const, text: "Now please generate the trending topics with sources based on the search results." }
+        ],
+      });
+      response = await (await getAnthropicClient()).messages.create({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 2048,
+        system: systemPrompt,
+        messages: messages,
+      });
+    }
+
     const textBlock = response.content.find(
       (block): block is Anthropic.Messages.TextBlock => block.type === "text"
     );
@@ -1364,12 +1785,17 @@ app.post("/api/generateTrendingTopicsWithSources", async (req, res) => {
 app.post("/api/generateImage", async (req, res) => {
   try {
     const { prompt, imageStyle } = req.body;
+    const adminEmail = process.env.ADMIN_EMAIL;
 
     if (!prompt) {
       return res.status(400).json({ error: "Prompt is required" });
     }
 
-    const stabilityApiKey = process.env.VITE_STABILITY_API_KEY;
+    // Get Stability API key from SQLite first, fallback to env var
+    let stabilityApiKey = adminEmail ? apiKeyDbService.getApiKey(adminEmail, 'stability') : null;
+    if (!stabilityApiKey) {
+      stabilityApiKey = process.env.VITE_STABILITY_API_KEY || null;
+    }
     if (!stabilityApiKey) {
       return res.status(500).json({ error: "Stability AI API key not configured" });
     }
@@ -1732,11 +2158,11 @@ app.get("/api/archives/search/:query", (req, res) => {
 // NEWSLETTER MANAGEMENT ENDPOINTS
 // ===================================================================
 
-// Get all newsletters (newest first)
+// Get all newsletters with format version (newest first) - supports v1 and v2
 app.get("/api/newsletters", (req, res) => {
   try {
     const limit = parseInt(req.query.limit as string) || 50;
-    const newsletters = newsletterDbService.getNewsletters(limit);
+    const newsletters = newsletterDbService.getNewslettersWithFormat(limit);
     res.json({ newsletters, count: newsletters.length });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -1745,14 +2171,29 @@ app.get("/api/newsletters", (req, res) => {
   }
 });
 
-// Get single newsletter by ID
-app.get("/api/newsletters/:id", (req, res) => {
+// Get enhanced newsletter by ID (v2 format only) - must come before :id route
+app.get("/api/newsletters/:id/enhanced", (req, res) => {
   try {
-    const newsletter = newsletterDbService.getNewsletterById(req.params.id);
+    const newsletter = newsletterDbService.getEnhancedNewsletterById(req.params.id);
     if (!newsletter) {
-      return res.status(404).json({ error: "Newsletter not found" });
+      return res.status(404).json({ error: "Enhanced newsletter not found or not v2 format" });
     }
     res.json(newsletter);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("Error fetching enhanced newsletter:", errorMessage);
+    res.status(500).json({ error: "Failed to fetch enhanced newsletter", details: errorMessage });
+  }
+});
+
+// Get single newsletter by ID with format detection
+app.get("/api/newsletters/:id", (req, res) => {
+  try {
+    const result = newsletterDbService.getNewsletterByIdWithFormat(req.params.id);
+    if (!result) {
+      return res.status(404).json({ error: "Newsletter not found" });
+    }
+    res.json(result);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     console.error("Error fetching newsletter:", errorMessage);
@@ -1793,6 +2234,32 @@ app.delete("/api/newsletters/:id", (req, res) => {
   }
 });
 
+// Update newsletter sections (to save imageUrls after client-side generation)
+app.patch("/api/newsletters/:id/sections", (req, res) => {
+  try {
+    const { sections, audienceSections, formatVersion } = req.body;
+    let success = false;
+
+    if (formatVersion === 'v2' && audienceSections) {
+      success = newsletterDbService.updateEnhancedNewsletterSections(req.params.id, audienceSections);
+    } else if (sections) {
+      success = newsletterDbService.updateNewsletterSections(req.params.id, sections);
+    } else {
+      return res.status(400).json({ error: "Missing sections or audienceSections" });
+    }
+
+    if (!success) {
+      return res.status(404).json({ error: "Newsletter not found" });
+    }
+
+    res.json({ success: true, message: "Newsletter sections updated" });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("Error updating newsletter sections:", errorMessage);
+    res.status(500).json({ error: "Failed to update newsletter sections", details: errorMessage });
+  }
+});
+
 // Log newsletter action
 app.post("/api/newsletters/:id/log", (req, res) => {
   try {
@@ -1820,6 +2287,78 @@ app.get("/api/newsletters/:id/logs", (req, res) => {
     const errorMessage = error instanceof Error ? error.message : String(error);
     console.error("Error fetching logs:", errorMessage);
     res.status(500).json({ error: "Failed to fetch logs", details: errorMessage });
+  }
+});
+
+// ===================================================================
+// SAVED PROMPTS LIBRARY ENDPOINTS
+// ===================================================================
+
+// Get all saved prompts
+app.get("/api/prompts", (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit as string) || 50;
+    const prompts = promptDbService.getPrompts(limit);
+    const count = promptDbService.getPromptCount();
+    res.json({ prompts, count });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("Error fetching prompts:", errorMessage);
+    res.status(500).json({ error: "Failed to fetch prompts", details: errorMessage });
+  }
+});
+
+// Get single prompt by ID
+app.get("/api/prompts/:id", (req, res) => {
+  try {
+    const prompt = promptDbService.getPromptById(req.params.id);
+    if (!prompt) {
+      return res.status(404).json({ error: "Prompt not found" });
+    }
+    res.json(prompt);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("Error fetching prompt:", errorMessage);
+    res.status(500).json({ error: "Failed to fetch prompt", details: errorMessage });
+  }
+});
+
+// Save new prompt to library
+app.post("/api/prompts", (req, res) => {
+  try {
+    const { title, summary, examplePrompts, promptCode } = req.body;
+
+    if (!title || !promptCode) {
+      return res.status(400).json({ error: "Title and promptCode are required" });
+    }
+
+    const savedPrompt = promptDbService.savePrompt({
+      title,
+      summary: summary || '',
+      examplePrompts: examplePrompts || [],
+      promptCode,
+    });
+
+    res.status(201).json(savedPrompt);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("Error saving prompt:", errorMessage);
+    res.status(500).json({ error: "Failed to save prompt", details: errorMessage });
+  }
+});
+
+// Delete prompt from library
+app.delete("/api/prompts/:id", (req, res) => {
+  try {
+    const deleted = promptDbService.deletePrompt(req.params.id);
+    if (!deleted) {
+      return res.status(404).json({ error: "Prompt not found" });
+    }
+    res.json({ success: true, message: "Prompt deleted successfully" });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("Error deleting prompt:", errorMessage);
+    res.status(500).json({ error: "Failed to delete prompt", details: errorMessage });
   }
 });
 
@@ -2096,7 +2635,7 @@ app.post("/api/keys", async (req, res) => {
       return res.status(400).json({ error: "userEmail, service, and key are required" });
     }
 
-    const validServices = ['claude', 'stability', 'brave', 'google_api_key', 'google_client_id'];
+    const validServices = ['claude', 'stability', 'brave', 'google_api_key', 'google_client_id', 'google_client_secret'];
     if (!validServices.includes(service)) {
       return res.status(400).json({ error: `Invalid service. Must be one of: ${validServices.join(', ')}` });
     }
@@ -2164,11 +2703,16 @@ app.post("/api/keys/:service/validate", async (req, res) => {
         isValid = await validateBraveApiKey(apiKey);
         break;
       case 'google_api_key':
+        // Google API keys start with 'AIza'
+        isValid = apiKey.startsWith('AIza');
+        break;
       case 'google_client_id':
-        // Google keys are validated by format only
-        isValid = service === 'google_api_key'
-          ? apiKey.startsWith('AIza')
-          : apiKey.includes('.apps.googleusercontent.com');
+        // Google Client IDs contain '.apps.googleusercontent.com'
+        isValid = apiKey.includes('.apps.googleusercontent.com');
+        break;
+      case 'google_client_secret':
+        // Google Client Secrets start with 'GOCSPX-'
+        isValid = apiKey.startsWith('GOCSPX-');
         break;
       default:
         return res.status(400).json({ error: "Invalid service type" });
@@ -2182,6 +2726,37 @@ app.post("/api/keys/:service/validate", async (req, res) => {
     const errorMessage = error instanceof Error ? error.message : String(error);
     console.error("Error validating API key:", errorMessage);
     res.status(500).json({ error: "Failed to validate API key", details: errorMessage, isValid: false });
+  }
+});
+
+// Get Google credentials for frontend initialization
+// NOTE: This endpoint exposes Google API Key and Client ID which are semi-public
+// (they're embedded in frontend code anyway). The actual OAuth flow still requires
+// user consent and the redirect URI must match what's configured in Google Cloud Console.
+app.get("/api/keys/google/credentials", (req, res) => {
+  try {
+    const userEmail = req.query.userEmail as string;
+
+    if (!userEmail) {
+      return res.status(400).json({ error: "userEmail query parameter is required" });
+    }
+
+    const apiKey = apiKeyDbService.getApiKey(userEmail, 'google_api_key');
+    const clientId = apiKeyDbService.getApiKey(userEmail, 'google_client_id');
+
+    if (!apiKey && !clientId) {
+      return res.json({ configured: false, apiKey: null, clientId: null });
+    }
+
+    res.json({
+      configured: !!(apiKey && clientId),
+      apiKey: apiKey || null,
+      clientId: clientId || null
+    });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("Error fetching Google credentials:", errorMessage);
+    res.status(500).json({ error: "Failed to fetch Google credentials", details: errorMessage });
   }
 });
 
@@ -2233,6 +2808,346 @@ async function validateBraveApiKey(apiKey: string): Promise<boolean> {
     return false;
   }
 }
+
+// ================== Google OAuth Routes ==================
+
+// Get authorization URL for OAuth consent screen
+app.get("/api/oauth/google/url", (req, res) => {
+  try {
+    const userEmail = req.query.userEmail as string;
+
+    if (!userEmail) {
+      return res.status(400).json({ error: "userEmail query parameter is required" });
+    }
+
+    const url = googleOAuthService.getAuthorizationUrl(userEmail);
+
+    if (!url) {
+      return res.status(400).json({
+        error: "Failed to generate authorization URL. Please configure Google Client ID and Client Secret in Settings."
+      });
+    }
+
+    res.json({ url });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("[OAuth] Error generating auth URL:", errorMessage);
+    res.status(500).json({ error: "Failed to generate authorization URL", details: errorMessage });
+  }
+});
+
+// OAuth callback - handles redirect from Google consent screen
+app.get("/api/oauth/google/callback", async (req, res) => {
+  try {
+    const code = req.query.code as string;
+    const state = req.query.state as string;
+    const error = req.query.error as string;
+
+    // Handle user declining permissions
+    if (error) {
+      console.log("[OAuth] User declined permissions:", error);
+      return res.redirect(`http://localhost:5173/?oauth_error=${encodeURIComponent(error)}`);
+    }
+
+    if (!code || !state) {
+      return res.redirect("http://localhost:5173/?oauth_error=missing_params");
+    }
+
+    // Parse state to get user email
+    const stateData = googleOAuthService.parseState(state);
+    if (!stateData) {
+      return res.redirect("http://localhost:5173/?oauth_error=invalid_state");
+    }
+
+    // Exchange code for tokens
+    const tokens = await googleOAuthService.exchangeCodeForTokens(code, stateData.userEmail);
+
+    if (!tokens) {
+      return res.redirect("http://localhost:5173/?oauth_error=token_exchange_failed");
+    }
+
+    console.log("[OAuth] Successfully authenticated:", stateData.userEmail);
+
+    // Redirect back to frontend with success
+    res.redirect(`http://localhost:5173/?oauth_success=true&email=${encodeURIComponent(stateData.userEmail)}`);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("[OAuth] Callback error:", errorMessage);
+    res.redirect(`http://localhost:5173/?oauth_error=${encodeURIComponent(errorMessage)}`);
+  }
+});
+
+// Check OAuth status for a user
+app.get("/api/oauth/google/status", async (req, res) => {
+  try {
+    const userEmail = req.query.userEmail as string;
+
+    if (!userEmail) {
+      return res.status(400).json({ error: "userEmail query parameter is required" });
+    }
+
+    const hasValidTokens = googleOAuthService.hasValidTokens(userEmail);
+
+    // Get user info if authenticated
+    let userInfo = null;
+    if (hasValidTokens) {
+      userInfo = await googleOAuthService.getUserInfo(userEmail);
+    }
+
+    res.json({
+      authenticated: hasValidTokens,
+      userInfo
+    });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("[OAuth] Status check error:", errorMessage);
+    res.status(500).json({ error: "Failed to check OAuth status", details: errorMessage });
+  }
+});
+
+// Revoke OAuth tokens (sign out of Google)
+app.post("/api/oauth/google/revoke", async (req, res) => {
+  try {
+    const { userEmail } = req.body;
+
+    if (!userEmail) {
+      return res.status(400).json({ error: "userEmail is required" });
+    }
+
+    await googleOAuthService.revokeTokens(userEmail);
+    res.json({ success: true, message: "Successfully disconnected from Google" });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("[OAuth] Revoke error:", errorMessage);
+    res.status(500).json({ error: "Failed to revoke tokens", details: errorMessage });
+  }
+});
+
+// ================== Google Drive Routes ==================
+
+// Save newsletter to Drive
+app.post("/api/drive/save", async (req, res) => {
+  try {
+    const { userEmail, content, filename } = req.body;
+
+    if (!userEmail || !content || !filename) {
+      return res.status(400).json({ error: "userEmail, content, and filename are required" });
+    }
+
+    const result = await googleDriveService.saveNewsletter(userEmail, content, filename);
+
+    if (!result.success) {
+      return res.status(400).json({ error: result.error });
+    }
+
+    res.json(result);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("[Drive] Save error:", errorMessage);
+    res.status(500).json({ error: "Failed to save to Drive", details: errorMessage });
+  }
+});
+
+// Load newsletter from Drive
+app.get("/api/drive/load/:fileId", async (req, res) => {
+  try {
+    const { fileId } = req.params;
+    const userEmail = req.query.userEmail as string;
+
+    if (!userEmail) {
+      return res.status(400).json({ error: "userEmail query parameter is required" });
+    }
+
+    const result = await googleDriveService.loadNewsletter(userEmail, fileId);
+
+    if (!result.success) {
+      return res.status(400).json({ error: result.error });
+    }
+
+    res.json(result);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("[Drive] Load error:", errorMessage);
+    res.status(500).json({ error: "Failed to load from Drive", details: errorMessage });
+  }
+});
+
+// List newsletters from Drive
+app.get("/api/drive/list", async (req, res) => {
+  try {
+    const userEmail = req.query.userEmail as string;
+    const pageSize = parseInt(req.query.pageSize as string) || 20;
+    const pageToken = req.query.pageToken as string | undefined;
+
+    if (!userEmail) {
+      return res.status(400).json({ error: "userEmail query parameter is required" });
+    }
+
+    const result = await googleDriveService.listNewsletters(userEmail, pageSize, pageToken);
+
+    if (!result.success) {
+      return res.status(400).json({ error: result.error });
+    }
+
+    res.json(result);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("[Drive] List error:", errorMessage);
+    res.status(500).json({ error: "Failed to list newsletters", details: errorMessage });
+  }
+});
+
+// Delete newsletter from Drive
+app.delete("/api/drive/delete/:fileId", async (req, res) => {
+  try {
+    const { fileId } = req.params;
+    const userEmail = req.query.userEmail as string;
+
+    if (!userEmail) {
+      return res.status(400).json({ error: "userEmail query parameter is required" });
+    }
+
+    const result = await googleDriveService.deleteNewsletter(userEmail, fileId);
+
+    if (!result.success) {
+      return res.status(400).json({ error: result.error });
+    }
+
+    res.json(result);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("[Drive] Delete error:", errorMessage);
+    res.status(500).json({ error: "Failed to delete from Drive", details: errorMessage });
+  }
+});
+
+// ================== Gmail Routes ==================
+
+// Send email via Gmail
+app.post("/api/gmail/send", async (req, res) => {
+  try {
+    const { userEmail, to, subject, htmlBody } = req.body;
+
+    if (!userEmail || !to || !subject || !htmlBody) {
+      return res.status(400).json({ error: "userEmail, to, subject, and htmlBody are required" });
+    }
+
+    const result = await googleGmailService.sendEmail(userEmail, { to, subject, htmlBody });
+
+    if (!result.success) {
+      return res.status(400).json({ error: result.error });
+    }
+
+    res.json(result);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("[Gmail] Send error:", errorMessage);
+    res.status(500).json({ error: "Failed to send email", details: errorMessage });
+  }
+});
+
+// Send bulk emails via Gmail
+app.post("/api/gmail/send-bulk", async (req, res) => {
+  try {
+    const { userEmail, recipients, subject, htmlBody } = req.body;
+
+    if (!userEmail || !recipients || !Array.isArray(recipients) || !subject || !htmlBody) {
+      return res.status(400).json({ error: "userEmail, recipients (array), subject, and htmlBody are required" });
+    }
+
+    const result = await googleGmailService.sendBulkEmails(userEmail, recipients, subject, htmlBody);
+    res.json(result);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("[Gmail] Bulk send error:", errorMessage);
+    res.status(500).json({ error: "Failed to send bulk emails", details: errorMessage });
+  }
+});
+
+// Get Gmail profile
+app.get("/api/gmail/profile", async (req, res) => {
+  try {
+    const userEmail = req.query.userEmail as string;
+
+    if (!userEmail) {
+      return res.status(400).json({ error: "userEmail query parameter is required" });
+    }
+
+    const result = await googleGmailService.getProfile(userEmail);
+
+    if (!result.success) {
+      return res.status(400).json({ error: result.error });
+    }
+
+    res.json(result);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("[Gmail] Profile error:", errorMessage);
+    res.status(500).json({ error: "Failed to get Gmail profile", details: errorMessage });
+  }
+});
+
+// ============================================================================
+// UNIFIED LOGS ENDPOINTS
+// ============================================================================
+
+// Get unified logs with filtering
+app.get("/api/logs", (req, res) => {
+  try {
+    const options: logDbService.LogFilterOptions = {
+      source: req.query.source as logDbService.LogSource | undefined,
+      action: req.query.action as string | undefined,
+      startDate: req.query.startDate as string | undefined,
+      endDate: req.query.endDate as string | undefined,
+      search: req.query.search as string | undefined,
+      limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 50,
+      offset: req.query.offset ? parseInt(req.query.offset as string, 10) : 0,
+    };
+
+    const result = logDbService.getUnifiedLogs(options);
+    res.json(result);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("[Logs] Get logs error:", errorMessage);
+    res.status(500).json({ error: "Failed to fetch logs", details: errorMessage });
+  }
+});
+
+// Export logs to CSV
+app.get("/api/logs/export", (req, res) => {
+  try {
+    const options: logDbService.LogFilterOptions = {
+      source: req.query.source as logDbService.LogSource | undefined,
+      action: req.query.action as string | undefined,
+      startDate: req.query.startDate as string | undefined,
+      endDate: req.query.endDate as string | undefined,
+      search: req.query.search as string | undefined,
+    };
+
+    const csvContent = logDbService.exportLogsToCsv(options);
+    const timestamp = new Date().toISOString().split('T')[0];
+
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename=system-logs-${timestamp}.csv`);
+    res.send(csvContent);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("[Logs] Export error:", errorMessage);
+    res.status(500).json({ error: "Failed to export logs", details: errorMessage });
+  }
+});
+
+// Get log statistics
+app.get("/api/logs/stats", (req, res) => {
+  try {
+    const stats = logDbService.getLogStats();
+    res.json(stats);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("[Logs] Stats error:", errorMessage);
+    res.status(500).json({ error: "Failed to fetch log stats", details: errorMessage });
+  }
+});
 
 // Health check
 app.get("/api/health", (req, res) => {

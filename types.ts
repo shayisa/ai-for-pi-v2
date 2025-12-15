@@ -39,9 +39,6 @@ export interface TrendingTopic {
 
 export interface GoogleSettings {
     driveFolderName: string;
-    logSheetName: string;
-    subscribersSheetName: string;
-    groupListSheetName?: string; // New: for subscriber lists
 }
 
 export interface Subscriber {
@@ -82,7 +79,7 @@ export interface Preset {
 }
 
 export interface HistoryItem {
-  id: number;
+  id: string;
   date: string;
   subject: string;
   newsletter: Newsletter;
@@ -144,4 +141,131 @@ export interface Archive {
   name: string;
   audience: string[];
   content: ArchiveContent;
+}
+
+// ============================================================================
+// Enhanced Newsletter Types (v2 Format)
+// ============================================================================
+
+export interface ToolOfTheDay {
+  name: string;
+  url: string;
+  whyNow: string;
+  quickStart: string;
+}
+
+export interface PracticalPrompt {
+  scenario: string;
+  prompt: string;
+  isToolSpecific: boolean;
+}
+
+export interface SourceCitation {
+  url: string;
+  title: string;
+}
+
+export interface SectionCTA {
+  text: string;
+  action: 'copy_prompt' | 'visit_url';
+}
+
+export interface EnhancedAudienceSection {
+  audienceId: string;
+  audienceName: string;
+  title: string;
+  whyItMatters: string;
+  content: string;
+  practicalPrompt: PracticalPrompt;
+  cta: SectionCTA;
+  sources: SourceCitation[];
+  imagePrompt?: string;
+  imageUrl?: string;
+}
+
+export interface EditorsNote {
+  message: string;
+}
+
+export interface EnhancedNewsletter {
+  id?: string;
+  editorsNote: EditorsNote;
+  toolOfTheDay: ToolOfTheDay;
+  audienceSections: EnhancedAudienceSection[];
+  conclusion: string;
+  // Legacy compatibility fields
+  subject?: string;
+  promptOfTheDay?: PromptOfTheDay;
+}
+
+// Dynamic Audience Configuration
+export interface AudienceConfig {
+  id: string;
+  name: string;
+  description: string;
+  isCustom?: boolean;
+  generated?: {
+    persona: string;
+    relevance_keywords: string[];
+    subreddits: string[];
+    arxiv_categories: string[];
+    search_templates: string[];
+  };
+}
+
+// Extended history item for enhanced newsletters
+export interface EnhancedHistoryItem {
+  id: string;
+  date: string;
+  subject: string;
+  newsletter: Newsletter | EnhancedNewsletter;
+  topics: string[];
+  formatVersion: 'v1' | 'v2';
+}
+
+// ============================================================================
+// System Logs Types
+// ============================================================================
+
+export type LogSource = 'newsletter' | 'api_audit';
+
+export type NewsletterLogAction = 'created' | 'saved_to_drive' | 'sent_email';
+export type ApiAuditLogAction = 'save' | 'delete' | 'validate_success' | 'validate_failure';
+
+export interface UnifiedLogEntry {
+  id: number;
+  source: LogSource;
+  timestamp: string;
+  action: string;
+  // Newsletter-specific
+  newsletterId: string | null;
+  newsletterSubject: string | null;
+  // API audit-specific
+  userEmail: string | null;
+  service: string | null;
+  ipAddress: string | null;
+  // Shared
+  details: Record<string, unknown> | null;
+}
+
+export interface LogFilterOptions {
+  source?: LogSource;
+  action?: string;
+  startDate?: string;
+  endDate?: string;
+  search?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface LogsResponse {
+  logs: UnifiedLogEntry[];
+  total: number;
+  hasMore: boolean;
+}
+
+export interface LogStats {
+  totalNewsletter: number;
+  totalApiAudit: number;
+  byAction: Record<string, number>;
 }

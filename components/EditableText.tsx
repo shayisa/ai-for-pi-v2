@@ -1,5 +1,3 @@
-
-
 import React, { useState, useRef, useEffect } from 'react';
 
 interface EditableTextProps {
@@ -67,14 +65,14 @@ export const EditableText: React.FC<EditableTextProps> = ({
                 }}
                 onBlur={handleSave}
                 onKeyDown={handleKeyDown}
-                className={`${className} w-full bg-yellow-50/80 border border-accent-yellow rounded-md p-1 -m-1 resize-none focus:outline-none focus:ring-2 focus:ring-accent-yellow text-primary-text`}
+                className={`${className} w-full bg-pearl border-l-2 border-editorial-gold p-2 -m-1 resize-none focus:outline-none focus:border-ink text-ink transition-colors`}
                 style={{ overflow: 'hidden' }}
             />
         );
     }
 
     const commonProps = {
-        className: `${className} cursor-pointer hover:bg-yellow-50/50 p-1 -m-1 rounded-md transition-colors`,
+        className: `${className} cursor-pointer hover:bg-pearl p-1 -m-1 border-l-2 border-transparent hover:border-editorial-gold transition-all`,
         onClick: () => setIsEditing(true),
     };
 

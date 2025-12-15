@@ -1,7 +1,10 @@
 /**
  * Newsletter Client Service
  * Frontend API client for managing newsletters via SQLite backend
+ * Supports both v1 (legacy) and v2 (enhanced) newsletter formats
  */
+
+import type { EnhancedNewsletter } from '../types';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -48,8 +51,18 @@ export interface NewsletterLog {
   details?: Record<string, unknown>;
 }
 
+// Format-aware types for v1/v2 support
+export interface NewsletterWithFormat {
+  formatVersion: 'v1' | 'v2';
+  newsletter: Newsletter | EnhancedNewsletter;
+  id: string;
+  createdAt: string;
+  subject: string;
+  topics: string[];
+}
+
 export interface NewsletterListResponse {
-  newsletters: Newsletter[];
+  newsletters: NewsletterWithFormat[];
   count: number;
 }
 
@@ -97,14 +110,28 @@ export const getNewsletters = async (limit = 50): Promise<NewsletterListResponse
 };
 
 /**
- * Get a single newsletter by ID
+ * Get a single newsletter by ID with format detection
  */
-export const getNewsletterById = async (id: string): Promise<Newsletter> => {
+export const getNewsletterById = async (id: string): Promise<NewsletterWithFormat> => {
   const response = await fetch(`${API_BASE}/api/newsletters/${id}`);
 
   if (!response.ok) {
     const error = await response.json();
     throw new Error(error.error || 'Failed to fetch newsletter');
+  }
+
+  return response.json();
+};
+
+/**
+ * Get an enhanced newsletter by ID (v2 format only)
+ */
+export const getEnhancedNewsletterById = async (id: string): Promise<EnhancedNewsletter> => {
+  const response = await fetch(`${API_BASE}/api/newsletters/${id}/enhanced`);
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to fetch enhanced newsletter');
   }
 
   return response.json();
@@ -121,6 +148,29 @@ export const deleteNewsletter = async (id: string): Promise<{ success: boolean; 
   if (!response.ok) {
     const error = await response.json();
     throw new Error(error.error || 'Failed to delete newsletter');
+  }
+
+  return response.json();
+};
+
+/**
+ * Update newsletter sections (to save imageUrls after client-side generation)
+ */
+export const updateNewsletterSections = async (
+  newsletterId: string,
+  sections?: NewsletterSection[],
+  audienceSections?: unknown[],
+  formatVersion?: 'v1' | 'v2'
+): Promise<{ success: boolean; message: string }> => {
+  const response = await fetch(`${API_BASE}/api/newsletters/${newsletterId}/sections`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sections, audienceSections, formatVersion })
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to update newsletter sections');
   }
 
   return response.json();

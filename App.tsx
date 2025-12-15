@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import type { Newsletter, NewsletterSection, TrendingTopic, GoogleSettings, GapiAuthData, Preset, HistoryItem, PromptOfTheDay, Subscriber, SubscriberList } from './types';
+import type { Newsletter, NewsletterSection, TrendingTopic, GoogleSettings, GapiAuthData, Preset, EnhancedHistoryItem, PromptOfTheDay, Subscriber, SubscriberList, EnhancedNewsletter, EnhancedAudienceSection, AudienceConfig } from './types';
 import { Header } from './components/Header';
 import { NewsletterPreview } from './components/NewsletterPreview';
 import { ImageEditorModal } from './components/ImageEditorModal';
@@ -12,7 +12,7 @@ import type { TrendingSource } from './services/trendingDataService';
 import * as archiveClientService from './services/archiveClientService';
 import { SettingsModal } from './components/SettingsModal'; // SettingsModal is now only for initial sign-in/out feedback.
 import * as googleApi from './services/googleApiService';
-import { getIdToken } from './services/googleApiService';
+import { loadGoogleCredentialsFromBackend, checkGoogleAuthStatus } from './services/googleApiService';
 import { fileToBase64 } from './utils/fileUtils';
 import { PresetsManager } from './components/PresetsManager';
 import { HistoryPanel } from './components/HistoryPanel';
@@ -20,14 +20,20 @@ import { PromptOfTheDayEditor } from './components/PromptOfTheDayEditor';
 import { extractStrictJson } from './utils/stringUtils';
 import { SideNavigation } from './components/SideNavigation'; // New
 import { DiscoverTopicsPage } from './pages/DiscoverTopicsPage'; // New
-import { DefineTonePage } from './pages/DefineTonePage'; // New
-import { ImageStylePage } from './pages/ImageStylePage'; // New
+import { ToneAndVisualsPage } from './pages/ToneAndVisualsPage'; // New - replaces DefineTonePage and ImageStylePage
 import { GenerateNewsletterPage } from './pages/GenerateNewsletterPage'; // New
 import { HistoryContentPage } from './pages/HistoryContentPage'; // New
 import { SubscriberManagementPage } from './pages/SubscriberManagementPage'; // New
 import { AuthenticationPage } from './pages/AuthenticationPage'; // New
+import { LogsPage } from './pages/LogsPage'; // System activity logs
 import { useHistory } from './hooks/useHistory';
+import { usePrompts } from './hooks/usePrompts';
+import type { SavedPrompt } from './services/promptClientService';
 import * as newsletterApi from './services/newsletterClientService';
+import * as subscriberApi from './services/subscriberClientService';
+import * as enhancedNewsletterService from './services/enhancedNewsletterService';
+import { isEnhancedNewsletter, convertEnhancedToLegacy } from './utils/newsletterFormatUtils';
+import { AudienceConfigEditor } from './components/AudienceConfigEditor';
 
 
 const audienceOptions: Record<string, { label: string; description: string }> = {
@@ -92,7 +98,7 @@ const imageStyleOptions: Record<string, { label: string; description: string }> 
     },
 };
 
-export type ActivePage = 'authentication' | 'discoverTopics' | 'defineTone' | 'imageStyle' | 'generateNewsletter' | 'history' | 'subscriberManagement';
+export type ActivePage = 'authentication' | 'discoverTopics' | 'toneAndVisuals' | 'generateNewsletter' | 'history' | 'subscriberManagement' | 'logs';
 
 
 type ErrorState = {
@@ -150,12 +156,27 @@ const App: React.FC = () => {
         refreshHistory
     } = useHistory();
 
+    // Saved prompts library from SQLite
+    const {
+        prompts: savedPrompts,
+        isLoading: isPromptsLoading,
+        savePrompt: savePromptToLibrary,
+        deletePrompt: deletePromptFromLibrary,
+    } = usePrompts();
+
     const [promptOfTheDay, setPromptOfTheDay] = useState<PromptOfTheDay | null>(null);
 
     // Subscriber management state
     const [subscribers, setSubscribers] = useState<Subscriber[]>([]);
     const [subscriberLists, setSubscriberLists] = useState<SubscriberList[]>([]);
     const [selectedEmailLists, setSelectedEmailLists] = useState<string[]>([]);
+
+    // Enhanced newsletter v2 format state
+    const [useEnhancedFormat, setUseEnhancedFormat] = useState<boolean>(true); // Default to v2
+    const [enhancedNewsletter, setEnhancedNewsletter] = useState<EnhancedNewsletter | null>(null);
+    const [customAudiences, setCustomAudiences] = useState<AudienceConfig[]>([]);
+    const [defaultAudiences, setDefaultAudiences] = useState<AudienceConfig[]>([]);
+    const [isAudienceEditorOpen, setIsAudienceEditorOpen] = useState<boolean>(false);
 
     const handleSaveSettings = (settings: GoogleSettings) => {
         setGoogleSettings(settings);
@@ -226,8 +247,11 @@ const App: React.FC = () => {
 
     const handleGoogleSignIn = async () => {
         try {
-            await googleApi.signIn();
-            // After Google sign-in, Supabase auth will be handled by useEffect watching authData
+            // Use the default email for OAuth flow
+            const defaultEmail = 'shayisa@gmail.com';
+            await googleApi.signIn(defaultEmail);
+            // User will be redirected to Google consent screen
+            // On return, OAuth callback will handle the rest
         } catch (error) {
             console.error('Error signing in:', error);
         }
@@ -235,7 +259,8 @@ const App: React.FC = () => {
 
     const handleGoogleSignOut = async () => {
         try {
-            googleApi.signOut();
+            const userEmail = authData?.email || 'shayisa@gmail.com';
+            await googleApi.signOut(userEmail);
             setAuthData(null);
             setActivePage('authentication');
         } catch (error) {
@@ -253,11 +278,23 @@ const App: React.FC = () => {
         }
     };
 
-    const handleLoadFromHistory = (item: HistoryItem) => {
-        setNewsletter(item.newsletter);
+    // Load newsletter from history with format detection (supports v1 and v2)
+    const handleLoadFromHistory = (item: EnhancedHistoryItem) => {
+        if (item.formatVersion === 'v2' && isEnhancedNewsletter(item.newsletter)) {
+            // Load as enhanced (v2) newsletter
+            setUseEnhancedFormat(true);
+            setEnhancedNewsletter(item.newsletter as EnhancedNewsletter);
+            setNewsletter(null);
+            setPromptOfTheDay(item.newsletter.promptOfTheDay || null);
+        } else {
+            // Load as legacy (v1) newsletter
+            setUseEnhancedFormat(false);
+            setEnhancedNewsletter(null);
+            setNewsletter(item.newsletter as Newsletter);
+            setPromptOfTheDay((item.newsletter as Newsletter).promptOfTheDay || null);
+        }
         setSelectedTopics(item.topics);
-        setPromptOfTheDay(item.newsletter.promptOfTheDay || null); // Load prompt of the day from history
-        setActivePage('generateNewsletter'); // Navigate to generate page after loading from history
+        setActivePage('generateNewsletter');
         // Scroll to the preview
         const previewElement = document.getElementById('newsletter-preview');
         if (previewElement) {
@@ -265,11 +302,27 @@ const App: React.FC = () => {
         }
     };
 
-    const handleLoadFromDrive = (loadedNewsletter: Newsletter, topics: string[]) => {
-        setNewsletter(loadedNewsletter);
+    // Load newsletter from Drive with format detection (supports v1 and v2)
+    const handleLoadFromDrive = (
+        loadedNewsletter: Newsletter | EnhancedNewsletter,
+        topics: string[],
+        formatVersion: 'v1' | 'v2' = 'v1'
+    ) => {
+        if (formatVersion === 'v2' && isEnhancedNewsletter(loadedNewsletter)) {
+            // Load as enhanced (v2) newsletter
+            setUseEnhancedFormat(true);
+            setEnhancedNewsletter(loadedNewsletter as EnhancedNewsletter);
+            setNewsletter(null);
+            setPromptOfTheDay(loadedNewsletter.promptOfTheDay || null);
+        } else {
+            // Load as legacy (v1) newsletter
+            setUseEnhancedFormat(false);
+            setEnhancedNewsletter(null);
+            setNewsletter(loadedNewsletter as Newsletter);
+            setPromptOfTheDay((loadedNewsletter as Newsletter).promptOfTheDay || null);
+        }
         setSelectedTopics(topics);
-        setPromptOfTheDay(loadedNewsletter.promptOfTheDay || null);
-        setActivePage('generateNewsletter'); // Navigate to generate page after loading from Drive
+        setActivePage('generateNewsletter');
         // Scroll to the preview
         setTimeout(() => {
             const previewElement = document.getElementById('newsletter-preview');
@@ -285,19 +338,41 @@ const App: React.FC = () => {
         await refreshHistory();
     };
 
+    // Load a saved prompt from the library into the Prompt of the Day editor
+    const handleLoadSavedPrompt = (savedPrompt: SavedPrompt) => {
+        setPromptOfTheDay({
+            title: savedPrompt.title,
+            summary: savedPrompt.summary,
+            examplePrompts: savedPrompt.examplePrompts,
+            promptCode: savedPrompt.promptCode,
+        });
+        // Navigate to generate page where the prompt editor is
+        setActivePage('generateNewsletter');
+    };
+
+    // Save current prompt of the day to the library
+    const handleSavePromptToLibrary = async (prompt: PromptOfTheDay) => {
+        await savePromptToLibrary({
+            title: prompt.title,
+            summary: prompt.summary,
+            examplePrompts: prompt.examplePrompts,
+            promptCode: prompt.promptCode,
+        });
+    };
+
     const getAudienceKeys = useCallback(() => Object.keys(selectedAudience).filter(key => selectedAudience[key]), [selectedAudience]);
     const getFlavorKeys = useCallback(() => Object.keys(selectedFlavors).filter(key => selectedFlavors[key]), [selectedFlavors]);
 
-    // Refresh subscriber lists from Google Sheets
+    // Refresh subscriber lists from SQLite
     const refreshSubscriberLists = useCallback(async () => {
-        if (!googleSettings || !authData?.access_token) return;
         try {
-            const lists = await googleApi.readAllLists(googleSettings.groupListSheetName || 'Group List');
-            setSubscriberLists(lists);
+            const response = await subscriberApi.getLists();
+            setSubscriberLists(response.lists);
         } catch (err) {
             console.error('Error refreshing subscriber lists:', err);
+            setSubscriberLists([]);
         }
-    }, [googleSettings, authData]);
+    }, []);
 
     const isActionLoading = !!loading || isGeneratingTopics;
 
@@ -506,6 +581,7 @@ const App: React.FC = () => {
         setProgress(10);
         setError(null);
         setNewsletter(null);
+        setEnhancedNewsletter(null); // Clear v2 state when generating v1
         setWorkflowStatus(null);
         setWorkflowActions({ savedToDrive: false, sentEmail: false });
 
@@ -561,18 +637,32 @@ const App: React.FC = () => {
             if (finalNewsletter) {
                  handleAddToHistory(finalNewsletter, selectedTopics);
 
+                // Update SQLite with generated imageUrls so they persist when loading from history
+                if (finalNewsletter.id) {
+                    try {
+                        await newsletterApi.updateNewsletterSections(
+                            finalNewsletter.id,
+                            finalNewsletter.sections,
+                            undefined,
+                            'v1'
+                        );
+                        console.log('[Newsletter] Updated SQLite with generated imageUrls');
+                    } catch (updateError) {
+                        console.warn('[Newsletter] Failed to update SQLite with imageUrls:', updateError);
+                    }
+                }
+
                 // Auto-save to Drive after newsletter approval
                 if (googleSettings && authData?.access_token) {
                     try {
                         setLoading("Auto-saving to Google Drive...");
                         setProgress(90);
-                        await googleApi.saveToDrive(finalNewsletter, googleSettings.driveFolderName, selectedTopics);
+                        const userEmail = authData?.email || 'shayisa@gmail.com';
+                        await googleApi.saveToDrive(userEmail, finalNewsletter, selectedTopics);
                         // Update tracking state
                         setWorkflowActions({ ...workflowActions, savedToDrive: true });
-                        // Log to sheet with saved=true flag
-                        await googleApi.logToSheet(finalNewsletter, selectedTopics, googleSettings.logSheetName, true, false);
                         setWorkflowStatus({
-                            message: `Newsletter auto-saved to Drive and logged to sheet!`,
+                            message: `Newsletter auto-saved to Drive!`,
                             type: 'success'
                         });
                     } catch (autoSaveError) {
@@ -594,15 +684,184 @@ const App: React.FC = () => {
         }
     }, [selectedTopics, getAudienceKeys, selectedTone, getFlavorKeys, selectedImageStyle, promptOfTheDay]);
 
-    const handleSaveImageEdit = useCallback((newImageUrl: string) => {
-        if (!editingImage || !newsletter) return;
+    // Enhanced newsletter generation (v2 format)
+    const handleGenerateEnhancedNewsletter = useCallback(async () => {
+        const audienceKeys = getAudienceKeys();
 
-        const updatedSections = [...newsletter.sections];
-        updatedSections[editingImage.index].imageUrl = newImageUrl;
-        setNewsletter({ ...newsletter, sections: updatedSections });
+        if (selectedTopics.length === 0) {
+            setError({ message: "Please add at least one topic." });
+            return;
+        }
+        if (audienceKeys.length === 0) {
+            setError({ message: "Please select a target audience for the newsletter." });
+            return;
+        }
+
+        setLoading("Fetching sources and generating enhanced newsletter...");
+        setProgress(10);
+        setError(null);
+        setEnhancedNewsletter(null);
+        setNewsletter(null); // Clear legacy newsletter
+        setWorkflowStatus(null);
+        setWorkflowActions({ savedToDrive: false, sentEmail: false });
+
+        try {
+            // Build audience configs from selected audiences
+            const selectedAudienceConfigs: AudienceConfig[] = audienceKeys.map(key => {
+                // Check custom audiences first
+                const customAudience = customAudiences.find(a => a.id === key);
+                if (customAudience) return customAudience;
+
+                // Check default audiences
+                const defaultAudience = defaultAudiences.find(a => a.id === key);
+                if (defaultAudience) return defaultAudience;
+
+                // Fallback to basic config from audienceOptions
+                const option = audienceOptions[key];
+                return {
+                    id: key,
+                    name: option?.label || key,
+                    description: option?.description || '',
+                };
+            });
+
+            setLoading("Fetching sources from GDELT, ArXiv, Reddit...");
+            setProgress(20);
+
+            const result = await enhancedNewsletterService.generateEnhancedNewsletter({
+                topics: selectedTopics,
+                audiences: selectedAudienceConfigs,
+                imageStyle: selectedImageStyle,
+                promptOfTheDay: promptOfTheDay, // Include user-supplied prompt if set
+            });
+
+            setProgress(70);
+            setLoading("Processing newsletter...");
+
+            // Set the enhanced newsletter
+            setEnhancedNewsletter(result.newsletter);
+
+            // Log source fetch results
+            console.log('[Enhanced] Sources fetched:', result.sources);
+
+            setProgress(90);
+            setLoading("Generating images...");
+
+            // Generate images for each audience section
+            let generatedImages: Array<{ index: number; imageUrl: string | null }> = [];
+            if (result.newsletter.audienceSections) {
+                const imagePromises = result.newsletter.audienceSections.map(async (section, index) => {
+                    if (section.imagePrompt) {
+                        try {
+                            const base64Image = await generateImage(section.imagePrompt, selectedImageStyle);
+                            return { index, imageUrl: `data:image/png;base64,${base64Image}` };
+                        } catch (err) {
+                            console.error(`Failed to generate image for section ${index}:`, err);
+                            return { index, imageUrl: null };
+                        }
+                    }
+                    return { index, imageUrl: null };
+                });
+
+                generatedImages = await Promise.all(imagePromises);
+
+                setEnhancedNewsletter(current => {
+                    if (!current) return null;
+                    const updatedSections = [...current.audienceSections];
+                    generatedImages.forEach(img => {
+                        if (img.imageUrl && updatedSections[img.index]) {
+                            updatedSections[img.index].imageUrl = img.imageUrl;
+                        }
+                    });
+                    return { ...current, audienceSections: updatedSections };
+                });
+            }
+
+            setProgress(100);
+
+            // Build final newsletter with generated images
+            const finalEnhancedNewsletter: EnhancedNewsletter = {
+                ...result.newsletter,
+                audienceSections: result.newsletter.audienceSections.map((section, idx) => {
+                    const generatedImg = generatedImages.find(img => img.index === idx);
+                    return generatedImg?.imageUrl
+                        ? { ...section, imageUrl: generatedImg.imageUrl }
+                        : section;
+                })
+            };
+
+            // Update SQLite with generated imageUrls so they persist when loading from history
+            if (finalEnhancedNewsletter.id) {
+                try {
+                    await newsletterApi.updateNewsletterSections(
+                        finalEnhancedNewsletter.id,
+                        undefined,
+                        finalEnhancedNewsletter.audienceSections,
+                        'v2'
+                    );
+                    console.log('[Enhanced] Updated SQLite with generated imageUrls');
+                } catch (updateError) {
+                    console.warn('[Enhanced] Failed to update SQLite with imageUrls:', updateError);
+                }
+            }
+
+            // Auto-save to Google Drive (matches legacy behavior)
+            if (googleSettings && authData?.access_token) {
+                try {
+                    setLoading("Auto-saving to Google Drive...");
+                    const userEmail = authData?.email || 'shayisa@gmail.com';
+                    // Convert to legacy format for Drive HTML, but preserve v2 data in embedded JSON
+                    const legacyNewsletter = convertEnhancedToLegacy(finalEnhancedNewsletter);
+                    await googleApi.saveToDrive(userEmail, legacyNewsletter, selectedTopics, finalEnhancedNewsletter);
+                    setWorkflowActions({ ...workflowActions, savedToDrive: true });
+                    setWorkflowStatus({
+                        message: `Newsletter auto-saved to Drive!`,
+                        type: 'success'
+                    });
+                } catch (autoSaveError) {
+                    console.warn("Auto-save to Drive failed:", autoSaveError);
+                    // Don't show error to user - this is non-critical
+                }
+            }
+
+        } catch (e) {
+            console.error('Enhanced newsletter generation failed:', e);
+            const errorMessage = e instanceof Error ? e.message : 'An unexpected error occurred';
+            setError({ message: errorMessage, onRetry: handleGenerateEnhancedNewsletter });
+        } finally {
+            setLoading(null);
+            setProgress(0);
+        }
+    }, [selectedTopics, getAudienceKeys, selectedImageStyle, customAudiences, defaultAudiences, promptOfTheDay]);
+
+    // Unified generation handler that switches between v1 and v2
+    const handleGenerate = useCallback(async () => {
+        if (useEnhancedFormat) {
+            await handleGenerateEnhancedNewsletter();
+        } else {
+            await handleGenerateNewsletter();
+        }
+    }, [useEnhancedFormat, handleGenerateEnhancedNewsletter, handleGenerateNewsletter]);
+
+    const handleSaveImageEdit = useCallback((newImageUrl: string) => {
+        if (!editingImage) return;
+
+        // Update enhanced newsletter if using enhanced format
+        if (useEnhancedFormat && enhancedNewsletter) {
+            const updatedSections = [...enhancedNewsletter.audienceSections];
+            if (updatedSections[editingImage.index]) {
+                updatedSections[editingImage.index].imageUrl = newImageUrl;
+            }
+            setEnhancedNewsletter({ ...enhancedNewsletter, audienceSections: updatedSections });
+        } else if (newsletter) {
+            // Update legacy newsletter
+            const updatedSections = [...newsletter.sections];
+            updatedSections[editingImage.index].imageUrl = newImageUrl;
+            setNewsletter({ ...newsletter, sections: updatedSections });
+        }
 
         setEditingImage(null);
-    }, [editingImage, newsletter]);
+    }, [editingImage, newsletter, useEnhancedFormat, enhancedNewsletter]);
 
 
     const handleReorderSections = (newSections: NewsletterSection[]) => {
@@ -614,9 +873,9 @@ const App: React.FC = () => {
     const handleNewsletterUpdate = (field: keyof Newsletter | keyof NewsletterSection, value: string, sectionIndex?: number) => {
         setNewsletter(prev => {
             if (!prev) return null;
-            
+
             const newNewsletter = JSON.parse(JSON.stringify(prev)) as Newsletter;
-    
+
             if (sectionIndex !== undefined && sectionIndex >= 0) {
                 if (newNewsletter.sections[sectionIndex]) {
                     (newNewsletter.sections[sectionIndex] as any)[field] = value;
@@ -624,30 +883,128 @@ const App: React.FC = () => {
             } else {
                 (newNewsletter as any)[field] = value;
             }
-    
+
             return newNewsletter;
         });
+    };
+
+    // Handler for updating enhanced newsletter content
+    const handleEnhancedNewsletterUpdate = (field: string, value: string, sectionIndex?: number) => {
+        setEnhancedNewsletter(prev => {
+            if (!prev) return null;
+
+            const newNewsletter = JSON.parse(JSON.stringify(prev)) as EnhancedNewsletter;
+
+            // Handle section-specific updates
+            if (field.startsWith('section.') && sectionIndex !== undefined && sectionIndex >= 0) {
+                const sectionField = field.replace('section.', '') as keyof EnhancedAudienceSection;
+                if (newNewsletter.audienceSections[sectionIndex]) {
+                    (newNewsletter.audienceSections[sectionIndex] as any)[sectionField] = value;
+                }
+            } else if (field === 'editorsNote') {
+                newNewsletter.editorsNote = { message: value };
+            } else if (field === 'conclusion') {
+                newNewsletter.conclusion = value;
+            } else {
+                (newNewsletter as any)[field] = value;
+            }
+
+            return newNewsletter;
+        });
+    };
+
+    // Handlers for custom audience management
+    const handleAddCustomAudience = (audience: AudienceConfig) => {
+        const newAudiences = [...customAudiences, audience];
+        setCustomAudiences(newAudiences);
+        localStorage.setItem('customAudiences', JSON.stringify(newAudiences));
+        console.log('[App] Added custom audience:', audience.name);
+    };
+
+    const handleRemoveCustomAudience = (audienceId: string) => {
+        const newAudiences = customAudiences.filter(a => a.id !== audienceId);
+        setCustomAudiences(newAudiences);
+        localStorage.setItem('customAudiences', JSON.stringify(newAudiences));
+        console.log('[App] Removed custom audience:', audienceId);
     };
 
     const handleImageUpload = async (sectionIndex: number, file: File) => {
         try {
             const { base64, mimeType } = await fileToBase64(file);
             const newImageUrl = `data:${mimeType};base64,${base64}`;
-            
-            setNewsletter(prev => {
-                if (!prev) return null;
-                const newNewsletter = JSON.parse(JSON.stringify(prev)) as Newsletter;
-                if (newNewsletter.sections[sectionIndex]) {
-                    newNewsletter.sections[sectionIndex].imageUrl = newImageUrl;
+
+            // Update enhanced newsletter if using enhanced format
+            if (useEnhancedFormat && enhancedNewsletter) {
+                const updated = JSON.parse(JSON.stringify(enhancedNewsletter)) as EnhancedNewsletter;
+                if (updated.audienceSections[sectionIndex]) {
+                    updated.audienceSections[sectionIndex].imageUrl = newImageUrl;
                 }
-                return newNewsletter;
-            });
+                setEnhancedNewsletter(updated);
+
+                // Persist to SQLite
+                if (updated.id) {
+                    newsletterApi.updateNewsletterSections(updated.id, undefined, updated.audienceSections, 'v2')
+                        .catch(err => console.warn('[ImageUpload] Failed to persist to SQLite:', err));
+                }
+            } else if (newsletter) {
+                // Update legacy newsletter
+                const updated = JSON.parse(JSON.stringify(newsletter)) as Newsletter;
+                if (updated.sections[sectionIndex]) {
+                    updated.sections[sectionIndex].imageUrl = newImageUrl;
+                }
+                setNewsletter(updated);
+
+                // Persist to SQLite
+                if (updated.id) {
+                    newsletterApi.updateNewsletterSections(updated.id, updated.sections, undefined, 'v1')
+                        .catch(err => console.warn('[ImageUpload] Failed to persist to SQLite:', err));
+                }
+            }
         } catch (error) {
             console.error("Failed to read uploaded file:", error);
             setError({ message: "Could not process the uploaded image file." });
         }
     };
-    
+
+    // Generate image for a section using Stability API
+    const handleGenerateSectionImage = async (sectionIndex: number, imagePrompt: string) => {
+        try {
+            const base64Image = await generateImage(imagePrompt, selectedImageStyle);
+            const newImageUrl = `data:image/png;base64,${base64Image}`;
+
+            // Update enhanced newsletter if using enhanced format
+            if (useEnhancedFormat && enhancedNewsletter) {
+                const updated = JSON.parse(JSON.stringify(enhancedNewsletter)) as EnhancedNewsletter;
+                if (updated.audienceSections[sectionIndex]) {
+                    updated.audienceSections[sectionIndex].imageUrl = newImageUrl;
+                }
+                setEnhancedNewsletter(updated);
+
+                // Persist to SQLite
+                if (updated.id) {
+                    newsletterApi.updateNewsletterSections(updated.id, undefined, updated.audienceSections, 'v2')
+                        .catch(err => console.warn('[GenerateImage] Failed to persist to SQLite:', err));
+                }
+            } else if (newsletter) {
+                // Update legacy newsletter
+                const updated = JSON.parse(JSON.stringify(newsletter)) as Newsletter;
+                if (updated.sections[sectionIndex]) {
+                    updated.sections[sectionIndex].imageUrl = newImageUrl;
+                }
+                setNewsletter(updated);
+
+                // Persist to SQLite
+                if (updated.id) {
+                    newsletterApi.updateNewsletterSections(updated.id, updated.sections, undefined, 'v1')
+                        .catch(err => console.warn('[GenerateImage] Failed to persist to SQLite:', err));
+                }
+            }
+        } catch (error) {
+            console.error("Failed to generate image:", error);
+            setError({ message: "Could not generate image. Please try again." });
+        }
+    };
+
     // Setup is always complete (Supabase removed)
     useEffect(() => {
         setIsSetupComplete(true);
@@ -663,17 +1020,58 @@ const App: React.FC = () => {
         } else {
             setGoogleSettings({
                 driveFolderName: 'AI for PI Newsletters',
-                logSheetName: 'AI for PI Newsletter Log',
-                subscribersSheetName: 'Newsletter Subscribers',
             });
         }
 
-        googleApi.initClient((data) => {
-            setAuthData(data);
-        }, () => {
-            setIsGoogleApiInitialized(true);
-            console.log('onInitComplete fired!');
-        });
+        // Load Google credentials from backend before initializing Google API client
+        // Use a default admin email for initial load (credentials are shared per user in SQLite)
+        const initGoogleApi = async () => {
+            const defaultEmail = 'shayisa@gmail.com'; // Same as ADMIN_EMAIL
+
+            // Check for OAuth callback parameters in URL
+            const urlParams = new URLSearchParams(window.location.search);
+            const oauthSuccess = urlParams.get('oauth_success');
+            const oauthError = urlParams.get('oauth_error');
+            const oauthEmail = urlParams.get('email');
+
+            // Clear URL parameters after reading
+            if (oauthSuccess || oauthError) {
+                window.history.replaceState({}, document.title, window.location.pathname);
+            }
+
+            if (oauthError) {
+                console.error('[App] OAuth error:', oauthError);
+                alert(`Google sign-in failed: ${oauthError}`);
+            }
+
+            if (oauthSuccess && oauthEmail) {
+                console.log('[App] OAuth successful for:', oauthEmail);
+                // Tokens are already stored in backend, check auth status
+                const status = await checkGoogleAuthStatus(oauthEmail);
+                if (status.authenticated && status.userInfo) {
+                    setAuthData({
+                        access_token: 'backend-managed',
+                        email: status.userInfo.email,
+                        name: status.userInfo.name,
+                    });
+                    setIsGoogleApiInitialized(true);
+                    return;
+                }
+            }
+
+            // Try to load credentials from backend
+            await loadGoogleCredentialsFromBackend(defaultEmail);
+
+            // Initialize Google API client with user email
+            googleApi.initClient((data) => {
+                setAuthData(data);
+            }, () => {
+                setIsGoogleApiInitialized(true);
+                console.log('onInitComplete fired!');
+            }, defaultEmail);
+        };
+
+        initGoogleApi();
 
         const storedPresets = localStorage.getItem('newsletterPresets');
         if (storedPresets) {
@@ -683,20 +1081,20 @@ const App: React.FC = () => {
         // History is now loaded from SQLite via useHistory hook
     }, [isSetupComplete]);
 
-    // Load subscriber lists when googleSettings or authData changes
+    // Load subscriber lists from SQLite on initial auth
     useEffect(() => {
         const loadSubscriberLists = async () => {
-            if (!googleSettings || !authData?.access_token) return;
+            if (!authData?.access_token) return;
             try {
-                const lists = await googleApi.readAllLists(googleSettings.groupListSheetName || 'Group List');
-                setSubscriberLists(lists);
+                const response = await subscriberApi.getLists();
+                setSubscriberLists(response.lists);
             } catch (err) {
                 console.error('Error loading subscriber lists:', err);
                 setSubscriberLists([]);
             }
         };
         loadSubscriberLists();
-    }, [googleSettings, authData]);
+    }, [authData?.access_token]);
 
     // Newsletter history is now loaded from SQLite via useHistory hook
 
@@ -709,60 +1107,104 @@ const App: React.FC = () => {
         }
     }, [authData?.access_token]);
 
-    const handleWorkflowAction = async (action: 'drive' | 'sheet' | 'gmail') => {
-        if (!newsletter || !googleSettings || !authData?.access_token) return;
+    // Load default audiences for enhanced newsletter format
+    useEffect(() => {
+        const loadDefaultAudiences = async () => {
+            try {
+                const response = await enhancedNewsletterService.getDefaultAudiences();
+                setDefaultAudiences(response.audiences);
+                console.log('[App] Loaded default audiences:', response.audiences.length);
+            } catch (err) {
+                console.warn('[App] Could not load default audiences:', err);
+            }
+        };
+        loadDefaultAudiences();
+
+        // Load custom audiences from localStorage
+        const storedCustomAudiences = localStorage.getItem('customAudiences');
+        if (storedCustomAudiences) {
+            try {
+                setCustomAudiences(JSON.parse(storedCustomAudiences));
+            } catch (err) {
+                console.warn('[App] Could not parse stored custom audiences');
+            }
+        }
+    }, []);
+
+    const handleWorkflowAction = async (action: 'drive' | 'gmail') => {
+        // Support both legacy and enhanced newsletters
+        const activeNewsletter = useEnhancedFormat && enhancedNewsletter
+            ? convertEnhancedToLegacy(enhancedNewsletter)
+            : newsletter;
+        const activeId = useEnhancedFormat && enhancedNewsletter
+            ? enhancedNewsletter.id
+            : newsletter?.id;
+
+        if (!activeNewsletter || !googleSettings || !authData?.access_token) return;
         setWorkflowStatus({ message: `Executing ${action} action...`, type: 'success' });
 
         try {
             let resultMessage = '';
             switch (action) {
                 case 'drive':
-                    resultMessage = await googleApi.saveToDrive(newsletter, googleSettings.driveFolderName, selectedTopics);
+                    const driveUserEmail = authData?.email || 'shayisa@gmail.com';
+                    // Pass original enhanced newsletter to preserve v2 data in embedded JSON
+                    const originalEnhanced = useEnhancedFormat && enhancedNewsletter ? enhancedNewsletter : undefined;
+                    resultMessage = await googleApi.saveToDrive(driveUserEmail, activeNewsletter, selectedTopics, originalEnhanced);
                     setWorkflowActions({ ...workflowActions, savedToDrive: true });
                     // Log to SQLite
-                    if (newsletter.id) {
-                        await newsletterApi.logAction(newsletter.id, 'saved_to_drive', {
+                    if (activeId) {
+                        await newsletterApi.logAction(activeId, 'saved_to_drive', {
                             folder: googleSettings.driveFolderName
                         });
                     }
                     break;
-                case 'sheet':
-                    // Legacy: Log to Google Sheet (keeping for backward compatibility)
-                    resultMessage = await googleApi.logToSheet(newsletter, selectedTopics, googleSettings.logSheetName, workflowActions.savedToDrive, workflowActions.sentEmail);
-                    break;
                 case 'gmail':
-                    // Check if list selection is required
-                    if (selectedEmailLists.length === 0) {
-                        throw new Error("Please select at least one subscriber list before sending email.");
+                    // Fetch active subscribers from SQLite
+                    const subscriberResponse = await subscriberApi.getSubscribers({ status: 'active' });
+                    let subscribers = subscriberResponse.subscribers;
+
+                    // Filter by selected lists if any are selected
+                    let listNames: string[] = [];
+                    if (selectedEmailLists.length > 0) {
+                        subscribers = subscribers.filter(sub => {
+                            const subLists = sub.lists ? sub.lists.split(',').map(l => l.trim()) : [];
+                            return subLists.some(listId => selectedEmailLists.includes(listId));
+                        });
+
+                        // Get list names for logging
+                        const allLists = await subscriberApi.getLists();
+                        listNames = allLists.lists
+                            .filter(l => selectedEmailLists.includes(l.id))
+                            .map(l => l.name);
                     }
+
+                    const subscriberEmails = subscribers.map(sub => sub.email);
+
+                    if (subscriberEmails.length === 0) {
+                        throw new Error("No active subscribers found. Add subscribers in the Subscriber Management page.");
+                    }
+
+                    // Send email using refactored sendEmail (now takes email array directly)
+                    const gmailUserEmail = authData?.email || 'shayisa@gmail.com';
                     const emailResult = await googleApi.sendEmail(
-                        newsletter,
+                        gmailUserEmail,
+                        activeNewsletter,
                         selectedTopics,
-                        googleSettings.subscribersSheetName,
-                        authData.email,
-                        selectedEmailLists
+                        subscriberEmails,
+                        listNames
                     );
                     resultMessage = emailResult.message;
                     setWorkflowActions({ ...workflowActions, sentEmail: true });
+
                     // Log to SQLite
-                    if (newsletter.id) {
-                        await newsletterApi.logAction(newsletter.id, 'sent_email', {
+                    if (activeId) {
+                        await newsletterApi.logAction(activeId, 'sent_email', {
                             sent_to_lists: selectedEmailLists,
-                            list_names: emailResult.listNames,
+                            list_names: listNames,
                             recipient_count: emailResult.sentCount || 0
                         });
                     }
-                    // Also log to sheet for backward compatibility
-                    const listNames = emailResult.listNames.join(', ');
-                    await googleApi.logToSheet(
-                        newsletter,
-                        selectedTopics,
-                        googleSettings.logSheetName,
-                        workflowActions.savedToDrive,
-                        true,
-                        listNames
-                    );
-                    resultMessage += ` Also logged to SQLite.`;
                     break;
             }
             setWorkflowStatus({ message: resultMessage, type: 'success' });
@@ -779,7 +1221,7 @@ const App: React.FC = () => {
     // Show loading while checking setup status
     if (isSetupComplete === null) {
         return (
-            <div className="min-h-screen bg-background text-primary-text font-sans flex items-center justify-center">
+            <div className="min-h-screen bg-pearl text-ink font-sans flex items-center justify-center">
                 <Spinner />
             </div>
         );
@@ -788,7 +1230,7 @@ const App: React.FC = () => {
     // If not authenticated, show the authentication page
     if (!authData?.access_token) {
         return (
-            <div className="min-h-screen bg-background text-primary-text font-sans">
+            <div className="min-h-screen bg-pearl text-ink font-sans">
                 <AuthenticationPage
                     onSignIn={handleGoogleSignIn}
                     isGoogleApiInitialized={isGoogleApiInitialized}
@@ -799,11 +1241,11 @@ const App: React.FC = () => {
     }
 
     return (
-        <div className="min-h-screen bg-background text-primary-text font-sans flex flex-col">
-            <Header onSettingsClick={() => setIsSettingsOpen(true)} onSignOut={handleGoogleSignOut} authData={authData} /> {/* Settings button opens settings, sign out on Header */}
+        <div className="min-h-screen bg-pearl text-ink font-sans flex flex-col">
+            <Header onSettingsClick={() => setIsSettingsOpen(true)} onSignOut={handleGoogleSignOut} authData={authData} />
             <div className="flex flex-grow">
                 <SideNavigation activePage={activePage} setActivePage={setActivePage} />
-                <main className="flex-grow container mx-auto p-4 md:p-8 overflow-y-auto">
+                <main className="flex-grow max-w-screen-xl mx-auto px-6 lg:px-12 py-8 overflow-y-auto">
 
                     {activePage === 'discoverTopics' && (
                         <DiscoverTopicsPage
@@ -832,19 +1274,14 @@ const App: React.FC = () => {
                         />
                     )}
 
-                    {activePage === 'defineTone' && (
-                        <DefineTonePage
+                    {activePage === 'toneAndVisuals' && (
+                        <ToneAndVisualsPage
                             selectedTone={selectedTone}
                             setSelectedTone={setSelectedTone}
                             toneOptions={toneOptions}
                             selectedFlavors={selectedFlavors}
                             handleFlavorChange={handleFlavorChange}
                             flavorOptions={flavorOptions}
-                        />
-                    )}
-
-                    {activePage === 'imageStyle' && (
-                        <ImageStylePage
                             selectedImageStyle={selectedImageStyle}
                             setSelectedImageStyle={setSelectedImageStyle}
                             imageStyleOptions={imageStyleOptions}
@@ -869,7 +1306,7 @@ const App: React.FC = () => {
                             onUpdate={handleNewsletterUpdate}
                             // Using the derived `isActionLoading` state
                             isLoading={isActionLoading}
-                            handleGenerateNewsletter={handleGenerateNewsletter}
+                            handleGenerateNewsletter={handleGenerate}
                             loading={loading}
                             progress={progress}
                             error={error}
@@ -883,6 +1320,18 @@ const App: React.FC = () => {
                             isAuthenticated={!!authData?.access_token}
                             promptOfTheDay={promptOfTheDay}
                             onSavePromptOfTheDay={setPromptOfTheDay}
+                            onSavePromptToLibrary={handleSavePromptToLibrary}
+                            // Workflow actions
+                            onSaveToDrive={googleSettings && authData?.access_token ? () => handleWorkflowAction('drive') : undefined}
+                            onSendViaGmail={authData?.access_token ? () => handleWorkflowAction('gmail') : undefined}
+                            workflowStatus={workflowActions}
+                            // Enhanced newsletter v2 props
+                            useEnhancedFormat={useEnhancedFormat}
+                            onToggleEnhancedFormat={setUseEnhancedFormat}
+                            enhancedNewsletter={enhancedNewsletter}
+                            onEnhancedUpdate={handleEnhancedNewsletterUpdate}
+                            onOpenAudienceEditor={() => setIsAudienceEditorOpen(true)}
+                            onGenerateImage={handleGenerateSectionImage}
                         />
                     )}
 
@@ -891,6 +1340,18 @@ const App: React.FC = () => {
                             history={history}
                             onLoad={handleLoadFromHistory}
                             onClear={handleClearHistory}
+                            onDelete={deleteFromHistory}
+                            // Saved prompts library
+                            savedPrompts={savedPrompts}
+                            isPromptsLoading={isPromptsLoading}
+                            onDeletePrompt={deletePromptFromLibrary}
+                            onLoadPrompt={handleLoadSavedPrompt}
+                            // Import from Drive
+                            isAuthenticated={!!authData?.access_token}
+                            driveFolderName={googleSettings?.driveFolderName}
+                            accessToken={authData?.access_token}
+                            userEmail={authData?.email}
+                            onImportFromDrive={handleLoadFromDrive}
                         />
                     )}
 
@@ -898,6 +1359,10 @@ const App: React.FC = () => {
                         <SubscriberManagementPage
                             onListsChanged={refreshSubscriberLists}
                         />
+                    )}
+
+                    {activePage === 'logs' && (
+                        <LogsPage />
                     )}
 
                 </main>
@@ -913,7 +1378,7 @@ const App: React.FC = () => {
                     />
                 )}
                 
-                {/* Settings modal now includes workflow actions */}
+                {/* Settings modal - API keys and Google connection */}
                 {isSettingsOpen && (
                     <SettingsModal
                         isOpen={isSettingsOpen}
@@ -921,19 +1386,33 @@ const App: React.FC = () => {
                         onSave={handleSaveSettings}
                         initialSettings={googleSettings}
                         authData={authData}
-                        onSignIn={googleApi.signIn}
-                        onSignOut={googleApi.signOut}
+                        onSignIn={() => googleApi.signIn(authData?.email || 'shayisa@gmail.com')}
+                        onSignOut={() => googleApi.signOut(authData?.email || 'shayisa@gmail.com')}
                         isGoogleApiInitialized={isGoogleApiInitialized}
-                        newsletter={newsletter}
-                        onWorkflowAction={handleWorkflowAction}
-                        onLoadFromDrive={(loadedNewsletter: Newsletter, topics: string[]) => {
-                            handleLoadFromDrive(loadedNewsletter, topics);
-                            setIsSettingsOpen(false);
+                        onGoogleCredentialsSaved={async () => {
+                            // Re-initialize Google API client with new credentials from backend
+                            const userEmail = authData?.email || 'shayisa@gmail.com';
+                            console.log('[App] Google credentials saved, re-initializing Google API...');
+                            await loadGoogleCredentialsFromBackend(userEmail);
+                            googleApi.initClient((data) => {
+                                setAuthData(data);
+                            }, () => {
+                                setIsGoogleApiInitialized(true);
+                                console.log('[App] Google API re-initialized with new credentials');
+                            }, userEmail);
                         }}
-                        onOpenListSelectionModal={() => handleWorkflowAction('gmail')}
-                        workflowStatus={workflowStatus}
                     />
                 )}
+
+                {/* Audience Config Editor modal */}
+                <AudienceConfigEditor
+                    isOpen={isAudienceEditorOpen}
+                    onClose={() => setIsAudienceEditorOpen(false)}
+                    defaultAudiences={defaultAudiences}
+                    customAudiences={customAudiences}
+                    onAddAudience={handleAddCustomAudience}
+                    onRemoveAudience={handleRemoveCustomAudience}
+                />
             </div>
         </div>
     );

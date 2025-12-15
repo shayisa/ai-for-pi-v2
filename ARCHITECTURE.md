@@ -373,7 +373,7 @@ Generates a complete newsletter with Claude API and web search grounding.
 5. Parse JSON response and sanitize emojis
 6. Return newsletter object
 
-**Claude Model:** `claude-3-5-sonnet-20241022`
+**Claude Model:** `claude-sonnet-4-20250514`
 **Max Tokens:** 4096
 
 ---

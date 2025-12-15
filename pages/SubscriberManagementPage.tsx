@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Subscriber, SubscriberList } from '../types';
 import * as subscriberApi from '../services/subscriberClientService';
 import { UsersIcon, PlusIcon, TrashIcon, EditIcon, XIcon, UploadIcon, CheckIcon, RefreshIcon } from '../components/IconComponents';
+import { fadeInUp, modalOverlay, modalContent, staggerContainer, staggerItem } from '../utils/animations';
 
 interface SubscriberManagementPageProps {
     onListsChanged?: () => Promise<void>;
@@ -109,7 +111,7 @@ export const SubscriberManagementPage: React.FC<SubscriberManagementPageProps> =
             setSubscribersData([newSubscriber, ...subscribersData]);
             setIsAddSubscriberModalOpen(false);
             setFormData({ email: '', name: '', lists: [] });
-            showSuccess(`Subscriber ${formData.email} added successfully!`);
+            showSuccess(`Subscriber ${formData.email} added successfully`);
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Failed to add subscriber');
         } finally {
@@ -137,7 +139,7 @@ export const SubscriberManagementPage: React.FC<SubscriberManagementPageProps> =
             setIsEditSubscriberModalOpen(false);
             setEditingSubscriber(null);
             setFormData({ email: '', name: '', lists: [] });
-            showSuccess('Subscriber updated successfully!');
+            showSuccess('Subscriber updated successfully');
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Failed to update subscriber');
         } finally {
@@ -152,7 +154,7 @@ export const SubscriberManagementPage: React.FC<SubscriberManagementPageProps> =
         try {
             await subscriberApi.deleteSubscriber(email);
             setSubscribersData(subscribersData.filter(s => s.email !== email));
-            showSuccess('Subscriber deleted successfully!');
+            showSuccess('Subscriber deleted successfully');
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Failed to delete subscriber');
         } finally {
@@ -185,7 +187,7 @@ export const SubscriberManagementPage: React.FC<SubscriberManagementPageProps> =
             setListsData([newList, ...listsData]);
             setIsAddListModalOpen(false);
             setListFormData({ name: '', description: '' });
-            showSuccess(`List "${listFormData.name}" created successfully!`);
+            showSuccess(`List "${listFormData.name}" created successfully`);
 
             if (onListsChanged) {
                 await onListsChanged();
@@ -214,7 +216,7 @@ export const SubscriberManagementPage: React.FC<SubscriberManagementPageProps> =
             setIsEditListModalOpen(false);
             setEditingList(null);
             setListFormData({ name: '', description: '' });
-            showSuccess('List updated successfully!');
+            showSuccess('List updated successfully');
 
             if (onListsChanged) {
                 await onListsChanged();
@@ -234,7 +236,7 @@ export const SubscriberManagementPage: React.FC<SubscriberManagementPageProps> =
         try {
             await subscriberApi.deleteList(id);
             setListsData(listsData.filter(l => l.id !== id));
-            showSuccess('List deleted successfully!');
+            showSuccess('List deleted successfully');
 
             if (onListsChanged) {
                 await onListsChanged();
@@ -274,12 +276,12 @@ export const SubscriberManagementPage: React.FC<SubscriberManagementPageProps> =
             const subscribers = emails.map(email => ({
                 email,
                 name: undefined,
-                listId: selectedListsForImport[0] // Use first selected list
+                listId: selectedListsForImport[0]
             }));
 
             const result = await subscriberApi.importSubscribers(subscribers);
 
-            await loadData(); // Refresh data
+            await loadData();
             setBulkImportData('');
             setSelectedListsForImport([]);
             showSuccess(`Imported ${result.added} subscriber(s). ${result.skipped > 0 ? `${result.skipped} skipped (duplicates).` : ''}`);
@@ -290,119 +292,134 @@ export const SubscriberManagementPage: React.FC<SubscriberManagementPageProps> =
         }
     };
 
-    return (
-        <div className="space-y-8">
-            {/* Page Header */}
-            <div className="flex items-center justify-between">
-                <div>
-                    <h1 className="text-3xl md:text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-accent-light-blue to-accent-salmon mb-2">
-                        Subscriber Management
-                    </h1>
-                    <p className="text-secondary-text">Manage your subscriber lists and organize them into groups for targeted newsletters</p>
-                </div>
-                <button
-                    onClick={loadData}
-                    disabled={loading}
-                    className="flex items-center gap-2 px-3 py-2 border border-border-light rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
-                    title="Refresh data"
-                >
-                    <RefreshIcon className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-                    Refresh
-                </button>
-            </div>
+    const tabs = [
+        { id: 'subscribers', label: 'Subscribers', count: subscribersData.length },
+        { id: 'lists', label: 'Lists', count: listsData.length },
+        { id: 'import', label: 'Bulk Import', count: null },
+    ];
 
-            {/* Messages */}
-            {error && (
-                <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-start gap-3">
-                    <span className="text-red-600 font-semibold">Error:</span>
-                    <span className="text-red-700">{error}</span>
-                    <button onClick={() => setError(null)} className="ml-auto text-red-500 hover:text-red-700">
-                        <XIcon className="h-5 w-5" />
+    return (
+        <motion.div
+            variants={fadeInUp}
+            initial="hidden"
+            animate="visible"
+            className="space-y-10"
+        >
+            {/* Page Header */}
+            <header className="border-b-2 border-ink pb-6">
+                <div className="flex items-start justify-between">
+                    <div>
+                        <h1 className="font-display text-h1 text-ink">
+                            Subscriber Management
+                        </h1>
+                        <p className="font-serif text-body text-slate mt-2">
+                            Manage your subscriber lists and organize them into groups for targeted newsletters
+                        </p>
+                    </div>
+                    <button
+                        onClick={loadData}
+                        disabled={loading}
+                        className="flex items-center gap-2 border border-border-subtle px-4 py-2 font-sans text-ui text-ink hover:bg-pearl transition-colors disabled:opacity-50"
+                    >
+                        <RefreshIcon className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+                        Refresh
                     </button>
                 </div>
-            )}
+            </header>
 
-            {successMessage && (
-                <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex items-start gap-3">
-                    <CheckIcon className="h-5 w-5 text-green-600 flex-shrink-0" />
-                    <span className="text-green-700">{successMessage}</span>
-                </div>
-            )}
+            {/* Messages */}
+            <AnimatePresence>
+                {error && (
+                    <motion.div
+                        initial={{ opacity: 0, y: -8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0 }}
+                        className="bg-red-50 border-l-2 border-editorial-red p-4 flex items-start justify-between"
+                    >
+                        <div className="flex items-start gap-3">
+                            <span className="font-sans text-ui font-medium text-editorial-red">Error:</span>
+                            <span className="font-sans text-ui text-charcoal">{error}</span>
+                        </div>
+                        <button onClick={() => setError(null)} className="text-editorial-red hover:text-red-800">
+                            <XIcon className="h-5 w-5" />
+                        </button>
+                    </motion.div>
+                )}
 
-            {/* Loading Spinner */}
+                {successMessage && (
+                    <motion.div
+                        initial={{ opacity: 0, y: -8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0 }}
+                        className="bg-pearl border-l-2 border-ink p-4 flex items-center gap-3"
+                    >
+                        <CheckIcon className="h-5 w-5 text-ink flex-shrink-0" />
+                        <span className="font-sans text-ui text-ink">{successMessage}</span>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
+            {/* Loading Indicator */}
             {loading && (
-                <div className="flex items-center justify-center py-8">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent-salmon"></div>
+                <div className="flex items-center justify-center py-12">
+                    <div className="w-8 h-8 border-2 border-ink border-t-transparent animate-spin" />
                 </div>
             )}
 
             {!loading && (
                 <>
                     {/* Tab Navigation */}
-                    <div className="flex gap-2 border-b border-border-light">
-                        <button
-                            onClick={() => setActiveTab('subscribers')}
-                            className={`px-4 py-3 font-semibold border-b-2 transition-colors ${
-                                activeTab === 'subscribers'
-                                    ? 'border-accent-salmon text-accent-salmon'
-                                    : 'border-transparent text-secondary-text hover:text-primary-text'
-                            }`}
-                        >
-                            Subscribers ({subscribersData.length})
-                        </button>
-                        <button
-                            onClick={() => setActiveTab('lists')}
-                            className={`px-4 py-3 font-semibold border-b-2 transition-colors ${
-                                activeTab === 'lists'
-                                    ? 'border-accent-salmon text-accent-salmon'
-                                    : 'border-transparent text-secondary-text hover:text-primary-text'
-                            }`}
-                        >
-                            Lists ({listsData.length})
-                        </button>
-                        <button
-                            onClick={() => setActiveTab('import')}
-                            className={`px-4 py-3 font-semibold border-b-2 transition-colors ${
-                                activeTab === 'import'
-                                    ? 'border-accent-salmon text-accent-salmon'
-                                    : 'border-transparent text-secondary-text hover:text-primary-text'
-                            }`}
-                        >
-                            Bulk Import
-                        </button>
-                    </div>
+                    <nav className="flex gap-8 border-b border-border-subtle">
+                        {tabs.map((tab) => (
+                            <button
+                                key={tab.id}
+                                onClick={() => setActiveTab(tab.id as any)}
+                                className={`relative pb-4 font-sans text-ui transition-colors ${
+                                    activeTab === tab.id
+                                        ? 'text-ink font-medium'
+                                        : 'text-slate hover:text-ink'
+                                }`}
+                            >
+                                {tab.label}
+                                {tab.count !== null && (
+                                    <span className="ml-2 text-caption text-slate">({tab.count})</span>
+                                )}
+                                {activeTab === tab.id && (
+                                    <motion.div
+                                        layoutId="activeTab"
+                                        className="absolute bottom-0 left-0 right-0 h-0.5 bg-editorial-red"
+                                    />
+                                )}
+                            </button>
+                        ))}
+                    </nav>
 
                     {/* SUBSCRIBERS TAB */}
                     {activeTab === 'subscribers' && (
                         <div className="space-y-6">
                             {/* Toolbar */}
-                            <div className="flex flex-col md:flex-row gap-3 items-start md:items-center justify-between">
-                                <div className="flex flex-col md:flex-row gap-3 flex-1">
-                                    {/* Search */}
+                            <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between">
+                                <div className="flex flex-col md:flex-row gap-3 flex-1 w-full lg:w-auto">
                                     <input
                                         type="text"
                                         placeholder="Search by email or name..."
                                         value={searchTerm}
                                         onChange={(e) => setSearchTerm(e.target.value)}
-                                        className="flex-1 px-3 py-2 border border-border-light rounded-lg focus:outline-none focus:ring-2 focus:ring-accent-light-blue"
+                                        className="flex-1 bg-pearl border border-border-subtle px-4 py-2 font-sans text-ui text-ink placeholder:text-silver focus:outline-none focus:border-ink transition-colors"
                                     />
-
-                                    {/* Status Filter */}
                                     <select
                                         value={filterStatus}
                                         onChange={(e) => setFilterStatus(e.target.value as any)}
-                                        className="px-3 py-2 border border-border-light rounded-lg focus:outline-none focus:ring-2 focus:ring-accent-light-blue"
+                                        className="bg-pearl border border-border-subtle px-4 py-2 font-sans text-ui text-ink focus:outline-none focus:border-ink"
                                     >
                                         <option value="all">All Status</option>
                                         <option value="active">Active</option>
                                         <option value="inactive">Inactive</option>
                                     </select>
-
-                                    {/* List Filter */}
                                     <select
                                         value={filterList}
                                         onChange={(e) => setFilterList(e.target.value)}
-                                        className="px-3 py-2 border border-border-light rounded-lg focus:outline-none focus:ring-2 focus:ring-accent-light-blue"
+                                        className="bg-pearl border border-border-subtle px-4 py-2 font-sans text-ui text-ink focus:outline-none focus:border-ink"
                                     >
                                         <option value="">All Lists</option>
                                         {listsData.map(l => (
@@ -411,13 +428,12 @@ export const SubscriberManagementPage: React.FC<SubscriberManagementPageProps> =
                                     </select>
                                 </div>
 
-                                {/* Add Button */}
                                 <button
                                     onClick={() => {
                                         setFormData({ email: '', name: '', lists: [] });
                                         setIsAddSubscriberModalOpen(true);
                                     }}
-                                    className="flex items-center gap-2 px-4 py-2 bg-accent-salmon text-white rounded-lg hover:bg-accent-salmon/90 transition-colors whitespace-nowrap"
+                                    className="flex items-center gap-2 bg-ink text-paper font-sans text-ui px-4 py-2 hover:bg-charcoal transition-colors whitespace-nowrap"
                                 >
                                     <PlusIcon className="h-4 w-4" />
                                     Add Subscriber
@@ -425,60 +441,69 @@ export const SubscriberManagementPage: React.FC<SubscriberManagementPageProps> =
                             </div>
 
                             {/* Subscribers Table */}
-                            <div className="bg-white rounded-2xl shadow-lg border border-border-light overflow-hidden">
+                            <div className="bg-paper border border-border-subtle overflow-hidden">
                                 <div className="overflow-x-auto">
-                                    <table className="w-full text-sm">
-                                        <thead className="bg-gray-50 border-b border-border-light">
-                                            <tr>
-                                                <th className="px-6 py-3 text-left font-semibold text-secondary-text">Email</th>
-                                                <th className="px-6 py-3 text-left font-semibold text-secondary-text">Name</th>
-                                                <th className="px-6 py-3 text-left font-semibold text-secondary-text">Status</th>
-                                                <th className="px-6 py-3 text-left font-semibold text-secondary-text">Lists</th>
-                                                <th className="px-6 py-3 text-left font-semibold text-secondary-text">Added</th>
-                                                <th className="px-6 py-3 text-center font-semibold text-secondary-text">Actions</th>
+                                    <table className="w-full">
+                                        <thead>
+                                            <tr className="border-b border-border-subtle bg-pearl">
+                                                <th className="px-6 py-4 text-left font-sans text-caption text-slate uppercase tracking-wider">Email</th>
+                                                <th className="px-6 py-4 text-left font-sans text-caption text-slate uppercase tracking-wider">Name</th>
+                                                <th className="px-6 py-4 text-left font-sans text-caption text-slate uppercase tracking-wider">Status</th>
+                                                <th className="px-6 py-4 text-left font-sans text-caption text-slate uppercase tracking-wider">Lists</th>
+                                                <th className="px-6 py-4 text-left font-sans text-caption text-slate uppercase tracking-wider">Added</th>
+                                                <th className="px-6 py-4 text-center font-sans text-caption text-slate uppercase tracking-wider">Actions</th>
                                             </tr>
                                         </thead>
-                                        <tbody className="divide-y divide-border-light">
+                                        <tbody className="divide-y divide-border-subtle">
                                             {filteredSubscribers.length === 0 ? (
                                                 <tr>
-                                                    <td colSpan={6} className="px-6 py-8 text-center text-secondary-text">
+                                                    <td colSpan={6} className="px-6 py-12 text-center font-serif text-body text-slate">
                                                         No subscribers found
                                                     </td>
                                                 </tr>
                                             ) : (
                                                 filteredSubscribers.map((sub) => (
-                                                    <tr key={sub.email} className="hover:bg-gray-50 transition-colors">
-                                                        <td className="px-6 py-4 font-medium">{sub.email}</td>
-                                                        <td className="px-6 py-4">{sub.name || '-'}</td>
+                                                    <tr key={sub.email} className="hover:bg-pearl transition-colors">
+                                                        <td className="px-6 py-4 font-sans text-ui font-medium text-ink">{sub.email}</td>
+                                                        <td className="px-6 py-4 font-sans text-ui text-charcoal">{sub.name || '—'}</td>
                                                         <td className="px-6 py-4">
-                                                            <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
+                                                            <span className={`font-sans text-caption px-2 py-1 ${
                                                                 sub.status === 'active'
-                                                                    ? 'bg-green-100 text-green-800'
-                                                                    : 'bg-gray-100 text-gray-800'
+                                                                    ? 'bg-pearl text-ink'
+                                                                    : 'bg-pearl text-slate'
                                                             }`}>
                                                                 {sub.status}
                                                             </span>
                                                         </td>
-                                                        <td className="px-6 py-4 text-sm">
+                                                        <td className="px-6 py-4">
                                                             {sub.lists ? sub.lists.split(',').filter(Boolean).map(lid => {
                                                                 const list = listsData.find(l => l.id === lid.trim());
-                                                                return <span key={lid} className="inline-block mr-1 px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs">{list?.name || lid.trim()}</span>;
-                                                            }) : '-'}
+                                                                return (
+                                                                    <span
+                                                                        key={lid}
+                                                                        className="inline-block mr-1 px-2 py-1 bg-pearl text-ink font-sans text-caption"
+                                                                    >
+                                                                        {list?.name || lid.trim()}
+                                                                    </span>
+                                                                );
+                                                            }) : '—'}
                                                         </td>
-                                                        <td className="px-6 py-4 text-sm">{new Date(sub.dateAdded).toLocaleDateString()}</td>
+                                                        <td className="px-6 py-4 font-sans text-caption text-slate">
+                                                            {new Date(sub.dateAdded).toLocaleDateString()}
+                                                        </td>
                                                         <td className="px-6 py-4 text-center">
                                                             <button
                                                                 onClick={() => openEditSubscriberModal(sub)}
-                                                                className="inline-flex items-center gap-1 px-2 py-1 text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                                                                className="inline-flex items-center gap-1 px-2 py-1 font-sans text-caption text-editorial-navy hover:underline"
                                                             >
-                                                                <EditIcon className="h-4 w-4" />
+                                                                <EditIcon className="h-3 w-3" />
                                                                 Edit
                                                             </button>
                                                             <button
                                                                 onClick={() => handleDeleteSubscriber(sub.email)}
-                                                                className="inline-flex items-center gap-1 px-2 py-1 text-red-600 hover:bg-red-50 rounded transition-colors"
+                                                                className="inline-flex items-center gap-1 px-2 py-1 font-sans text-caption text-editorial-red hover:underline ml-2"
                                                             >
-                                                                <TrashIcon className="h-4 w-4" />
+                                                                <TrashIcon className="h-3 w-3" />
                                                                 Delete
                                                             </button>
                                                         </td>
@@ -495,286 +520,349 @@ export const SubscriberManagementPage: React.FC<SubscriberManagementPageProps> =
                     {/* LISTS TAB */}
                     {activeTab === 'lists' && (
                         <div className="space-y-6">
-                            {/* Add List Button */}
                             <button
                                 onClick={() => {
                                     setListFormData({ name: '', description: '' });
                                     setIsAddListModalOpen(true);
                                 }}
-                                className="flex items-center gap-2 px-4 py-2 bg-accent-salmon text-white rounded-lg hover:bg-accent-salmon/90 transition-colors"
+                                className="flex items-center gap-2 bg-ink text-paper font-sans text-ui px-4 py-2 hover:bg-charcoal transition-colors"
                             >
                                 <PlusIcon className="h-4 w-4" />
                                 Create New List
                             </button>
 
-                            {/* Lists Grid */}
                             {listsData.length === 0 ? (
-                                <div className="bg-white rounded-2xl shadow-lg border border-border-light p-12 text-center">
-                                    <UsersIcon className="h-12 w-12 mx-auto text-gray-400 mb-4" />
-                                    <p className="text-secondary-text">No lists created yet. Create one to organize your subscribers.</p>
+                                <div className="bg-paper border border-border-subtle p-12 text-center">
+                                    <UsersIcon className="h-12 w-12 mx-auto text-silver mb-4" />
+                                    <p className="font-serif text-body text-slate">
+                                        No lists created yet. Create one to organize your subscribers.
+                                    </p>
                                 </div>
                             ) : (
-                                <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                <motion.div
+                                    variants={staggerContainer}
+                                    initial="hidden"
+                                    animate="visible"
+                                    className="grid md:grid-cols-2 lg:grid-cols-3 gap-6"
+                                >
                                     {listsData.map((list) => (
-                                        <div key={list.id} className="bg-white rounded-2xl shadow-lg border border-border-light p-6 space-y-4">
-                                            <div className="flex items-start justify-between">
+                                        <motion.div
+                                            key={list.id}
+                                            variants={staggerItem}
+                                            className="bg-paper border border-border-subtle p-6"
+                                        >
+                                            <div className="flex items-start justify-between mb-4">
                                                 <div>
-                                                    <h3 className="font-bold text-lg">{list.name}</h3>
-                                                    {list.description && <p className="text-sm text-secondary-text">{list.description}</p>}
+                                                    <h3 className="font-display text-h3 text-ink">{list.name}</h3>
+                                                    {list.description && (
+                                                        <p className="font-serif text-body text-slate mt-1">{list.description}</p>
+                                                    )}
                                                 </div>
-                                                <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs font-semibold whitespace-nowrap ml-2">
-                                                    ID: {list.id}
+                                                <span className="font-sans text-caption text-slate bg-pearl px-2 py-1">
+                                                    {list.id}
                                                 </span>
                                             </div>
-                                            <div className="pt-2 border-t border-border-light">
-                                                <p className="text-sm text-secondary-text">Members: <span className="font-bold text-primary-text">{list.subscriberCount}</span></p>
+                                            <div className="pt-4 border-t border-border-subtle mb-4">
+                                                <p className="font-sans text-ui text-slate">
+                                                    Members: <span className="font-medium text-ink">{list.subscriberCount}</span>
+                                                </p>
                                             </div>
-                                            <div className="flex gap-2">
+                                            <div className="flex gap-3">
                                                 <button
                                                     onClick={() => openEditListModal(list)}
-                                                    className="flex-1 px-3 py-2 border border-border-light rounded-lg hover:bg-gray-50 transition-colors flex items-center justify-center gap-2"
+                                                    className="flex-1 flex items-center justify-center gap-2 border border-border-subtle px-3 py-2 font-sans text-ui text-ink hover:bg-pearl transition-colors"
                                                 >
                                                     <EditIcon className="h-4 w-4" />
                                                     Edit
                                                 </button>
                                                 <button
                                                     onClick={() => handleDeleteList(list.id)}
-                                                    className="flex-1 px-3 py-2 border border-red-200 text-red-600 rounded-lg hover:bg-red-50 transition-colors flex items-center justify-center gap-2"
+                                                    className="flex-1 flex items-center justify-center gap-2 border border-editorial-red text-editorial-red px-3 py-2 font-sans text-ui hover:bg-editorial-red hover:text-paper transition-colors"
                                                 >
                                                     <TrashIcon className="h-4 w-4" />
                                                     Delete
                                                 </button>
                                             </div>
-                                        </div>
+                                        </motion.div>
                                     ))}
-                                </div>
+                                </motion.div>
                             )}
                         </div>
                     )}
 
                     {/* BULK IMPORT TAB */}
                     {activeTab === 'import' && (
-                        <div className="space-y-6">
-                            <div className="bg-white rounded-2xl shadow-lg p-8 border border-border-light space-y-6">
-                                <div>
-                                    <h2 className="text-2xl font-bold mb-2">Bulk Import Subscribers</h2>
-                                    <p className="text-secondary-text">Paste email addresses (one per line, comma-separated, or semicolon-separated). Max 100 at a time.</p>
-                                </div>
-
-                                <div>
-                                    <label className="block text-sm font-semibold text-primary-text mb-2">Email Addresses</label>
-                                    <textarea
-                                        value={bulkImportData}
-                                        onChange={(e) => setBulkImportData(e.target.value)}
-                                        placeholder="user1@example.com&#10;user2@example.com&#10;user3@example.com"
-                                        className="w-full h-48 p-4 border border-border-light rounded-lg focus:outline-none focus:ring-2 focus:ring-accent-light-blue font-mono text-sm"
-                                    />
-                                </div>
-
-                                <div>
-                                    <label className="block text-sm font-semibold text-primary-text mb-3">Add to Lists (Optional)</label>
-                                    <div className="flex flex-wrap gap-2">
-                                        {listsData.map(list => (
-                                            <button
-                                                key={list.id}
-                                                onClick={() => {
-                                                    if (selectedListsForImport.includes(list.id)) {
-                                                        setSelectedListsForImport(selectedListsForImport.filter(id => id !== list.id));
-                                                    } else {
-                                                        setSelectedListsForImport([...selectedListsForImport, list.id]);
-                                                    }
-                                                }}
-                                                className={`px-4 py-2 rounded-lg transition-colors ${
-                                                    selectedListsForImport.includes(list.id)
-                                                        ? 'bg-accent-salmon text-white'
-                                                        : 'border border-border-light hover:bg-gray-50'
-                                                }`}
-                                            >
-                                                {list.name}
-                                            </button>
-                                        ))}
-                                    </div>
-                                    {listsData.length === 0 && (
-                                        <p className="text-sm text-secondary-text text-italic">Create lists first to add subscribers to them during import.</p>
-                                    )}
-                                </div>
-
-                                <button
-                                    onClick={handleBulkImport}
-                                    disabled={!bulkImportData.trim()}
-                                    className="w-full px-4 py-3 bg-accent-salmon text-white rounded-lg hover:bg-accent-salmon/90 disabled:bg-gray-300 transition-colors flex items-center justify-center gap-2 font-semibold"
-                                >
-                                    <UploadIcon className="h-4 w-4" />
-                                    Import Subscribers
-                                </button>
+                        <div className="bg-paper border border-border-subtle p-8 space-y-6">
+                            <div>
+                                <h2 className="font-display text-h2 text-ink mb-2">Bulk Import Subscribers</h2>
+                                <p className="font-serif text-body text-slate">
+                                    Paste email addresses (one per line, comma-separated, or semicolon-separated). Max 100 at a time.
+                                </p>
                             </div>
+
+                            <div>
+                                <label className="block font-sans text-ui font-medium text-ink mb-2">
+                                    Email Addresses
+                                </label>
+                                <textarea
+                                    value={bulkImportData}
+                                    onChange={(e) => setBulkImportData(e.target.value)}
+                                    placeholder="user1@example.com&#10;user2@example.com&#10;user3@example.com"
+                                    className="w-full h-48 p-4 bg-pearl border border-border-subtle font-mono text-ui text-ink placeholder:text-silver focus:outline-none focus:border-ink transition-colors"
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block font-sans text-ui font-medium text-ink mb-3">
+                                    Add to Lists (Optional)
+                                </label>
+                                <div className="flex flex-wrap gap-2">
+                                    {listsData.map(list => (
+                                        <button
+                                            key={list.id}
+                                            onClick={() => {
+                                                if (selectedListsForImport.includes(list.id)) {
+                                                    setSelectedListsForImport(selectedListsForImport.filter(id => id !== list.id));
+                                                } else {
+                                                    setSelectedListsForImport([...selectedListsForImport, list.id]);
+                                                }
+                                            }}
+                                            className={`px-4 py-2 font-sans text-ui transition-colors ${
+                                                selectedListsForImport.includes(list.id)
+                                                    ? 'bg-ink text-paper'
+                                                    : 'border border-border-subtle text-ink hover:bg-pearl'
+                                            }`}
+                                        >
+                                            {list.name}
+                                        </button>
+                                    ))}
+                                </div>
+                                {listsData.length === 0 && (
+                                    <p className="font-serif text-body text-slate italic mt-2">
+                                        Create lists first to add subscribers to them during import.
+                                    </p>
+                                )}
+                            </div>
+
+                            <button
+                                onClick={handleBulkImport}
+                                disabled={!bulkImportData.trim()}
+                                className="w-full flex items-center justify-center gap-2 bg-ink text-paper font-sans text-ui font-medium py-3 px-4 hover:bg-charcoal disabled:bg-silver transition-colors"
+                            >
+                                <UploadIcon className="h-4 w-4" />
+                                Import Subscribers
+                            </button>
                         </div>
                     )}
 
                     {/* MODALS */}
 
                     {/* Add/Edit Subscriber Modal */}
-                    {(isAddSubscriberModalOpen || isEditSubscriberModalOpen) && (
-                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-                            <div className="bg-white rounded-2xl shadow-xl p-8 max-w-md w-full max-h-[90vh] overflow-y-auto">
-                                <div className="flex justify-between items-center mb-6">
-                                    <h2 className="text-2xl font-bold">
-                                        {isAddSubscriberModalOpen ? 'Add Subscriber' : 'Edit Subscriber'}
-                                    </h2>
-                                    <button
-                                        onClick={() => {
-                                            setIsAddSubscriberModalOpen(false);
-                                            setIsEditSubscriberModalOpen(false);
-                                            setFormData({ email: '', name: '', lists: [] });
-                                        }}
-                                        className="text-gray-500 hover:text-gray-700"
-                                    >
-                                        <XIcon className="h-6 w-6" />
-                                    </button>
-                                </div>
-
-                                <div className="space-y-4">
-                                    <div>
-                                        <label className="block text-sm font-semibold mb-1">Email Address *</label>
-                                        <input
-                                            type="email"
-                                            value={formData.email}
-                                            onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                                            disabled={isEditSubscriberModalOpen}
-                                            placeholder="user@example.com"
-                                            className="w-full px-3 py-2 border border-border-light rounded-lg focus:outline-none focus:ring-2 focus:ring-accent-light-blue disabled:bg-gray-100"
-                                        />
+                    <AnimatePresence>
+                        {(isAddSubscriberModalOpen || isEditSubscriberModalOpen) && (
+                            <motion.div
+                                variants={modalOverlay}
+                                initial="hidden"
+                                animate="visible"
+                                exit="exit"
+                                className="fixed inset-0 bg-ink/60 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+                                onClick={() => {
+                                    setIsAddSubscriberModalOpen(false);
+                                    setIsEditSubscriberModalOpen(false);
+                                    setFormData({ email: '', name: '', lists: [] });
+                                }}
+                            >
+                                <motion.div
+                                    variants={modalContent}
+                                    initial="hidden"
+                                    animate="visible"
+                                    exit="exit"
+                                    className="bg-paper border border-border-subtle p-8 max-w-md w-full max-h-[90vh] overflow-y-auto"
+                                    onClick={(e) => e.stopPropagation()}
+                                >
+                                    <div className="flex justify-between items-center mb-6">
+                                        <h2 className="font-display text-h2 text-ink">
+                                            {isAddSubscriberModalOpen ? 'Add Subscriber' : 'Edit Subscriber'}
+                                        </h2>
+                                        <button
+                                            onClick={() => {
+                                                setIsAddSubscriberModalOpen(false);
+                                                setIsEditSubscriberModalOpen(false);
+                                                setFormData({ email: '', name: '', lists: [] });
+                                            }}
+                                            className="text-slate hover:text-ink transition-colors"
+                                        >
+                                            <XIcon className="h-5 w-5" />
+                                        </button>
                                     </div>
 
-                                    <div>
-                                        <label className="block text-sm font-semibold mb-1">Name</label>
-                                        <input
-                                            type="text"
-                                            value={formData.name}
-                                            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                                            placeholder="John Doe"
-                                            className="w-full px-3 py-2 border border-border-light rounded-lg focus:outline-none focus:ring-2 focus:ring-accent-light-blue"
-                                        />
-                                    </div>
-
-                                    <div>
-                                        <label className="block text-sm font-semibold mb-2">Add to Lists</label>
-                                        <div className="space-y-2">
-                                            {listsData.map(list => (
-                                                <label key={list.id} className="flex items-center gap-2 cursor-pointer">
-                                                    <input
-                                                        type="checkbox"
-                                                        checked={formData.lists.includes(list.id)}
-                                                        onChange={(e) => {
-                                                            if (e.target.checked) {
-                                                                setFormData({ ...formData, lists: [...formData.lists, list.id] });
-                                                            } else {
-                                                                setFormData({ ...formData, lists: formData.lists.filter(id => id !== list.id) });
-                                                            }
-                                                        }}
-                                                        className="w-4 h-4 rounded border-border-light"
-                                                    />
-                                                    <span className="text-sm">{list.name}</span>
-                                                </label>
-                                            ))}
+                                    <div className="space-y-4">
+                                        <div>
+                                            <label className="block font-sans text-ui font-medium text-ink mb-2">
+                                                Email Address *
+                                            </label>
+                                            <input
+                                                type="email"
+                                                value={formData.email}
+                                                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                                                disabled={isEditSubscriberModalOpen}
+                                                placeholder="user@example.com"
+                                                className="w-full bg-pearl border border-border-subtle px-3 py-2 font-sans text-ui text-ink placeholder:text-silver focus:outline-none focus:border-ink disabled:bg-pearl disabled:text-slate"
+                                            />
                                         </div>
-                                        {listsData.length === 0 && (
-                                            <p className="text-sm text-secondary-text italic">No lists available. Create one first.</p>
-                                        )}
-                                    </div>
-                                </div>
 
-                                <div className="flex gap-2 mt-6">
-                                    <button
-                                        onClick={() => {
-                                            setIsAddSubscriberModalOpen(false);
-                                            setIsEditSubscriberModalOpen(false);
-                                            setFormData({ email: '', name: '', lists: [] });
-                                        }}
-                                        className="flex-1 px-4 py-2 border border-border-light rounded-lg hover:bg-gray-50 transition-colors"
-                                    >
-                                        Cancel
-                                    </button>
-                                    <button
-                                        onClick={isAddSubscriberModalOpen ? handleAddSubscriber : handleUpdateSubscriber}
-                                        disabled={!formData.email}
-                                        className="flex-1 px-4 py-2 bg-accent-salmon text-white rounded-lg hover:bg-accent-salmon/90 disabled:bg-gray-300 transition-colors"
-                                    >
-                                        {isAddSubscriberModalOpen ? 'Add' : 'Update'}
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    )}
+                                        <div>
+                                            <label className="block font-sans text-ui font-medium text-ink mb-2">Name</label>
+                                            <input
+                                                type="text"
+                                                value={formData.name}
+                                                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                                                placeholder="John Doe"
+                                                className="w-full bg-pearl border border-border-subtle px-3 py-2 font-sans text-ui text-ink placeholder:text-silver focus:outline-none focus:border-ink"
+                                            />
+                                        </div>
+
+                                        <div>
+                                            <label className="block font-sans text-ui font-medium text-ink mb-3">Add to Lists</label>
+                                            <div className="space-y-2">
+                                                {listsData.map(list => (
+                                                    <label key={list.id} className="flex items-center gap-3 cursor-pointer">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={formData.lists.includes(list.id)}
+                                                            onChange={(e) => {
+                                                                if (e.target.checked) {
+                                                                    setFormData({ ...formData, lists: [...formData.lists, list.id] });
+                                                                } else {
+                                                                    setFormData({ ...formData, lists: formData.lists.filter(id => id !== list.id) });
+                                                                }
+                                                            }}
+                                                            className="w-4 h-4 border-border-subtle accent-ink"
+                                                        />
+                                                        <span className="font-sans text-ui text-ink">{list.name}</span>
+                                                    </label>
+                                                ))}
+                                            </div>
+                                            {listsData.length === 0 && (
+                                                <p className="font-serif text-body text-slate italic">No lists available.</p>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    <div className="flex gap-3 mt-8">
+                                        <button
+                                            onClick={() => {
+                                                setIsAddSubscriberModalOpen(false);
+                                                setIsEditSubscriberModalOpen(false);
+                                                setFormData({ email: '', name: '', lists: [] });
+                                            }}
+                                            className="flex-1 border border-border-subtle px-4 py-2 font-sans text-ui text-ink hover:bg-pearl transition-colors"
+                                        >
+                                            Cancel
+                                        </button>
+                                        <button
+                                            onClick={isAddSubscriberModalOpen ? handleAddSubscriber : handleUpdateSubscriber}
+                                            disabled={!formData.email}
+                                            className="flex-1 bg-ink text-paper px-4 py-2 font-sans text-ui hover:bg-charcoal disabled:bg-silver transition-colors"
+                                        >
+                                            {isAddSubscriberModalOpen ? 'Add' : 'Update'}
+                                        </button>
+                                    </div>
+                                </motion.div>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
 
                     {/* Add/Edit List Modal */}
-                    {(isAddListModalOpen || isEditListModalOpen) && (
-                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-                            <div className="bg-white rounded-2xl shadow-xl p-8 max-w-md w-full">
-                                <div className="flex justify-between items-center mb-6">
-                                    <h2 className="text-2xl font-bold">
-                                        {isAddListModalOpen ? 'Create List' : 'Edit List'}
-                                    </h2>
-                                    <button
-                                        onClick={() => {
-                                            setIsAddListModalOpen(false);
-                                            setIsEditListModalOpen(false);
-                                            setListFormData({ name: '', description: '' });
-                                        }}
-                                        className="text-gray-500 hover:text-gray-700"
-                                    >
-                                        <XIcon className="h-6 w-6" />
-                                    </button>
-                                </div>
-
-                                <div className="space-y-4">
-                                    <div>
-                                        <label className="block text-sm font-semibold mb-1">List Name *</label>
-                                        <input
-                                            type="text"
-                                            value={listFormData.name}
-                                            onChange={(e) => setListFormData({ ...listFormData, name: e.target.value })}
-                                            placeholder="e.g., VIP Subscribers"
-                                            className="w-full px-3 py-2 border border-border-light rounded-lg focus:outline-none focus:ring-2 focus:ring-accent-light-blue"
-                                        />
+                    <AnimatePresence>
+                        {(isAddListModalOpen || isEditListModalOpen) && (
+                            <motion.div
+                                variants={modalOverlay}
+                                initial="hidden"
+                                animate="visible"
+                                exit="exit"
+                                className="fixed inset-0 bg-ink/60 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+                                onClick={() => {
+                                    setIsAddListModalOpen(false);
+                                    setIsEditListModalOpen(false);
+                                    setListFormData({ name: '', description: '' });
+                                }}
+                            >
+                                <motion.div
+                                    variants={modalContent}
+                                    initial="hidden"
+                                    animate="visible"
+                                    exit="exit"
+                                    className="bg-paper border border-border-subtle p-8 max-w-md w-full"
+                                    onClick={(e) => e.stopPropagation()}
+                                >
+                                    <div className="flex justify-between items-center mb-6">
+                                        <h2 className="font-display text-h2 text-ink">
+                                            {isAddListModalOpen ? 'Create List' : 'Edit List'}
+                                        </h2>
+                                        <button
+                                            onClick={() => {
+                                                setIsAddListModalOpen(false);
+                                                setIsEditListModalOpen(false);
+                                                setListFormData({ name: '', description: '' });
+                                            }}
+                                            className="text-slate hover:text-ink transition-colors"
+                                        >
+                                            <XIcon className="h-5 w-5" />
+                                        </button>
                                     </div>
 
-                                    <div>
-                                        <label className="block text-sm font-semibold mb-1">Description</label>
-                                        <textarea
-                                            value={listFormData.description}
-                                            onChange={(e) => setListFormData({ ...listFormData, description: e.target.value })}
-                                            placeholder="Describe this list..."
-                                            rows={3}
-                                            className="w-full px-3 py-2 border border-border-light rounded-lg focus:outline-none focus:ring-2 focus:ring-accent-light-blue"
-                                        />
-                                    </div>
-                                </div>
+                                    <div className="space-y-4">
+                                        <div>
+                                            <label className="block font-sans text-ui font-medium text-ink mb-2">
+                                                List Name *
+                                            </label>
+                                            <input
+                                                type="text"
+                                                value={listFormData.name}
+                                                onChange={(e) => setListFormData({ ...listFormData, name: e.target.value })}
+                                                placeholder="e.g., VIP Subscribers"
+                                                className="w-full bg-pearl border border-border-subtle px-3 py-2 font-sans text-ui text-ink placeholder:text-silver focus:outline-none focus:border-ink"
+                                            />
+                                        </div>
 
-                                <div className="flex gap-2 mt-6">
-                                    <button
-                                        onClick={() => {
-                                            setIsAddListModalOpen(false);
-                                            setIsEditListModalOpen(false);
-                                            setListFormData({ name: '', description: '' });
-                                        }}
-                                        className="flex-1 px-4 py-2 border border-border-light rounded-lg hover:bg-gray-50 transition-colors"
-                                    >
-                                        Cancel
-                                    </button>
-                                    <button
-                                        onClick={isAddListModalOpen ? handleCreateList : handleUpdateList}
-                                        disabled={!listFormData.name}
-                                        className="flex-1 px-4 py-2 bg-accent-salmon text-white rounded-lg hover:bg-accent-salmon/90 disabled:bg-gray-300 transition-colors"
-                                    >
-                                        {isAddListModalOpen ? 'Create' : 'Update'}
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    )}
+                                        <div>
+                                            <label className="block font-sans text-ui font-medium text-ink mb-2">Description</label>
+                                            <textarea
+                                                value={listFormData.description}
+                                                onChange={(e) => setListFormData({ ...listFormData, description: e.target.value })}
+                                                placeholder="Describe this list..."
+                                                rows={3}
+                                                className="w-full bg-pearl border border-border-subtle px-3 py-2 font-sans text-ui text-ink placeholder:text-silver focus:outline-none focus:border-ink"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div className="flex gap-3 mt-8">
+                                        <button
+                                            onClick={() => {
+                                                setIsAddListModalOpen(false);
+                                                setIsEditListModalOpen(false);
+                                                setListFormData({ name: '', description: '' });
+                                            }}
+                                            className="flex-1 border border-border-subtle px-4 py-2 font-sans text-ui text-ink hover:bg-pearl transition-colors"
+                                        >
+                                            Cancel
+                                        </button>
+                                        <button
+                                            onClick={isAddListModalOpen ? handleCreateList : handleUpdateList}
+                                            disabled={!listFormData.name}
+                                            className="flex-1 bg-ink text-paper px-4 py-2 font-sans text-ui hover:bg-charcoal disabled:bg-silver transition-colors"
+                                        >
+                                            {isAddListModalOpen ? 'Create' : 'Update'}
+                                        </button>
+                                    </div>
+                                </motion.div>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
                 </>
             )}
-        </div>
+        </motion.div>
     );
 };

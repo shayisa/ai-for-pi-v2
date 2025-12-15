@@ -1,0 +1,201 @@
+{
+  "timestamp": "2025-12-15T02:58:47.971Z",
+  "results": [
+    {
+      "input": {
+        "name": "Healthcare IT Professionals",
+        "description": "IT staff managing EHR systems, clinical software, and HIPAA compliance in healthcare settings"
+      },
+      "generated_config": {
+        "persona": "Healthcare IT Professionals are IT administrators and systems engineers responsible for deploying, maintaining, and securing Electronic Health Record (EHR) systems and clinical software in hospital networks and healthcare organizations. They face constant pressure to balance system uptime and performance with strict HIPAA compliance requirements, managing patient data security while supporting clinician workflows. Their daily challenges include integrating disparate legacy systems with modern solutions, troubleshooting EHR downtime issues, implementing security patches without disrupting patient care, and staying current with healthcare IT regulations. They need practical, implementation-focused information on system architecture, interoperability standards, cybersecurity threats specific to healthcare, and compliance best practices.",
+        "relevance_keywords": [
+          "EHR systems",
+          "HIPAA compliance",
+          "healthcare cybersecurity",
+          "clinical software",
+          "HL7 FHIR",
+          "medical data security",
+          "healthcare IT infrastructure",
+          "electronic health records",
+          "health information exchange",
+          "clinical workflow automation",
+          "healthcare system integration",
+          "medical device management",
+          "healthcare cloud computing",
+          "patient data protection",
+          "healthcare IT disaster recovery",
+          "clinical decision support",
+          "medical interoperability",
+          "healthcare AI implementation",
+          "telemedicine infrastructure",
+          "healthcare IT compliance"
+        ],
+        "subreddits": [
+          "healthIT",
+          "sysadmin",
+          "cybersecurity",
+          "healthcare_it",
+          "HealthcareInformatics",
+          "Futurology",
+          "programming",
+          "MacAdmins"
+        ],
+        "arxiv_categories": [
+          "cs.CY",
+          "cs.CR",
+          "cs.DC",
+          "q-bio.QM",
+          "cs.AI",
+          "stat.AP"
+        ],
+        "search_templates": [
+          "{topic} EHR integration healthcare",
+          "HIPAA compliance {topic} healthcare IT",
+          "{topic} clinical software security",
+          "healthcare {topic} interoperability standards",
+          "{topic} healthcare system architecture"
+        ]
+      },
+      "metrics": {
+        "cost_usd": 0.002797,
+        "time_ms": 4956,
+        "input_tokens": 232,
+        "output_tokens": 513
+      }
+    },
+    {
+      "input": {
+        "name": "Forensic Anthropologists",
+        "description": "Researchers analyzing skeletal remains using imaging technology, 3D reconstruction, and pattern recognition"
+      },
+      "generated_config": {
+        "persona": "Forensic anthropologists are specialized researchers who examine skeletal remains to identify individuals, determine cause of death, and establish timelines of injury or decomposition. They leverage advanced imaging technologies, 3D reconstruction software, and computational pattern recognition to analyze bone structure, trauma patterns, and demographic characteristics. Their daily challenges include processing large datasets of comparative skeletal morphology, validating AI-assisted measurements against manual analysis, staying current with emerging imaging modalities, and ensuring their digital methods meet legal and scientific standards for courtroom admissibility.",
+        "relevance_keywords": [
+          "3D reconstruction",
+          "skeletal analysis",
+          "forensic imaging",
+          "bone morphometry",
+          "computed tomography",
+          "pattern recognition",
+          "machine learning anthropology",
+          "automated classification",
+          "trauma analysis",
+          "dental imaging",
+          "skull reconstruction",
+          "age estimation",
+          "sex determination",
+          "ancestry assessment",
+          "computer vision forensics",
+          "deep learning segmentation",
+          "volumetric imaging",
+          "morphological analysis",
+          "comparative anatomy",
+          "forensic database"
+        ],
+        "subreddits": [
+          "MachineLearning",
+          "computervision",
+          "forensics",
+          "medicalimaging",
+          "3Dmodeling",
+          "archaeology",
+          "datascience",
+          "science"
+        ],
+        "arxiv_categories": [
+          "cs.CV",
+          "cs.AI",
+          "stat.ML",
+          "q-bio.QM",
+          "eess.IV",
+          "cs.LG"
+        ],
+        "search_templates": [
+          "{topic} skeletal remains analysis",
+          "automated {topic} bone morphology classification",
+          "3D imaging {topic} forensic anthropology",
+          "{topic} trauma pattern recognition skeletal analysis",
+          "machine learning {topic} dental forensic identification"
+        ]
+      },
+      "metrics": {
+        "cost_usd": 0.0025930000000000003,
+        "time_ms": 4356,
+        "input_tokens": 233,
+        "output_tokens": 472
+      }
+    },
+    {
+      "input": {
+        "name": "Supply Chain Analysts",
+        "description": "Professionals optimizing logistics, inventory management, and demand forecasting using data analytics"
+      },
+      "generated_config": {
+        "persona": "Supply Chain Analysts are data-driven professionals responsible for optimizing end-to-end logistics operations, managing inventory levels across distributed networks, and building predictive models for demand forecasting. They face daily challenges including real-time visibility into supply chain disruptions, balancing inventory costs against stockout risks, and integrating data from disparate systems into actionable insights. These professionals need cutting-edge information on machine learning applications for forecasting, optimization algorithms, IoT sensor integration, and emerging technologies that can improve supply chain resilience and efficiency.",
+        "relevance_keywords": [
+          "demand forecasting",
+          "inventory optimization",
+          "supply chain analytics",
+          "logistics network design",
+          "predictive modeling",
+          "time series forecasting",
+          "machine learning supply chain",
+          "demand planning",
+          "warehouse management",
+          "procurement optimization",
+          "supply chain visibility",
+          "forecasting algorithms",
+          "inventory management systems",
+          "distribution optimization",
+          "supply chain resilience",
+          "IoT logistics",
+          "real-time tracking",
+          "supply chain AI",
+          "demand sensing",
+          "network optimization"
+        ],
+        "subreddits": [
+          "datascience",
+          "MachineLearning",
+          "Analytics",
+          "logistics",
+          "operations",
+          "Business_Intelligence",
+          "SupplyChain",
+          "Python",
+          "statistics"
+        ],
+        "arxiv_categories": [
+          "cs.AI",
+          "cs.LG",
+          "stat.AP",
+          "math.OC",
+          "cs.DB",
+          "econ.GN",
+          "stat.ML"
+        ],
+        "search_templates": [
+          "{topic} forecasting machine learning",
+          "supply chain {topic} optimization algorithms",
+          "demand {topic} deep learning predictions",
+          "inventory {topic} time series analysis",
+          "{topic} logistics analytics best practices"
+        ]
+      },
+      "metrics": {
+        "cost_usd": 0.002604,
+        "time_ms": 4184,
+        "input_tokens": 229,
+        "output_tokens": 475
+      }
+    }
+  ],
+  "summary": {
+    "total": 3,
+    "successful": 3,
+    "failed": 0,
+    "total_cost_usd": 0.007994000000000001,
+    "total_time_ms": 13496,
+    "avg_time_ms": 4499
+  }
+}

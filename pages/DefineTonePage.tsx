@@ -1,5 +1,7 @@
 import React from 'react';
+import { motion } from 'framer-motion';
 import { TypeIcon } from '../components/IconComponents';
+import { fadeInUp, staggerContainer, staggerItem } from '../utils/animations';
 
 interface DefineTonePageProps {
     selectedTone: string;
@@ -19,21 +21,40 @@ export const DefineTonePage: React.FC<DefineTonePageProps> = ({
     flavorOptions,
 }) => {
     return (
-        <div className="space-y-8">
-            <h1 className="text-3xl md:text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-accent-light-blue to-accent-salmon mb-6">
-                Define Newsletter Tone
-            </h1>
+        <motion.div
+            variants={fadeInUp}
+            initial="hidden"
+            animate="visible"
+            className="space-y-10"
+        >
+            {/* Page Header */}
+            <header className="border-b-2 border-ink pb-6">
+                <h1 className="font-display text-h1 text-ink">
+                    Define Tone
+                </h1>
+                <p className="font-serif text-body text-slate mt-2">
+                    Set the voice and style of your newsletter
+                </p>
+            </header>
 
-            {/* Select Tone */}
-            <div className="bg-white rounded-2xl shadow-lg p-6 md:p-8 border border-border-light">
-                <h2 className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-accent-muted-blue to-accent-salmon mb-4 flex items-center gap-2">
-                    <TypeIcon className="h-6 w-6" />
-                    1. Select Tone
-                </h2>
-                <p className="text-secondary-text mb-6">Choose the overall emotional character of your newsletter's writing style.</p>
-                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
+            {/* Section 1: Select Tone */}
+            <section className="bg-paper border border-border-subtle p-8">
+                <div className="flex items-baseline gap-3 mb-4">
+                    <span className="text-overline text-slate uppercase tracking-widest font-sans">Step 1</span>
+                    <h2 className="font-display text-h3 text-ink">Select Tone</h2>
+                </div>
+                <p className="font-sans text-ui text-slate mb-6">
+                    Choose the overall emotional character of your writing
+                </p>
+
+                <motion.div
+                    variants={staggerContainer}
+                    initial="hidden"
+                    animate="visible"
+                    className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3"
+                >
                     {Object.entries(toneOptions).map(([key, { label, description, sampleOutput }]) => (
-                        <div key={key} className="relative group">
+                        <motion.div key={key} variants={staggerItem} className="relative group">
                             <input
                                 type="radio"
                                 id={`tone-${key}`}
@@ -43,49 +64,77 @@ export const DefineTonePage: React.FC<DefineTonePageProps> = ({
                                 onChange={() => setSelectedTone(key)}
                                 className="sr-only peer"
                             />
-                            <label 
+                            <label
                                 htmlFor={`tone-${key}`}
-                                className="block p-3 rounded-lg bg-gray-50 border border-border-light hover:bg-gray-100 transition cursor-pointer peer-checked:bg-accent-salmon peer-checked:border-transparent"
+                                className={`
+                                    block p-4 cursor-pointer transition-all duration-200
+                                    border ${selectedTone === key
+                                        ? 'border-ink bg-ink text-paper'
+                                        : 'border-border-subtle bg-paper hover:bg-pearl text-ink'}
+                                `}
                             >
-                                <span className="font-medium text-primary-text peer-checked:text-white">{label}</span>
-                                <p className="text-sm text-secondary-text peer-checked:text-white/90">{description}</p>
+                                <span className="font-sans text-ui font-medium block mb-1">{label}</span>
+                                <p className={`font-sans text-caption ${selectedTone === key ? 'text-silver' : 'text-slate'}`}>
+                                    {description}
+                                </p>
                             </label>
                             {/* Tooltip */}
-                            <div className="absolute left-full ml-4 top-1/2 -translate-y-1/2 z-20 w-80 p-4 bg-primary-text text-white rounded-lg shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-300">
-                                <h4 className="font-bold text-sm mb-2">{label} Tone Sample:</h4>
-                                <p className="text-xs italic leading-snug">"{sampleOutput}"</p>
-                                <div className="absolute left-0 top-1/2 -translate-x-full -translate-y-1/2 w-0 h-0 border-t-[8px] border-b-[8px] border-r-[8px] border-t-transparent border-b-transparent border-r-primary-text"></div>
+                            <div className="absolute left-full ml-4 top-1/2 -translate-y-1/2 z-20 w-72 p-4 bg-ink text-paper shadow-editorial-modal opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 pointer-events-none">
+                                <h4 className="font-sans text-caption font-semibold text-silver uppercase tracking-wide mb-2">
+                                    Sample Output
+                                </h4>
+                                <p className="font-serif text-ui italic leading-relaxed">"{sampleOutput}"</p>
+                                <div className="absolute left-0 top-1/2 -translate-x-full -translate-y-1/2 w-0 h-0 border-t-8 border-b-8 border-r-8 border-t-transparent border-b-transparent border-r-ink" />
                             </div>
-                        </div>
+                        </motion.div>
                     ))}
-                </div>
-            </div>
+                </motion.div>
+            </section>
 
-            {/* Add Stylistic Flavors */}
-            <div className="bg-white rounded-2xl shadow-lg p-6 md:p-8 border border-border-light">
-                <h2 className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-accent-salmon to-accent-light-blue mb-4 flex items-center gap-2">
-                    <TypeIcon className="h-6 w-6" />
-                    2. Add Stylistic Flavors <span className="text-secondary-text font-normal text-lg">(Optional)</span>
-                </h2>
-                <p className="text-secondary-text mb-6">Enhance your newsletter with specific stylistic elements for a unique touch.</p>
-                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {/* Section 2: Stylistic Flavors */}
+            <section className="bg-paper border border-border-subtle p-8">
+                <div className="flex items-baseline gap-3 mb-4">
+                    <span className="text-overline text-slate uppercase tracking-widest font-sans">Step 2</span>
+                    <h2 className="font-display text-h3 text-ink">
+                        Stylistic Flavors
+                        <span className="font-sans text-ui text-slate font-normal ml-2">(Optional)</span>
+                    </h2>
+                </div>
+                <p className="font-sans text-ui text-slate mb-6">
+                    Enhance your newsletter with specific stylistic elements
+                </p>
+
+                <motion.div
+                    variants={staggerContainer}
+                    initial="hidden"
+                    animate="visible"
+                    className="grid grid-cols-1 md:grid-cols-2 gap-3"
+                >
                     {Object.entries(flavorOptions).map(([key, { label, description }]) => (
-                        <label key={key} htmlFor={`flavor-${key}`} className="flex items-start gap-3 p-3 rounded-lg bg-gray-50 hover:bg-gray-100 transition cursor-pointer border border-transparent has-[:checked]:border-accent-yellow">
+                        <motion.label
+                            key={key}
+                            variants={staggerItem}
+                            htmlFor={`flavor-${key}`}
+                            className={`
+                                flex items-start gap-3 p-4 cursor-pointer transition-all duration-200
+                                border ${selectedFlavors[key] ? 'border-ink bg-pearl' : 'border-border-subtle bg-paper hover:bg-pearl'}
+                            `}
+                        >
                             <input
                                 type="checkbox"
                                 id={`flavor-${key}`}
                                 checked={!!selectedFlavors[key]}
                                 onChange={() => handleFlavorChange(key)}
-                                className="mt-1 h-4 w-4 rounded border-gray-300 bg-white text-accent-salmon focus:ring-accent-salmon"
+                                className="mt-1 h-4 w-4 border-charcoal bg-paper text-ink focus:ring-ink"
                             />
                             <div>
-                                <span className="font-medium text-primary-text">{label}</span>
-                                <p className="text-sm text-secondary-text">{description}</p>
+                                <span className="font-sans text-ui font-medium text-ink">{label}</span>
+                                <p className="font-sans text-caption text-slate mt-1">{description}</p>
                             </div>
-                        </label>
+                        </motion.label>
                     ))}
-                </div>
-            </div>
-        </div>
+                </motion.div>
+            </section>
+        </motion.div>
     );
 };

@@ -1,19 +1,23 @@
 
 import React, { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import type { PromptOfTheDay } from '../types';
-import { CodeIcon, SaveIcon, XIcon } from './IconComponents';
+import { CodeIcon, SaveIcon, XIcon, CheckIcon, BookOpenIcon } from './IconComponents';
 
 interface PromptOfTheDayEditorProps {
     initialPrompt: PromptOfTheDay | null;
     onSave: (prompt: PromptOfTheDay | null) => void;
+    onSaveToLibrary?: (prompt: PromptOfTheDay) => Promise<void>;
 }
 
-export const PromptOfTheDayEditor: React.FC<PromptOfTheDayEditorProps> = ({ initialPrompt, onSave }) => {
+export const PromptOfTheDayEditor: React.FC<PromptOfTheDayEditorProps> = ({ initialPrompt, onSave, onSaveToLibrary }) => {
     const [fullPromptText, setFullPromptText] = useState('');
     const [title, setTitle] = useState('');
     const [summary, setSummary] = useState('');
     const [examplePrompts, setExamplePrompts] = useState<string[]>(['', '', '']); // Start with 3 empty fields
     const [promptCode, setPromptCode] = useState('');
+    const [parseStatus, setParseStatus] = useState<'idle' | 'success'>('idle');
+    const [libraryStatus, setLibraryStatus] = useState<'idle' | 'saving' | 'success'>('idle');
 
     useEffect(() => {
         if (initialPrompt) {
@@ -50,18 +54,28 @@ export const PromptOfTheDayEditor: React.FC<PromptOfTheDayEditorProps> = ({ init
 
         console.log("Starting parse for text length:", text.length);
 
-        // 1. Extract Title (H1 markdown)
-        const titleRegex = new RegExp('^#\\s*\\*\\*(.*?)\\*\\*', 'm');
-        const titleMatch = text.match(titleRegex);
+        // 1. Extract Title (H1 markdown - with or without bold)
+        // Try bold format first: # **Title**
+        let titleRegex = new RegExp('^#\\s*\\*\\*(.*?)\\*\\*', 'm');
+        let titleMatch = text.match(titleRegex);
+
+        // Fallback to plain format: # Title
+        if (!titleMatch) {
+            titleRegex = new RegExp('^#\\s+(.+?)(?:\\s*$|\\n)', 'm');
+            titleMatch = text.match(titleRegex);
+        }
+
         console.log("Title match:", titleMatch);
         if (titleMatch && titleMatch[1]) {
             parsedTitle = titleMatch[1].trim();
         }
 
-        // 2. Extract Summary (between title and "**Three example prompts:**")
-        const summaryHeadingMarker = '**Three example prompts:**';
-        const summaryEndIndex = text.indexOf(summaryHeadingMarker);
-        
+        // 2. Extract Summary (between title and example prompts section)
+        // Match variations: "**Three example prompts:**", "**Three example user prompts:**", etc.
+        const examplePromptsMarkerRegex = /\*\*Three example.*?prompts.*?:\*\*/i;
+        const markerMatch = text.match(examplePromptsMarkerRegex);
+        const summaryEndIndex = markerMatch ? text.indexOf(markerMatch[0]) : -1;
+
         let titleStartIndex = -1;
         if (parsedTitle && titleMatch && titleMatch[0]) {
             titleStartIndex = text.indexOf(titleMatch[0]) + titleMatch[0].length;
@@ -69,6 +83,7 @@ export const PromptOfTheDayEditor: React.FC<PromptOfTheDayEditorProps> = ({ init
 
         console.log("Summary end index:", summaryEndIndex);
         console.log("Title start index for summary:", titleStartIndex);
+        console.log("Example prompts marker found:", markerMatch ? markerMatch[0] : null);
 
         if (summaryEndIndex !== -1 && titleStartIndex !== -1 && titleStartIndex < summaryEndIndex) {
             parsedSummary = text.substring(titleStartIndex, summaryEndIndex).trim();
@@ -81,7 +96,7 @@ export const PromptOfTheDayEditor: React.FC<PromptOfTheDayEditorProps> = ({ init
 
 
         // 3. Extract Example Prompts
-        const examplePromptsSectionStartIndex = text.indexOf(summaryHeadingMarker);
+        const examplePromptsSectionStartIndex = summaryEndIndex;
         if (examplePromptsSectionStartIndex !== -1) {
             const codeBlockStartIndex = text.indexOf('```', examplePromptsSectionStartIndex);
             const examplePromptsSection = codeBlockStartIndex !== -1
@@ -118,6 +133,20 @@ export const PromptOfTheDayEditor: React.FC<PromptOfTheDayEditorProps> = ({ init
         setPromptCode(parsedPromptCode);
         setFullPromptText(''); // Clear the paste area after parsing
         console.log("Parsing complete. State updated.");
+
+        // Immediately save the parsed prompt
+        const cleanedExamplePrompts = finalExamplePrompts.filter(p => p.trim() !== '');
+        if (parsedTitle.trim() || parsedSummary.trim() || cleanedExamplePrompts.length > 0 || parsedPromptCode.trim()) {
+            onSave({
+                title: parsedTitle.trim(),
+                summary: parsedSummary.trim(),
+                examplePrompts: cleanedExamplePrompts,
+                promptCode: parsedPromptCode.trim(),
+            });
+            // Show success feedback
+            setParseStatus('success');
+            setTimeout(() => setParseStatus('idle'), 2000);
+        }
     };
 
 
@@ -146,41 +175,93 @@ export const PromptOfTheDayEditor: React.FC<PromptOfTheDayEditorProps> = ({ init
         onSave(null);
     };
 
+    const handleSaveToLibrary = async () => {
+        if (!onSaveToLibrary) return;
+
+        const cleanedExamplePrompts = examplePrompts.filter(p => p.trim() !== '');
+        if (!title.trim() && !promptCode.trim()) {
+            console.log('Cannot save to library: title and prompt code are both empty');
+            return;
+        }
+
+        setLibraryStatus('saving');
+        try {
+            await onSaveToLibrary({
+                title: title.trim(),
+                summary: summary.trim(),
+                examplePrompts: cleanedExamplePrompts,
+                promptCode: promptCode.trim(),
+            });
+            setLibraryStatus('success');
+            setTimeout(() => setLibraryStatus('idle'), 2000);
+        } catch (error) {
+            console.error('Failed to save to library:', error);
+            setLibraryStatus('idle');
+        }
+    };
+
     const hasContent = title.trim() || summary.trim() || examplePrompts.some(p => p.trim() !== '') || promptCode.trim();
 
     return (
-        <div className="bg-white rounded-2xl shadow-lg border border-border-light p-6 md:p-8">
-            <h2 className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-accent-light-blue to-accent-yellow mb-4 flex items-center gap-2">
-                <CodeIcon className="h-6 w-6" />
-                Prompt of the Day <span className="text-secondary-text font-normal text-lg">(Optional)</span>
-            </h2>
-            <p className="text-secondary-text mb-6">Include a curated prompt for your audience in the newsletter.</p>
-            
-            <div className="mb-6 border-b border-border-light pb-6">
-                <h3 className="text-lg font-semibold text-primary-text mb-2">Paste Full Prompt</h3>
-                <p className="text-sm text-secondary-text mb-3">Paste the entire prompt text (including title, summary, examples, and code block) here, then click "Parse Prompt".</p>
+        <div className="bg-paper border border-border-subtle">
+            <div className="flex items-baseline gap-3 mb-4">
+                <span className="font-sans text-overline text-slate uppercase tracking-widest">Optional</span>
+                <h2 className="font-display text-h3 text-ink flex items-center gap-2">
+                    <CodeIcon className="h-6 w-6" />
+                    Prompt of the Day
+                </h2>
+            </div>
+            <p className="font-serif text-body text-charcoal mb-6">Include a curated prompt for your audience in the newsletter.</p>
+
+            <div className="mb-6 border-b border-border-subtle pb-6">
+                <h3 className="font-sans text-ui font-medium text-ink mb-2">Paste Full Prompt</h3>
+                <p className="font-sans text-caption text-slate mb-3">Paste the entire prompt text (including title, summary, examples, and code block) here, then click "Parse & Save" to extract and save all fields at once.</p>
                 <textarea
                     id="full-prompt-paste"
                     value={fullPromptText}
                     onChange={(e) => setFullPromptText(e.target.value)}
                     placeholder="Paste full prompt text here..."
                     rows={8}
-                    className="w-full bg-gray-50 border border-border-light rounded-lg p-2 focus:ring-2 focus:ring-accent-yellow focus:outline-none transition resize-y font-mono text-sm text-primary-text mb-3"
+                    className="w-full bg-pearl border border-border-subtle p-3 focus:outline-none focus:border-ink transition-colors resize-y font-mono text-sm text-ink mb-3"
                 />
                 <button
                     onClick={parseFullPrompt}
                     disabled={!fullPromptText.trim()}
-                    className="flex items-center justify-center gap-2 bg-accent-light-blue hover:bg-opacity-90 disabled:bg-accent-light-blue/40 disabled:text-secondary-text disabled:cursor-not-allowed text-white font-semibold py-2 px-6 rounded-lg transition duration-200"
+                    className={`flex items-center justify-center gap-2 font-sans text-ui py-2 px-6 transition-all duration-200 ${
+                        parseStatus === 'success'
+                            ? 'bg-green-600 text-paper'
+                            : 'bg-ink text-paper hover:bg-charcoal disabled:bg-silver disabled:text-slate disabled:cursor-not-allowed'
+                    }`}
                 >
-                    <SaveIcon className="h-5 w-5 rotate-90" /> {/* Using save icon rotated to suggest import/paste */}
-                    <span>Parse Prompt</span>
+                    <AnimatePresence mode="wait">
+                        <motion.span
+                            key={parseStatus}
+                            initial={{ opacity: 0, y: 5 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -5 }}
+                            transition={{ duration: 0.15 }}
+                            className="flex items-center gap-2"
+                        >
+                            {parseStatus === 'success' ? (
+                                <>
+                                    <CheckIcon className="h-5 w-5" />
+                                    <span>Saved!</span>
+                                </>
+                            ) : (
+                                <>
+                                    <SaveIcon className="h-5 w-5" />
+                                    <span>Parse & Save</span>
+                                </>
+                            )}
+                        </motion.span>
+                    </AnimatePresence>
                 </button>
             </div>
 
 
             <div className="space-y-6">
                 <div>
-                    <label htmlFor="prompt-title" className="block text-sm font-medium text-primary-text mb-1">
+                    <label htmlFor="prompt-title" className="block font-sans text-ui font-medium text-ink mb-1">
                         Title
                     </label>
                     <input
@@ -189,12 +270,12 @@ export const PromptOfTheDayEditor: React.FC<PromptOfTheDayEditorProps> = ({ init
                         value={title}
                         onChange={(e) => setTitle(e.target.value)}
                         placeholder="e.g., Strategic Leverage Lab"
-                        className="w-full bg-gray-50 border border-border-light rounded-lg p-2 focus:ring-2 focus:ring-accent-light-blue focus:outline-none transition text-primary-text"
+                        className="w-full bg-pearl border border-border-subtle px-3 py-2 focus:outline-none focus:border-ink transition-colors font-sans text-ui text-ink"
                     />
                 </div>
 
                 <div>
-                    <label htmlFor="prompt-summary" className="block text-sm font-medium text-primary-text mb-1">
+                    <label htmlFor="prompt-summary" className="block font-sans text-ui font-medium text-ink mb-1">
                         Summary of what the prompt does
                     </label>
                     <textarea
@@ -203,12 +284,12 @@ export const PromptOfTheDayEditor: React.FC<PromptOfTheDayEditorProps> = ({ init
                         onChange={(e) => setSummary(e.target.value)}
                         placeholder="e.g., This prompt turns AI into a high-level decision and opportunity analysis framework..."
                         rows={4}
-                        className="w-full bg-gray-50 border border-border-light rounded-lg p-2 focus:ring-2 focus:ring-accent-light-blue focus:outline-none transition resize-y text-primary-text"
+                        className="w-full bg-pearl border border-border-subtle px-3 py-2 focus:outline-none focus:border-ink transition-colors resize-y font-serif text-body text-ink"
                     />
                 </div>
 
                 <div>
-                    <label className="block text-sm font-medium text-primary-text mb-1">
+                    <label className="block font-sans text-ui font-medium text-ink mb-1">
                         Three Example Prompts
                     </label>
                     <div className="space-y-2">
@@ -219,7 +300,7 @@ export const PromptOfTheDayEditor: React.FC<PromptOfTheDayEditorProps> = ({ init
                                     value={prompt}
                                     onChange={(e) => handleExamplePromptChange(index, e.target.value)}
                                     placeholder={`Example prompt ${index + 1}`}
-                                    className="flex-grow bg-gray-50 border border-border-light rounded-lg p-2 focus:ring-2 focus:ring-accent-light-blue focus:outline-none transition text-primary-text"
+                                    className="flex-grow bg-pearl border border-border-subtle px-3 py-2 focus:outline-none focus:border-ink transition-colors font-sans text-ui text-ink"
                                 />
                             </div>
                         ))}
@@ -227,7 +308,7 @@ export const PromptOfTheDayEditor: React.FC<PromptOfTheDayEditorProps> = ({ init
                 </div>
 
                 <div>
-                    <label htmlFor="prompt-code" className="block text-sm font-medium text-primary-text mb-1">
+                    <label htmlFor="prompt-code" className="block font-sans text-ui font-medium text-ink mb-1">
                         Prompt Code
                     </label>
                     <textarea
@@ -236,25 +317,61 @@ export const PromptOfTheDayEditor: React.FC<PromptOfTheDayEditorProps> = ({ init
                         onChange={(e) => setPromptCode(e.target.value)}
                         placeholder="e.g., <role>You are a strategist...</role><context>...</context>"
                         rows={10}
-                        className="w-full bg-gray-50 border border-border-light rounded-lg p-2 focus:ring-2 focus:ring-accent-light-blue focus:outline-none transition font-mono text-sm resize-y text-primary-text"
+                        className="w-full bg-pearl border border-border-subtle px-3 py-2 focus:outline-none focus:border-ink transition-colors font-mono text-sm resize-y text-ink"
                     />
-                        <p className="text-xs text-secondary-text mt-1">Use XML-like tags (e.g., &lt;role&gt;, &lt;context&gt;) for structured prompts.</p>
+                    <p className="font-sans text-caption text-slate mt-1">Use XML-like tags (e.g., &lt;role&gt;, &lt;context&gt;) for structured prompts.</p>
                 </div>
             </div>
 
-            <div className="flex justify-end gap-4 mt-6 border-t border-border-light pt-6">
+            <div className="flex justify-end gap-4 mt-6 border-t border-border-subtle pt-6">
                 {hasContent && (
                     <button
                         onClick={handleClearPrompt}
-                        className="flex items-center gap-2 text-sm text-secondary-text hover:text-accent-salmon font-semibold py-2 px-4 rounded-lg transition duration-200"
+                        className="flex items-center gap-2 font-sans text-ui text-slate hover:text-editorial-red font-medium py-2 px-4 transition-colors"
                     >
                         <XIcon className="h-4 w-4" />
                         Clear Prompt
                     </button>
                 )}
+                {hasContent && onSaveToLibrary && (
+                    <button
+                        onClick={handleSaveToLibrary}
+                        disabled={libraryStatus === 'saving'}
+                        className={`flex items-center justify-center gap-2 font-sans text-ui py-2 px-4 transition-all duration-200 ${
+                            libraryStatus === 'success'
+                                ? 'bg-green-600 text-paper'
+                                : 'border border-ink text-ink hover:bg-ink hover:text-paper disabled:border-silver disabled:text-slate disabled:cursor-not-allowed'
+                        }`}
+                    >
+                        <AnimatePresence mode="wait">
+                            <motion.span
+                                key={libraryStatus}
+                                initial={{ opacity: 0, y: 5 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -5 }}
+                                transition={{ duration: 0.15 }}
+                                className="flex items-center gap-2"
+                            >
+                                {libraryStatus === 'success' ? (
+                                    <>
+                                        <CheckIcon className="h-4 w-4" />
+                                        <span>Saved!</span>
+                                    </>
+                                ) : libraryStatus === 'saving' ? (
+                                    <span>Saving...</span>
+                                ) : (
+                                    <>
+                                        <BookOpenIcon className="h-4 w-4" />
+                                        <span>Save to Library</span>
+                                    </>
+                                )}
+                            </motion.span>
+                        </AnimatePresence>
+                    </button>
+                )}
                 <button
                     onClick={handleSavePrompt}
-                    className="flex items-center justify-center gap-2 bg-accent-salmon hover:bg-opacity-90 disabled:bg-accent-salmon/40 disabled:text-secondary-text disabled:cursor-not-allowed text-white font-semibold py-3 px-6 rounded-lg transition duration-200 shadow-lg shadow-accent-salmon/30"
+                    className="flex items-center justify-center gap-2 bg-ink text-paper hover:bg-charcoal disabled:bg-silver disabled:text-slate disabled:cursor-not-allowed font-sans text-ui py-3 px-6 transition-colors"
                 >
                     <SaveIcon className="h-5 w-5" />
                     <span>{hasContent ? 'Update Prompt' : 'Add Prompt'}</span>

@@ -1,0 +1,112 @@
+{
+  "timestamp": "2025-12-15T03:02:53.584Z",
+  "results": [
+    {
+      "source": "GDELT",
+      "status": "success",
+      "articles_returned": 25,
+      "sample": {
+        "title": "Yılın kişisi : Yapay zeka mimarları",
+        "url": "https://www.posta.com.tr/dunya/yilin-kisisi-yapay-zeka-mimarlari-2943413",
+        "date": "Invalid Date",
+        "author": "Turkey"
+      },
+      "has_full_text": false,
+      "rate_limit_info": "Unlimited (no documented limits)",
+      "time_ms": 12559
+    },
+    {
+      "source": "NewsData.io",
+      "status": "failed",
+      "articles_returned": 0,
+      "has_full_text": false,
+      "rate_limit_info": "200 credits/day (2000 articles)",
+      "time_ms": 0,
+      "error": "NEWSDATA_API_KEY not set in .env.local"
+    },
+    {
+      "source": "Semantic Scholar",
+      "status": "failed",
+      "articles_returned": 0,
+      "has_full_text": true,
+      "rate_limit_info": "5000 req/5min",
+      "time_ms": 1248,
+      "error": "HTTP 429: {\"message\": \"Too Many Requests. Please wait and try again or apply for a key for higher rate limits. https://www.semanticscholar.org/product/api#api-key-form\", \"code\": \"429\"}"
+    },
+    {
+      "source": "ArXiv",
+      "status": "success",
+      "articles_returned": 15,
+      "sample": {
+        "title": "Moment-Based 3D Gaussian Splatting: Resolving Volumetric Occlusion with Order-Independent Transmittance",
+        "url": "https://arxiv.org/pdf/2512.11800v1"
+      },
+      "has_full_text": true,
+      "rate_limit_info": "Unlimited (be respectful)",
+      "time_ms": 44
+    },
+    {
+      "source": "Reddit",
+      "status": "success",
+      "articles_returned": 15,
+      "sample": {
+        "title": "[D] Does this NeurIPS 2025 paper look familiar to anyone?",
+        "url": "https://www.reddit.com/r/MachineLearning/comments/1phillh/d_does_this_neurips_2025_paper_look_familiar_to/",
+        "date": "12/9/2025",
+        "author": "rantana"
+      },
+      "has_full_text": false,
+      "rate_limit_info": "IP-based rate limiting",
+      "time_ms": 1158
+    },
+    {
+      "source": "HackerNews",
+      "status": "success",
+      "articles_returned": 2,
+      "sample": {
+        "title": "Microsoft Copilot AI Comes to LG TVs, and Can't Be Deleted",
+        "url": "https://www.techpowerup.com/344075/microsoft-copilot-ai-comes-to-lg-tvs-and-cant-be-deleted",
+        "date": "12/15/2025",
+        "author": "akyuu"
+      },
+      "has_full_text": false,
+      "rate_limit_info": "Unlimited",
+      "time_ms": 6170
+    },
+    {
+      "source": "GitHub",
+      "status": "success",
+      "articles_returned": 10,
+      "sample": {
+        "title": "Jobs_Applier_AI_Agent_AIHawk - AIHawk aims to easy job hunt process by automating the job application process. Utilizing artificial intelligence, it enables users to apply for multiple jobs in a tailored way.",
+        "url": "https://github.com/feder-cr/Jobs_Applier_AI_Agent_AIHawk",
+        "date": "11/16/2025",
+        "author": "feder-cr"
+      },
+      "has_full_text": false,
+      "rate_limit_info": "60 req/hour unauthenticated",
+      "time_ms": 578
+    },
+    {
+      "source": "Dev.to",
+      "status": "success",
+      "articles_returned": 8,
+      "sample": {
+        "title": "How I Cut My Debugging Time in Half as a Front-End Developer (A Practical Guide)",
+        "url": "https://dev.to/eleftheriabatsou/how-i-cut-my-debugging-time-in-half-as-a-front-end-developer-a-practical-guide-3kd0",
+        "date": "12/9/2025",
+        "author": "Eleftheria Batsou"
+      },
+      "has_full_text": true,
+      "rate_limit_info": "Generous limits",
+      "time_ms": 68
+    }
+  ],
+  "summary": {
+    "total_sources": 8,
+    "successful": 6,
+    "failed": 2,
+    "total_articles": 75,
+    "total_time_ms": 21825
+  }
+}

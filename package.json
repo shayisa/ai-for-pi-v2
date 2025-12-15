@@ -18,14 +18,16 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.69.0",
+    "@extractus/article-extractor": "^8.0.20",
     "@google/gemini-cli": "^0.15.1",
-    "@google/genai": "^1.28.0",
+    "@google/genai": "^1.33.0",
     "@types/express": "^5.0.5",
     "@types/node": "^24.10.1",
     "better-sqlite3": "^12.5.0",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
+    "framer-motion": "^12.23.26",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "zod": "^4.1.13"

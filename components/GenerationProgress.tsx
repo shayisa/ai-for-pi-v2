@@ -1,58 +1,22 @@
 /**
  * GenerationProgress Component
  *
- * Shows detailed progress during newsletter generation with:
- * - Stage indicators (content, search, images, verification)
- * - Visual progress bar
- * - Current stage highlighting
+ * Shows detailed progress during newsletter generation with editorial styling
  */
 
 import React from 'react';
-import { Spinner } from './Spinner';
+import { motion } from 'framer-motion';
 
 interface GenerationStage {
   id: string;
   label: string;
-  icon: React.ReactNode;
 }
 
 const stages: GenerationStage[] = [
-  {
-    id: 'content',
-    label: 'Generating content',
-    icon: (
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-      </svg>
-    ),
-  },
-  {
-    id: 'search',
-    label: 'Searching sources',
-    icon: (
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-      </svg>
-    ),
-  },
-  {
-    id: 'images',
-    label: 'Creating images',
-    icon: (
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-      </svg>
-    ),
-  },
-  {
-    id: 'finalize',
-    label: 'Finalizing',
-    icon: (
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-      </svg>
-    ),
-  },
+  { id: 'content', label: 'Generating content' },
+  { id: 'search', label: 'Searching sources' },
+  { id: 'images', label: 'Creating images' },
+  { id: 'finalize', label: 'Finalizing' },
 ];
 
 function getStageFromProgress(progress: number): string {
@@ -84,91 +48,78 @@ export const GenerationProgress: React.FC<GenerationProgressProps> = ({
   const currentStage = getStageFromProgress(progress);
 
   return (
-    <div className="w-full max-w-lg mx-auto">
-      {/* Main progress bar */}
-      <div className="mb-8">
+    <div className="w-full max-w-md mx-auto">
+      {/* Progress bar */}
+      <div className="mb-10">
         <div className="flex justify-between mb-2">
-          <span className="text-sm font-medium text-primary-text">Progress</span>
-          <span className="text-sm font-medium text-accent-salmon">{Math.round(progress)}%</span>
+          <span className="font-sans text-overline text-slate uppercase tracking-widest">Progress</span>
+          <span className="font-sans text-ui font-medium text-ink">{Math.round(progress)}%</span>
         </div>
-        <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
-          <div
-            className="bg-gradient-to-r from-accent-light-blue to-accent-salmon h-3 rounded-full transition-all duration-500 ease-out"
-            style={{ width: `${progress}%` }}
+        <div className="w-full bg-pearl h-1 overflow-hidden">
+          <motion.div
+            className="bg-ink h-1 origin-left"
+            initial={{ scaleX: 0 }}
+            animate={{ scaleX: progress / 100 }}
+            transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
           />
         </div>
       </div>
 
-      {/* Stage indicators */}
-      <div className="space-y-3">
-        {stages.map((stage) => {
+      {/* Stage indicators - horizontal timeline */}
+      <div className="flex items-center justify-between mb-8">
+        {stages.map((stage, index) => {
           const status = getStageStatus(stage.id, currentStage);
+          const isLast = index === stages.length - 1;
 
           return (
-            <div
-              key={stage.id}
-              className={`flex items-center gap-3 p-3 rounded-lg transition-all duration-300 ${
-                status === 'active'
-                  ? 'bg-accent-salmon/10 border border-accent-salmon/30'
-                  : status === 'completed'
-                  ? 'bg-green-50 border border-green-200'
-                  : 'bg-gray-50 border border-gray-200'
-              }`}
-            >
-              {/* Icon */}
-              <div
-                className={`flex-shrink-0 ${
-                  status === 'active'
-                    ? 'text-accent-salmon'
-                    : status === 'completed'
-                    ? 'text-green-500'
-                    : 'text-gray-400'
-                }`}
-              >
-                {status === 'active' ? (
-                  <div className="animate-spin">
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                    </svg>
-                  </div>
-                ) : status === 'completed' ? (
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
-                ) : (
-                  stage.icon
-                )}
+            <React.Fragment key={stage.id}>
+              {/* Stage dot */}
+              <div className="flex flex-col items-center">
+                <div
+                  className={`
+                    w-3 h-3 transition-colors duration-300
+                    ${status === 'completed' ? 'bg-ink' :
+                      status === 'active' ? 'bg-editorial-red' : 'bg-silver'}
+                  `}
+                />
+                <span
+                  className={`
+                    font-sans text-caption mt-2 text-center max-w-[80px]
+                    ${status === 'active' ? 'text-ink font-medium' :
+                      status === 'completed' ? 'text-slate' : 'text-silver'}
+                  `}
+                >
+                  {stage.label}
+                </span>
               </div>
 
-              {/* Label */}
-              <span
-                className={`font-medium ${
-                  status === 'active'
-                    ? 'text-accent-salmon'
-                    : status === 'completed'
-                    ? 'text-green-600'
-                    : 'text-gray-400'
-                }`}
-              >
-                {stage.label}
-              </span>
-
-              {/* Status badge */}
-              {status === 'completed' && (
-                <span className="ml-auto text-xs font-medium text-green-600 bg-green-100 px-2 py-0.5 rounded-full">
-                  Done
-                </span>
+              {/* Connector line */}
+              {!isLast && (
+                <div className="flex-1 h-px mx-2 bg-border-subtle relative -top-3">
+                  {status === 'completed' && (
+                    <motion.div
+                      className="absolute inset-0 bg-ink origin-left"
+                      initial={{ scaleX: 0 }}
+                      animate={{ scaleX: 1 }}
+                      transition={{ duration: 0.3 }}
+                    />
+                  )}
+                </div>
               )}
-            </div>
+            </React.Fragment>
           );
         })}
       </div>
 
       {/* Current message */}
-      <p className="mt-6 text-center text-sm text-secondary-text animate-pulse">
+      <motion.p
+        key={message}
+        initial={{ opacity: 0, y: 4 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="text-center font-serif text-ui text-slate italic"
+      >
         {message}
-      </p>
+      </motion.p>
     </div>
   );
 };

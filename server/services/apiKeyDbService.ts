@@ -6,7 +6,7 @@
 import db from '../db/init.ts';
 
 // Types
-export type ServiceType = 'claude' | 'stability' | 'brave' | 'google_api_key' | 'google_client_id';
+export type ServiceType = 'claude' | 'stability' | 'brave' | 'google_api_key' | 'google_client_id' | 'google_client_secret';
 
 export interface ApiKeyRecord {
   id: number;

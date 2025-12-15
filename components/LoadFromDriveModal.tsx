@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { XIcon } from './IconComponents';
 import * as googleApi from '../services/googleApiService';
-import type { Newsletter } from '../types';
+import type { Newsletter, EnhancedNewsletter } from '../types';
+import { modalOverlay, modalContent, staggerContainer, staggerItem } from '../utils/animations';
 
 interface DriveNewsletterItem {
     fileId: string;
@@ -13,9 +15,14 @@ interface DriveNewsletterItem {
 interface LoadFromDriveModalProps {
     isOpen: boolean;
     onClose: () => void;
-    onLoad: (newsletter: Newsletter, topics: string[]) => void;
+    onLoad: (
+        newsletter: Newsletter | EnhancedNewsletter,
+        topics: string[],
+        formatVersion: 'v1' | 'v2'
+    ) => void;
     driveFolderName: string;
     accessToken: string;
+    userEmail: string;
 }
 
 export const LoadFromDriveModal: React.FC<LoadFromDriveModalProps> = ({
@@ -24,6 +31,7 @@ export const LoadFromDriveModal: React.FC<LoadFromDriveModalProps> = ({
     onLoad,
     driveFolderName,
     accessToken,
+    userEmail,
 }) => {
     const [newsletters, setNewsletters] = useState<DriveNewsletterItem[]>([]);
     const [loading, setLoading] = useState(false);
@@ -40,7 +48,7 @@ export const LoadFromDriveModal: React.FC<LoadFromDriveModalProps> = ({
             setError(null);
             setNewsletters([]);
             try {
-                const items = await googleApi.listNewslettersFromDrive(driveFolderName);
+                const items = await googleApi.listNewslettersFromDrive(userEmail);
                 setNewsletters(items);
             } catch (err) {
                 const errorMessage = err instanceof Error ? err.message : 'Failed to load newsletters from Drive';
@@ -52,14 +60,14 @@ export const LoadFromDriveModal: React.FC<LoadFromDriveModalProps> = ({
         };
 
         loadNewsletters();
-    }, [isOpen, driveFolderName]);
+    }, [isOpen, userEmail]);
 
     const handleSelectNewsletter = async (fileId: string) => {
         setLoadingFileId(fileId);
         setError(null);
         try {
-            const { newsletter, topics } = await googleApi.loadNewsletterFromDrive(fileId);
-            onLoad(newsletter, topics);
+            const { newsletter, topics, formatVersion } = await googleApi.loadNewsletterFromDrive(userEmail, fileId);
+            onLoad(newsletter, topics, formatVersion);
             onClose();
         } catch (err) {
             const errorMessage = err instanceof Error ? err.message : 'Failed to load newsletter';
@@ -70,93 +78,122 @@ export const LoadFromDriveModal: React.FC<LoadFromDriveModalProps> = ({
         }
     };
 
-    if (!isOpen) return null;
-
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-96 flex flex-col">
-                {/* Header */}
-                <div className="flex items-center justify-between border-b border-border-light p-4">
-                    <h2 className="text-xl font-bold text-primary-text">Load Newsletter from Google Drive</h2>
-                    <button
-                        onClick={onClose}
-                        className="text-secondary-text hover:text-primary-text transition"
-                        aria-label="Close modal"
+        <AnimatePresence>
+            {isOpen && (
+                <motion.div
+                    variants={modalOverlay}
+                    initial="hidden"
+                    animate="visible"
+                    exit="exit"
+                    className="fixed inset-0 bg-ink/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+                    onClick={onClose}
+                >
+                    <motion.div
+                        variants={modalContent}
+                        initial="hidden"
+                        animate="visible"
+                        exit="exit"
+                        className="bg-paper border border-border-subtle w-full max-w-2xl max-h-[80vh] flex flex-col"
+                        onClick={(e) => e.stopPropagation()}
                     >
-                        <XIcon className="h-5 w-5" />
-                    </button>
-                </div>
-
-                {/* Content */}
-                <div className="flex-1 overflow-y-auto p-4">
-                    {loading && (
-                        <div className="flex items-center justify-center py-8">
-                            <div className="text-center">
-                                <div className="inline-block mb-2">
-                                    <div className="w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
-                                </div>
-                                <p className="text-secondary-text">Loading newsletters...</p>
+                        {/* Header */}
+                        <div className="flex items-center justify-between px-8 py-6 border-b border-border-subtle">
+                            <div>
+                                <h2 className="font-display text-h2 text-ink">Load from Drive</h2>
+                                <p className="font-sans text-caption text-slate mt-1">
+                                    Select a previously saved newsletter
+                                </p>
                             </div>
+                            <button
+                                onClick={onClose}
+                                className="text-slate hover:text-ink transition-colors p-2"
+                                aria-label="Close modal"
+                            >
+                                <XIcon className="h-5 w-5" />
+                            </button>
                         </div>
-                    )}
 
-                    {error && (
-                        <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
-                            <p className="text-red-700 text-sm font-medium">Error</p>
-                            <p className="text-red-600 text-sm">{error}</p>
-                        </div>
-                    )}
-
-                    {!loading && newsletters.length === 0 && !error && (
-                        <div className="text-center py-8">
-                            <p className="text-secondary-text">No newsletters found in Drive</p>
-                        </div>
-                    )}
-
-                    {!loading && newsletters.length > 0 && (
-                        <div className="space-y-2">
-                            {newsletters.map((newsletter) => (
-                                <button
-                                    key={newsletter.fileId}
-                                    onClick={() => handleSelectNewsletter(newsletter.fileId)}
-                                    disabled={loadingFileId === newsletter.fileId}
-                                    className={`w-full p-3 text-left border rounded-lg transition ${
-                                        loadingFileId === newsletter.fileId
-                                            ? 'bg-gray-100 border-gray-300 opacity-50'
-                                            : 'border-border-light hover:bg-gray-50 hover:border-accent-muted-blue'
-                                    }`}
-                                >
-                                    <div className="flex items-start justify-between">
-                                        <div className="flex-1">
-                                            <p className="font-medium text-primary-text truncate">
-                                                {newsletter.fileName}
-                                            </p>
-                                            <p className="text-sm text-secondary-text">
-                                                {new Date(newsletter.modifiedTime).toLocaleString()}
-                                            </p>
-                                        </div>
-                                        {loadingFileId === newsletter.fileId && (
-                                            <div className="ml-2">
-                                                <div className="w-5 h-5 border-2 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
-                                            </div>
-                                        )}
+                        {/* Content */}
+                        <div className="flex-1 overflow-y-auto px-8 py-6">
+                            {loading && (
+                                <div className="flex items-center justify-center py-12">
+                                    <div className="text-center">
+                                        <div className="w-8 h-8 border-2 border-ink border-t-transparent animate-spin mx-auto mb-4" />
+                                        <p className="font-sans text-ui text-slate">Loading newsletters...</p>
                                     </div>
-                                </button>
-                            ))}
-                        </div>
-                    )}
-                </div>
+                                </div>
+                            )}
 
-                {/* Footer */}
-                <div className="border-t border-border-light p-4 flex gap-3 justify-end">
-                    <button
-                        onClick={onClose}
-                        className="px-4 py-2 text-sm font-medium text-primary-text bg-gray-100 hover:bg-gray-200 rounded-lg transition"
-                    >
-                        Cancel
-                    </button>
-                </div>
-            </div>
-        </div>
+                            {error && (
+                                <div className="bg-red-50 border-l-2 border-editorial-red p-4 mb-6">
+                                    <p className="font-sans text-ui font-medium text-editorial-red">Error</p>
+                                    <p className="font-sans text-caption text-charcoal mt-1">{error}</p>
+                                </div>
+                            )}
+
+                            {!loading && newsletters.length === 0 && !error && (
+                                <div className="text-center py-12">
+                                    <p className="font-serif text-body text-slate">
+                                        No newsletters found in "{driveFolderName}"
+                                    </p>
+                                </div>
+                            )}
+
+                            {!loading && newsletters.length > 0 && (
+                                <motion.div
+                                    variants={staggerContainer}
+                                    initial="hidden"
+                                    animate="visible"
+                                    className="divide-y divide-border-subtle"
+                                >
+                                    {newsletters.map((newsletter) => (
+                                        <motion.button
+                                            key={newsletter.fileId}
+                                            variants={staggerItem}
+                                            onClick={() => handleSelectNewsletter(newsletter.fileId)}
+                                            disabled={loadingFileId === newsletter.fileId}
+                                            className={`w-full py-4 text-left transition-colors group ${
+                                                loadingFileId === newsletter.fileId
+                                                    ? 'opacity-50'
+                                                    : 'hover:bg-pearl'
+                                            }`}
+                                        >
+                                            <div className="flex items-center justify-between">
+                                                <div className="flex-1 min-w-0">
+                                                    <p className="font-sans text-ui font-medium text-ink group-hover:text-editorial-navy truncate transition-colors">
+                                                        {newsletter.fileName}
+                                                    </p>
+                                                    <p className="font-sans text-caption text-slate mt-1">
+                                                        {new Date(newsletter.modifiedTime).toLocaleString()}
+                                                    </p>
+                                                </div>
+                                                {loadingFileId === newsletter.fileId ? (
+                                                    <div className="w-5 h-5 border-2 border-ink border-t-transparent animate-spin ml-4" />
+                                                ) : (
+                                                    <span className="font-sans text-caption text-silver group-hover:text-ink transition-colors ml-4">
+                                                        Load
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </motion.button>
+                                    ))}
+                                </motion.div>
+                            )}
+                        </div>
+
+                        {/* Footer */}
+                        <div className="px-8 py-4 bg-pearl border-t border-border-subtle flex justify-end">
+                            <button
+                                onClick={onClose}
+                                className="font-sans text-ui text-slate hover:text-ink transition-colors px-4 py-2"
+                            >
+                                Cancel
+                            </button>
+                        </div>
+                    </motion.div>
+                </motion.div>
+            )}
+        </AnimatePresence>
     );
 };

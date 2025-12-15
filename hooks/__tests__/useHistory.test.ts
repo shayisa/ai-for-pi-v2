@@ -60,10 +60,17 @@ describe('useHistory', () => {
         id: 'nl_1',
         createdAt: '2024-01-01T00:00:00.000Z',
         subject: 'Old Newsletter',
-        introduction: 'Intro',
-        sections: [{ title: 'S1', content: 'C1', imagePrompt: 'P1' }],
-        conclusion: 'Conclusion',
-        topics: ['AI']
+        topics: ['AI'],
+        formatVersion: 'v1' as const,
+        newsletter: {
+          id: 'nl_1',
+          createdAt: '2024-01-01T00:00:00.000Z',
+          subject: 'Old Newsletter',
+          introduction: 'Intro',
+          sections: [{ title: 'S1', content: 'C1', imagePrompt: 'P1' }],
+          conclusion: 'Conclusion',
+          topics: ['AI']
+        }
       }
     ];
 
@@ -109,10 +116,17 @@ describe('useHistory', () => {
         id: 'nl_1',
         createdAt: '2024-01-01T00:00:00.000Z',
         subject: 'Test Newsletter',
-        introduction: 'Test intro',
-        sections: [{ title: 'Section 1', content: 'Content 1', imagePrompt: 'Prompt 1' }],
-        conclusion: 'Test conclusion',
-        topics: ['AI tools']
+        topics: ['AI tools'],
+        formatVersion: 'v1' as const,
+        newsletter: {
+          id: 'nl_1',
+          createdAt: '2024-01-01T00:00:00.000Z',
+          subject: 'Test Newsletter',
+          introduction: 'Test intro',
+          sections: [{ title: 'Section 1', content: 'Content 1', imagePrompt: 'Prompt 1' }],
+          conclusion: 'Test conclusion',
+          topics: ['AI tools']
+        }
       }],
       count: 1
     });
@@ -135,10 +149,17 @@ describe('useHistory', () => {
         id: 'nl_1',
         createdAt: '2024-01-01T00:00:00.000Z',
         subject: 'Test Newsletter',
-        introduction: 'Test intro',
-        sections: [{ title: 'Section 1', content: 'Content 1', imagePrompt: 'Prompt 1' }],
-        conclusion: 'Test conclusion',
-        topics: ['AI tools']
+        topics: ['AI tools'],
+        formatVersion: 'v1' as const,
+        newsletter: {
+          id: 'nl_1',
+          createdAt: '2024-01-01T00:00:00.000Z',
+          subject: 'Test Newsletter',
+          introduction: 'Test intro',
+          sections: [{ title: 'Section 1', content: 'Content 1', imagePrompt: 'Prompt 1' }],
+          conclusion: 'Test conclusion',
+          topics: ['AI tools']
+        }
       }],
       count: 1
     });
@@ -169,10 +190,17 @@ describe('useHistory', () => {
         id: 'nl_refreshed',
         createdAt: '2024-01-02T00:00:00.000Z',
         subject: 'Refreshed Newsletter',
-        introduction: 'Intro',
-        sections: [],
-        conclusion: 'Conclusion',
-        topics: ['New']
+        topics: ['New'],
+        formatVersion: 'v1' as const,
+        newsletter: {
+          id: 'nl_refreshed',
+          createdAt: '2024-01-02T00:00:00.000Z',
+          subject: 'Refreshed Newsletter',
+          introduction: 'Intro',
+          sections: [],
+          conclusion: 'Conclusion',
+          topics: ['New']
+        }
       }],
       count: 1
     });

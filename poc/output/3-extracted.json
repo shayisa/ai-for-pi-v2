@@ -1,0 +1,160 @@
+{
+  "timestamp": "2025-12-15T03:25:57.437Z",
+  "results": [
+    {
+      "url": "https://www.posta.com.tr/dunya/yilin-kisisi-yapay-zeka-mimarlari-2943413",
+      "source_type": "gdelt_news",
+      "success": true,
+      "title": "Yılın kişisi: Yapay zeka mimarları",
+      "text_length": 1896,
+      "text_preview": "TIME dergisi , 2025'in ana hikayesini teknolojiyi şekillendiren sistemlerin yazdığını açıkladı. Bu nedenle Yılın Kişisi olarak sekiz kişiyi seçti. Yılın Kişisi, iki özel kapakla ilan edildi. Kapaklardan birinde servetleri toplamı 900 milyar doları bulan sekiz teknoloji mimarı yer aldı. Diğeri de inşaat iskelesini andıran AI (yapay zeka) harfleriyle hazırlandı. Sekiz teknoloji lideri, 1932'de New York'taki gökdelen inşaatında yemek molasında çekilen işçiler gibi resmedildi. O kare, New York'un yü",
+      "author": "Posta.com.tr",
+      "published": "2025-12-12T07:00:00&#x2B;03:00",
+      "ttr_seconds": 49,
+      "extraction_time_ms": 1024,
+      "method": "@extractus/article-extractor"
+    },
+    {
+      "url": "https://arxiv.org/abs/2512.11800",
+      "source_type": "arxiv",
+      "success": true,
+      "title": "Moment-Based 3D Gaussian Splatting: Resolving Volumetric Occlusion...",
+      "text_length": 1708,
+      "text_preview": "View PDF HTML (experimental) Abstract: The recent success of 3D Gaussian Splatting (3DGS) has reshaped novel view synthesis by enabling fast optimization and real-time rendering of high-quality radiance fields. However, it relies on simplified, order-dependent alpha blending and coarse approximations of the density integral within the rasterizer, thereby limiting its ability to render complex, overlapping semi-transparent objects. In this paper, we extend rasterization-based rendering of 3D Gaus",
+      "ttr_seconds": 46,
+      "extraction_time_ms": 364,
+      "method": "@extractus/article-extractor"
+    },
+    {
+      "url": "https://github.com/feder-cr/Jobs_Applier_AI_Agent_AIHawk",
+      "source_type": "github",
+      "success": true,
+      "title": "GitHub - feder-cr/Jobs_Applier_AI_Agent_AIHawk: AIHawk aims to easy job hunt process by automating the job application process. Utilizing artificial intelligence, it enables users to apply for multiple jobs in a tailored way.",
+      "text_length": 456,
+      "text_preview": "AIHawk: The first Jobs Applier AI Web Agent AIHawk's core architecture remains open source , allowing developers to inspect and extend the codebase. However, due to copyright considerations, we have removed all third‑party provider plugins from this repository. AIHawk has been featured by major media outlets for revolutionizing how job seekers interact with the job market: Business Insider TechCrunch Semafor Dev.by Wired The Verge Vanity Fair 404 Media",
+      "published": "2024-11-15T14:38:56Z",
+      "ttr_seconds": 14,
+      "extraction_time_ms": 880,
+      "method": "@extractus/article-extractor"
+    },
+    {
+      "url": "https://dev.to/eleftheriabatsou/how-i-cut-my-debugging-time-in-half-as-a-front-end-developer-a-practical-guide-3kd0",
+      "source_type": "devto",
+      "success": true,
+      "title": "How I Cut My Debugging Time in Half as a Front-End Developer (A Practical Guide)",
+      "text_length": 4677,
+      "text_preview": "Debugging is one of those things every developer secretly knows eats up far more time than we’d like to admit. Some studies estimate that up to 50% of a developer’s time is spent tracking down bugs, deciphering cryptic console messages, jumping between tools, and trying to figure out why something worked five minutes ago but doesn’t now. In my recent article, AI Fluency: Build Smarter Code , I explored how modern AI tools can elevate your coding workflow. But there’s an equally important part of",
+      "author": "Eleftheria Batsou",
+      "published": "2025-12-09T11:06:32Z",
+      "ttr_seconds": 155,
+      "extraction_time_ms": 908,
+      "method": "@extractus/article-extractor"
+    },
+    {
+      "url": "https://www.techpowerup.com/344075/microsoft-copilot-ai-comes-to-lg-tvs-and-cant-be-deleted",
+      "source_type": "tech_news",
+      "success": true,
+      "title": "Microsoft Copilot AI Comes to LG TVs, and Can't Be Deleted",
+      "text_length": 1644,
+      "text_preview": "Microsoft's Copilot AI chatbot is arguably one of the most controversial add-ons ever implemented in the Windows 11 operating system. However, the controversy doesn't stop at PC operating systems. It seems to extend to TVs as well. According to Reddit user u/defjam16, his LG TV webOS received an update that installed Microsoft's Copilot AI app, with no option to remove it. Although users can choose to ignore it, the push for increased AI integration in everyday products is becoming unavoidable, ",
+      "published": "2025-12-14T17:09:58+00:00",
+      "ttr_seconds": 56,
+      "extraction_time_ms": 1909,
+      "method": "@extractus/article-extractor"
+    },
+    {
+      "url": "https://www.reddit.com/r/MachineLearning/comments/1phillh/d_does_this_neurips_2025_paper_look_familiar_to/",
+      "source_type": "reddit",
+      "success": true,
+      "title": "Reddit - The heart of the internet",
+      "text_length": 488,
+      "text_preview": "This NeurIPS 2025 paper seems very much like another well-known paper but appears to be renaming everything. Some parts are down to the word matches. Just to make sure I'm not going crazy, as an experiment, I'm not going to post the original paper just to see if others make the connection: The Indra Representation Hypothesis https://openreview.net/forum?id=D2NR5Zq6PG Since comments are asking for the other paper: The Platonic Representation Hypothesis https://arxiv.org/abs/2405.07987",
+      "ttr_seconds": 14,
+      "extraction_time_ms": 1148,
+      "method": "@extractus/article-extractor"
+    },
+    {
+      "url": "https://arxiv.org/abs/2312.00752",
+      "source_type": "arxiv",
+      "success": true,
+      "title": "Mamba: Linear-Time Sequence Modeling with Selective State Spaces",
+      "text_length": 2075,
+      "text_preview": "View PDF HTML (experimental) Abstract: Foundation models, now powering most of the exciting applications in deep learning, are almost universally based on the Transformer architecture and its core attention module. Many subquadratic-time architectures such as linear attention, gated convolution and recurrent models, and structured state space models (SSMs) have been developed to address Transformers' computational inefficiency on long sequences, but they have not performed as well as attention o",
+      "ttr_seconds": 57,
+      "extraction_time_ms": 64,
+      "method": "@extractus/article-extractor"
+    },
+    {
+      "url": "https://github.com/openai/openai-python",
+      "source_type": "github",
+      "success": true,
+      "title": "GitHub - openai/openai-python: The official Python library for the OpenAI API",
+      "text_length": 23007,
+      "text_preview": "OpenAI Python API library The OpenAI Python library provides convenient access to the OpenAI REST API from any Python 3.9+ application. The library includes type definitions for all request params and response fields, and offers both synchronous and asynchronous clients powered by httpx . It is generated from our OpenAPI specification with Stainless . Documentation The REST API documentation can be found on platform.openai.com . The full API of this library can be found in api.md . Installation ",
+      "published": "2025-12-11T18:18:06Z",
+      "ttr_seconds": 588,
+      "extraction_time_ms": 942,
+      "method": "@extractus/article-extractor"
+    },
+    {
+      "url": "https://arstechnica.com/ai/2024/12/openai-promises-ai-agents-are-coming-soon/",
+      "source_type": "tech_news",
+      "success": true,
+      "title": "Category: AI",
+      "text_length": 965,
+      "text_preview": "Ars Technica has been separating the signal from the noise for over 25 years. With our unique combination of technical savvy and wide-ranging interest in the technological arts and sciences, Ars is the trusted source in a sea of information. After all, you don’t need to know everything, only what’s important. More from Ars About Us Staff Directory Ars Newsletters General FAQ Posting Guidelines RSS Feeds Contact Contact us Advertise with us Reprints © 2025 Condé Nast. All rights reserved. Use of ",
+      "published": "2024-12-26T07:00:25-05:00",
+      "ttr_seconds": 31,
+      "extraction_time_ms": 3140,
+      "method": "@extractus/article-extractor"
+    },
+    {
+      "url": "https://www.wired.com/story/openai-just-gave-itself-the-regulatory-cover-to-sell-ai-agents/",
+      "source_type": "tech_news",
+      "success": false,
+      "extraction_time_ms": 766,
+      "error": "Request failed with error code 404",
+      "method": "@extractus/article-extractor"
+    }
+  ],
+  "by_source_type": {
+    "gdelt_news": {
+      "success": 1,
+      "failed": 0,
+      "total_chars": 1896
+    },
+    "arxiv": {
+      "success": 2,
+      "failed": 0,
+      "total_chars": 3783
+    },
+    "github": {
+      "success": 2,
+      "failed": 0,
+      "total_chars": 23463
+    },
+    "devto": {
+      "success": 1,
+      "failed": 0,
+      "total_chars": 4677
+    },
+    "tech_news": {
+      "success": 2,
+      "failed": 1,
+      "total_chars": 2609
+    },
+    "reddit": {
+      "success": 1,
+      "failed": 0,
+      "total_chars": 488
+    }
+  },
+  "summary": {
+    "total": 10,
+    "successful": 9,
+    "failed": 1,
+    "success_rate": "90.0%",
+    "total_chars_extracted": 36916,
+    "avg_extraction_time_ms": 1115
+  }
+}

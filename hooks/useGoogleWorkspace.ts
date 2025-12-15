@@ -1,10 +1,15 @@
 /**
  * useGoogleWorkspace Hook
  *
+ * @deprecated This hook is no longer used. Workflow actions have been moved directly to App.tsx
+ * and subscribers are now managed via SQLite (subscriberClientService).
+ *
+ * This file is kept for reference but should not be used in new code.
+ *
  * Manages Google Workspace integration including:
  * - OAuth authentication
  * - Google Drive operations
- * - Google Sheets operations
+ * - Google Sheets operations (DEPRECATED - use SQLite)
  * - Gmail operations
  * - Settings persistence
  */
@@ -50,8 +55,6 @@ interface UseGoogleWorkspaceReturn {
 
 const DEFAULT_SETTINGS: GoogleSettings = {
   driveFolderName: 'AI for PI Newsletters',
-  logSheetName: 'AI for PI Newsletter Log',
-  subscribersSheetName: 'Newsletter Subscribers',
 };
 
 export function useGoogleWorkspace(): UseGoogleWorkspaceReturn {
@@ -93,31 +96,33 @@ export function useGoogleWorkspace(): UseGoogleWorkspaceReturn {
 
   const signIn = useCallback(async () => {
     try {
-      await googleApi.signIn();
+      const userEmail = authData?.email || 'shayisa@gmail.com';
+      await googleApi.signIn(userEmail);
       // Auth data will be set by the callback in initClient
     } catch (error) {
       console.error('[GoogleWorkspace] Sign in error:', error);
       throw error;
     }
-  }, []);
+  }, [authData?.email]);
 
   const signOut = useCallback(async () => {
     try {
-      googleApi.signOut();
+      const userEmail = authData?.email || 'shayisa@gmail.com';
+      await googleApi.signOut(userEmail);
       setAuthData(null);
       setWorkflowActions({ savedToDrive: false, sentEmail: false });
     } catch (error) {
       console.error('[GoogleWorkspace] Sign out error:', error);
       throw error;
     }
-  }, []);
+  }, [authData?.email]);
 
   const saveToDrive = useCallback(async (newsletter: Newsletter, topics: string[]): Promise<string> => {
-    if (!googleSettings || !authData?.access_token) {
+    if (!googleSettings || !authData?.access_token || !authData?.email) {
       throw new Error('Not authenticated or settings not configured');
     }
 
-    const result = await googleApi.saveToDrive(newsletter, googleSettings.driveFolderName, topics);
+    const result = await googleApi.saveToDrive(authData.email, newsletter, topics);
     setWorkflowActions(prev => ({ ...prev, savedToDrive: true }));
     return result;
   }, [googleSettings, authData]);
@@ -148,47 +153,17 @@ export function useGoogleWorkspace(): UseGoogleWorkspaceReturn {
 
       switch (action) {
         case 'drive':
-          resultMessage = await googleApi.saveToDrive(newsletter, googleSettings.driveFolderName, topics);
+          resultMessage = await googleApi.saveToDrive(authData.email, newsletter, topics);
           setWorkflowActions(prev => ({ ...prev, savedToDrive: true }));
           break;
 
         case 'sheet':
-          resultMessage = await googleApi.logToSheet(
-            newsletter,
-            topics,
-            googleSettings.logSheetName,
-            workflowActions.savedToDrive,
-            workflowActions.sentEmail
-          );
-          break;
+          // DEPRECATED: Sheet logging removed - use SQLite instead
+          throw new Error('Sheet logging is deprecated. Use SQLite newsletter logs.');
 
         case 'gmail':
-          if (!selectedEmailLists || selectedEmailLists.length === 0) {
-            throw new Error("Please select at least one subscriber list before sending email.");
-          }
-
-          const emailResult = await googleApi.sendEmail(
-            newsletter,
-            topics,
-            googleSettings.subscribersSheetName,
-            authData.email,
-            selectedEmailLists
-          );
-          resultMessage = emailResult.message;
-          setWorkflowActions(prev => ({ ...prev, sentEmail: true }));
-
-          // Auto-log to sheet when email is sent
-          const listNames = emailResult.listNames.join(', ');
-          await googleApi.logToSheet(
-            newsletter,
-            topics,
-            googleSettings.logSheetName,
-            workflowActions.savedToDrive,
-            true,
-            listNames
-          );
-          resultMessage += ` Also logged to sheet with email tracking.`;
-          break;
+          // DEPRECATED: Email sending moved to App.tsx with SQLite subscribers
+          throw new Error('Email sending moved to App.tsx. Use SQLite subscribers.');
       }
 
       setWorkflowStatus({ message: resultMessage, type: 'success' });

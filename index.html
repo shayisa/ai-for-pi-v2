@@ -5,6 +5,10 @@
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>AI for PI</title>
+    <!-- Google Fonts - Editorial Typography -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,500;0,8..60,600;1,8..60,400;1,8..60,500&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Google APIs for Google Workspace integration (Drive, Sheets, Gmail) -->
     <!-- Note: Using GIS (Google Identity Services) only, as GAPI has MIME type issues -->
@@ -15,19 +19,69 @@
         theme: {
           extend: {
             colors: {
-              'background': '#F5F5F5',
-              'primary-text': '#333333',
-              'secondary-text': '#666666',
-              'accent-salmon': '#F78888',
-              'accent-yellow': '#F3D250',
-              'accent-light-blue': '#90CCF4',
-              'accent-muted-blue': '#5DA2D5',
-              'border-light': '#E0E0E0',
-              'dark-code': '#2C2C2C', // For code blocks, keeping a dark background
+              // Editorial Neutral Foundation
+              'ink': '#1A1A1A',
+              'charcoal': '#333333',
+              'slate': '#6B7280',
+              'silver': '#9CA3AF',
+              'pearl': '#F7F7F5',
+              'paper': '#FFFFFF',
+              // Editorial Accent Colors - Refined & Sparse
+              'editorial-red': '#C41E3A',
+              'editorial-gold': '#B8860B',
+              'editorial-navy': '#1E3A5F',
+              'editorial-sage': '#5C7A5C',
+              // Borders & Shadows
+              'border-subtle': '#E5E5E5',
+              'border-medium': '#D1D5DB',
+              // Legacy mappings for gradual migration
+              'background': '#F7F7F5',
+              'primary-text': '#1A1A1A',
+              'secondary-text': '#6B7280',
+              'border-light': '#E5E5E5',
+              'dark-code': '#1A1A1A',
+            },
+            fontFamily: {
+              'display': ['Playfair Display', 'Georgia', 'serif'],
+              'serif': ['Source Serif 4', 'Georgia', 'serif'],
+              'sans': ['Inter', 'system-ui', 'sans-serif'],
+              'mono': ['JetBrains Mono', 'monospace'],
+            },
+            fontSize: {
+              'display': ['clamp(2.5rem, 5vw, 4rem)', { lineHeight: '1.1', letterSpacing: '-0.02em' }],
+              'h1': ['clamp(2rem, 4vw, 3rem)', { lineHeight: '1.2', letterSpacing: '-0.02em' }],
+              'h2': ['clamp(1.5rem, 3vw, 2rem)', { lineHeight: '1.25', letterSpacing: '-0.01em' }],
+              'h3': ['clamp(1.25rem, 2.5vw, 1.5rem)', { lineHeight: '1.3' }],
+              'lead': ['1.25rem', { lineHeight: '1.6' }],
+              'body': ['1.125rem', { lineHeight: '1.7' }],
+              'ui': ['0.875rem', { lineHeight: '1.5' }],
+              'caption': ['0.75rem', { lineHeight: '1.4' }],
+              'overline': ['0.6875rem', { lineHeight: '1.4', letterSpacing: '0.05em' }],
+            },
+            boxShadow: {
+              'editorial': '0 1px 3px rgba(0,0,0,0.04), 0 4px 12px rgba(0,0,0,0.04)',
+              'editorial-hover': '0 4px 12px rgba(0,0,0,0.08), 0 8px 24px rgba(0,0,0,0.06)',
+              'editorial-modal': '0 25px 50px -12px rgba(0,0,0,0.15)',
+            },
+            maxWidth: {
+              'prose': '65ch',
+              'article': '720px',
             },
             animation: {
-              'pulse-fast': 'pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite',
-            }
+              'fade-in': 'fadeIn 0.4s ease-out',
+              'fade-in-up': 'fadeInUp 0.5s ease-out',
+              'pulse-subtle': 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+            },
+            keyframes: {
+              fadeIn: {
+                '0%': { opacity: '0' },
+                '100%': { opacity: '1' },
+              },
+              fadeInUp: {
+                '0%': { opacity: '0', transform: 'translateY(10px)' },
+                '100%': { opacity: '1', transform: 'translateY(0)' },
+              },
+            },
           }
         }
       }
@@ -46,7 +100,7 @@
 </script>
 <link rel="stylesheet" href="/index.css">
 </head>
-  <body class="bg-background text-primary-text">
+  <body class="bg-pearl text-ink font-sans antialiased">
     <div id="root"></div>
     <script src="/config.js"></script>
     <script type="module" src="/index.tsx"></script>

@@ -1,0 +1,51 @@
+{
+  "timestamp": "2025-12-15T04:08:11.796Z",
+  "setup": {
+    "store_created": true,
+    "store_name": "fileSearchStores/pocteststore1765771640589-i2snhkj73fzd",
+    "documents_indexed": 3,
+    "indexing_time_ms": 19558
+  },
+  "queries": [
+    {
+      "query": "What AI tools help with skeletal analysis in forensics?",
+      "response": "Artificial intelligence (AI) tools are significantly advancing forensic skeletal analysis by providing unprecedented accuracy in identifying various aspects of skeletal remains. These tools leverage machine learning models to analyze features such as age, sex, and ancestry patterns, often outperforming human experts.\n\nKey AI applications in forensic skeletal analysis include:\n*   **3D Scanning and Reconstruction** AI-powered photogrammetry can create detailed three-dimensional models of bone str",
+      "retrieved_chunks": 0,
+      "has_grounding": false,
+      "sources": [],
+      "query_time_ms": 5818
+    },
+    {
+      "query": "Which workflow automation tools have AI capabilities?",
+      "response": "Several workflow automation tools now incorporate AI capabilities to enhance their functionality. Here are some of the leading options:\n\n*   **Zapier AI**: This tool offers AI-powered workflow suggestions and allows users to set up automations using natural language. It connects with over 6,000 applications and can analyze your existing workflows to suggest optimizations.\n*   **Make (formerly Integromat)**: This platform features a visual workflow builder that includes dedicated AI modules. User",
+      "retrieved_chunks": 0,
+      "has_grounding": false,
+      "sources": [],
+      "query_time_ms": 5281
+    },
+    {
+      "query": "How is AI improving supply chain demand forecasting?",
+      "response": "AI is significantly enhancing supply chain demand forecasting through several methods. It utilizes time series models, such as Prophet and NeuralProphet, to predict seasonal patterns in demand. Additionally, machine learning models are employed to integrate external signals like weather conditions, events, and social media trends into forecasting, providing a more comprehensive prediction. On average, these AI-driven approaches have led to a 30-40% reduction in forecast error.\n\nA notable example",
+      "retrieved_chunks": 0,
+      "has_grounding": false,
+      "sources": [],
+      "query_time_ms": 4901
+    },
+    {
+      "query": "What accuracy rates have been achieved in forensic AI?",
+      "response": "In forensic AI, specifically within forensic anthropology, Dr. Sarah Chen at Stanford has reported an accuracy rate of 94% for sex determination using a convolutional neural network (CNN) model. This model was trained on CT scans from 15,000 skeletal samples and demonstrated a 12% improvement over human experts.",
+      "retrieved_chunks": 0,
+      "has_grounding": false,
+      "sources": [],
+      "query_time_ms": 4190
+    }
+  ],
+  "summary": {
+    "store_created": true,
+    "documents_indexed": 3,
+    "queries_total": 4,
+    "queries_grounded": 0,
+    "queries_failed": 0,
+    "avg_query_time_ms": 5048
+  }
+}

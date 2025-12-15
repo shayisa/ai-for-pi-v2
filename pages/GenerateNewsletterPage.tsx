@@ -1,10 +1,19 @@
+/**
+ * GenerateNewsletterPage - 2-Panel Layout
+ *
+ * Redesigned page with:
+ * - Left panel: Configuration (resizable)
+ * - Right panel: Newsletter preview
+ * - Button state feedback throughout
+ */
+
 import React from 'react';
-import { Newsletter, NewsletterSection, Preset, PromptOfTheDay } from '../types';
-import { NewsletterPreview } from '../components/NewsletterPreview';
-import { PresetsManager } from '../components/PresetsManager';
-import { PromptOfTheDayEditor } from '../components/PromptOfTheDayEditor';
-import { GenerationProgress } from '../components/GenerationProgress';
-import { SparklesIcon, RefreshIcon } from '../components/IconComponents';
+import { motion } from 'framer-motion';
+import { Newsletter, NewsletterSection, Preset, PromptOfTheDay, EnhancedNewsletter } from '../types';
+import { ResizablePanelLayout } from '../components/ResizablePanelLayout';
+import { ConfigurationPanel } from '../components/ConfigurationPanel';
+import { PreviewPanel } from '../components/PreviewPanel';
+import { fadeInUp } from '../utils/animations';
 
 interface GenerateNewsletterPageProps {
     selectedTopics: string[];
@@ -36,6 +45,18 @@ interface GenerateNewsletterPageProps {
     isAuthenticated?: boolean;
     promptOfTheDay: PromptOfTheDay | null;
     onSavePromptOfTheDay: (prompt: PromptOfTheDay | null) => void;
+    onSavePromptToLibrary?: (prompt: PromptOfTheDay) => Promise<void>;
+    // Workflow actions
+    onSaveToDrive?: () => Promise<void>;
+    onSendViaGmail?: () => Promise<void>;
+    workflowStatus?: { savedToDrive: boolean; sentEmail: boolean };
+    // Enhanced newsletter v2 props
+    useEnhancedFormat?: boolean;
+    onToggleEnhancedFormat?: (value: boolean) => void;
+    enhancedNewsletter?: EnhancedNewsletter | null;
+    onEnhancedUpdate?: (field: string, value: string, sectionIndex?: number) => void;
+    onOpenAudienceEditor?: () => void;
+    onGenerateImage?: (sectionIndex: number, imagePrompt: string) => Promise<void>;
 }
 
 export const GenerateNewsletterPage: React.FC<GenerateNewsletterPageProps> = ({
@@ -68,109 +89,101 @@ export const GenerateNewsletterPage: React.FC<GenerateNewsletterPageProps> = ({
     isAuthenticated,
     promptOfTheDay,
     onSavePromptOfTheDay,
+    onSavePromptToLibrary,
+    onSaveToDrive,
+    onSendViaGmail,
+    workflowStatus,
+    // Enhanced newsletter v2 props
+    useEnhancedFormat = true,
+    onToggleEnhancedFormat,
+    enhancedNewsletter,
+    onEnhancedUpdate,
+    onOpenAudienceEditor,
+    onGenerateImage,
 }) => {
-    const getSelectedLabels = (options: Record<string, { label: string }>, selected: Record<string, boolean> | string) => {
-        if (typeof selected === 'string') {
-            return options[selected]?.label || '';
-        }
-        return Object.keys(selected).filter(key => selected[key]).map(key => options[key].label).join(', ');
-    };
-
-    const isActionLoading = !!loading;
-
     return (
-        <div className="space-y-8">
-            <h1 className="text-3xl md:text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-accent-light-blue to-accent-salmon mb-6">
-                Generate Your Newsletter
-            </h1>
+        <motion.div
+            variants={fadeInUp}
+            initial="hidden"
+            animate="visible"
+            className="h-full flex flex-col"
+        >
+            {/* Page Header */}
+            <header className="border-b-2 border-ink pb-4 mb-6 flex-shrink-0">
+                <h1 className="font-display text-h2 text-ink">
+                    Generate Newsletter
+                </h1>
+                <p className="font-serif text-body text-slate mt-1">
+                    Configure and preview your newsletter
+                </p>
+            </header>
 
-            <div className="bg-white rounded-2xl shadow-2xl p-6 md:p-8 border border-border-light backdrop-blur-sm">
-                <h2 className="text-2xl md:text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-accent-muted-blue to-accent-salmon mb-6">
-                   Current Newsletter Configuration
-                </h2>
-
-                <div className="space-y-4 text-primary-text mb-8">
-                    <p><strong>Audience:</strong> {getSelectedLabels(audienceOptions, selectedAudience) || <span className="text-accent-salmon">None selected!</span>}</p>
-                    <p><strong>Topics:</strong> {selectedTopics.length > 0 ? selectedTopics.join(', ') : <span className="text-accent-salmon">None selected!</span>}</p>
-                    <p><strong>Tone:</strong> {getSelectedLabels(toneOptions, selectedTone) || <span className="text-accent-salmon">None selected!</span>}</p>
-                    <p><strong>Flavors:</strong> {getSelectedLabels(flavorOptions, selectedFlavors) || 'None'}</p>
-                    <p><strong>Image Style:</strong> {getSelectedLabels(imageStyleOptions, selectedImageStyle) || <span className="text-accent-salmon">None selected!</span>}</p>
-                </div>
-                
-                <PresetsManager
-                    presets={presets}
-                    onSave={onSavePreset}
-                    onLoad={onLoadPreset}
-                    onDelete={onDeletePreset}
-                    onSyncToCloud={onSyncToCloud}
-                    onLoadFromCloud={onLoadFromCloud}
-                    isAuthenticated={isAuthenticated}
-                />
-
-                <div className="mt-8 border-t border-border-light pt-6 flex justify-end">
-                    <button
-                        onClick={handleGenerateNewsletter}
-                        disabled={isActionLoading || selectedTopics.length === 0 || !hasSelectedAudience}
-                        className="w-full sm:w-auto flex items-center justify-center gap-2 bg-accent-salmon hover:bg-opacity-90 disabled:bg-accent-salmon/40 disabled:text-secondary-text disabled:cursor-not-allowed text-white font-semibold py-3 px-6 rounded-lg transition duration-200 shadow-lg shadow-accent-salmon/30"
-                    >
-                        <SparklesIcon className="h-5 w-5" />
-                        <span>{loading ? 'Generating...' : 'Generate Newsletter'}</span>
-                    </button>
-                </div>
-            </div>
-
-            {loading && (
-                <div className="mt-8 bg-white rounded-2xl shadow-lg p-8 border border-border-light">
-                    <h3 className="text-lg font-semibold text-primary-text mb-6 text-center">
-                        Creating Your Newsletter
-                    </h3>
-                    <GenerationProgress
+            {/* 2-Panel Layout */}
+            <ResizablePanelLayout
+                storageKey="generatePage.panelWidth"
+                defaultLeftWidth={35}
+                minLeftWidth={25}
+                maxLeftWidth={50}
+                leftPanel={
+                    <ConfigurationPanel
+                        // Configuration display
+                        selectedTopics={selectedTopics}
+                        selectedAudience={selectedAudience}
+                        selectedTone={selectedTone}
+                        selectedFlavors={selectedFlavors}
+                        selectedImageStyle={selectedImageStyle}
+                        audienceOptions={audienceOptions}
+                        toneOptions={toneOptions}
+                        flavorOptions={flavorOptions}
+                        imageStyleOptions={imageStyleOptions}
+                        // Format toggle
+                        useEnhancedFormat={useEnhancedFormat}
+                        onToggleEnhancedFormat={onToggleEnhancedFormat || (() => {})}
+                        onOpenAudienceEditor={onOpenAudienceEditor}
+                        // Presets
+                        presets={presets}
+                        onSavePreset={onSavePreset}
+                        onLoadPreset={onLoadPreset}
+                        onDeletePreset={onDeletePreset}
+                        onSyncToCloud={onSyncToCloud}
+                        onLoadFromCloud={onLoadFromCloud}
+                        isAuthenticated={isAuthenticated}
+                        // Prompt of the Day
+                        promptOfTheDay={promptOfTheDay}
+                        onSavePromptOfTheDay={onSavePromptOfTheDay}
+                        onSavePromptToLibrary={onSavePromptToLibrary}
+                        // Generation
+                        handleGenerateNewsletter={handleGenerateNewsletter}
+                        hasSelectedAudience={hasSelectedAudience}
+                        isLoading={isLoading}
+                        loading={loading}
                         progress={progress}
-                        message={loading}
+                        error={error}
                     />
-                </div>
-            )}
-            
-            {error && (
-                <div className="mt-8 bg-red-100 border border-red-300 text-red-600 px-4 py-3 rounded-lg flex items-center justify-between" role="alert">
-                    <div>
-                        <strong className="font-bold">Error: </strong>
-                        <span className="block sm:inline">{error.message}</span>
-                    </div>
-                    {error.onRetry && (
-                            <button
-                                onClick={error.onRetry}
-                                className="flex items-center justify-center gap-2 text-sm bg-red-50 hover:bg-red-100 text-red-600 font-semibold py-2 px-3 rounded-lg transition duration-200 ml-4"
-                            >
-                                <RefreshIcon className="h-4 w-4" />
-                                <span>Retry</span>
-                            </button>
-                    )}
-                </div>
-            )}
-
-            {/* Prompt of the Day Editor */}
-            <div className="mt-8">
-                <PromptOfTheDayEditor 
-                    initialPrompt={promptOfTheDay}
-                    onSave={onSavePromptOfTheDay}
-                />
-            </div>
-
-
-            {newsletter && !loading && (
-                <div id="newsletter-preview">
-                    <NewsletterPreview
+                }
+                rightPanel={
+                    <PreviewPanel
+                        // Newsletter content
                         newsletter={newsletter}
+                        enhancedNewsletter={enhancedNewsletter || null}
+                        useEnhancedFormat={useEnhancedFormat}
                         topics={selectedTopics}
+                        // Newsletter editing handlers
                         onEditImage={onEditImage}
                         onImageUpload={onImageUpload}
                         onReorderSections={onReorderSections}
                         onUpdate={onUpdate}
+                        onEnhancedUpdate={onEnhancedUpdate}
+                        onGenerateImage={onGenerateImage}
                         isLoading={isLoading}
+                        // Workflow actions
+                        onSaveToDrive={onSaveToDrive}
+                        onSendViaGmail={onSendViaGmail}
+                        isAuthenticated={isAuthenticated}
+                        workflowStatus={workflowStatus}
                     />
-                </div>
-            )}
-        </div>
+                }
+            />
+        </motion.div>
     );
 };

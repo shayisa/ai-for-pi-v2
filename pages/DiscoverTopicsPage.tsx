@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { motion } from 'framer-motion';
 import type { TrendingTopic } from '../types';
 import { InspirationSources } from '../components/InspirationSources';
 import { InspirationSourcesPanel, TrendingSource } from '../components/InspirationSourcesPanel';
@@ -6,6 +7,7 @@ import { Spinner } from '../components/Spinner';
 import { PlusIcon, RefreshIcon, SearchIcon, LightbulbIcon, XIcon, HistoryIcon } from '../components/IconComponents';
 import { ArchiveBrowser } from '../components/ArchiveBrowser';
 import type { ArchiveContent } from '../services/archiveClientService';
+import { fadeInUp, staggerContainer, staggerItem } from '../utils/animations';
 
 interface ActionableCapability {
     title: string;
@@ -82,246 +84,314 @@ export const DiscoverTopicsPage: React.FC<DiscoverTopicsPageProps> = ({
     const [isArchiveBrowserOpen, setIsArchiveBrowserOpen] = useState(false);
 
     return (
-        <div className="space-y-8">
-            <h1 className="text-3xl md:text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-accent-light-blue to-accent-salmon mb-6">
-                Discover & Select Topics
-            </h1>
+        <motion.div
+            variants={fadeInUp}
+            initial="hidden"
+            animate="visible"
+            className="space-y-10"
+        >
+            {/* Page Header */}
+            <header className="border-b-2 border-ink pb-6">
+                <h1 className="font-display text-h1 text-ink">
+                    Discover Topics
+                </h1>
+                <p className="font-serif text-body text-slate mt-2">
+                    Find trending content and select topics for your newsletter
+                </p>
+            </header>
 
-            {/* Audience Selection - Kept here as it influences trending topics */}
-            <div className="mb-8 bg-white rounded-2xl shadow-lg p-6 md:p-8 border border-border-light">
-                <h2 className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-accent-muted-blue to-accent-salmon mb-4">
-                    1. Select Target Audience
-                </h2>
-                <p className="text-secondary-text mb-6">Choose your target audience to tailor content and generate relevant trending topics and suggestions.</p>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {/* Section 1: Audience Selection */}
+            <section className="bg-paper border border-border-subtle p-8">
+                <div className="flex items-baseline gap-3 mb-4">
+                    <span className="text-overline text-slate uppercase tracking-widest font-sans">Step 1</span>
+                    <h2 className="font-display text-h3 text-ink">Select Target Audience</h2>
+                </div>
+                <p className="font-sans text-ui text-slate mb-6">
+                    Choose your audience to tailor content recommendations
+                </p>
+
+                <motion.div
+                    variants={staggerContainer}
+                    initial="hidden"
+                    animate="visible"
+                    className="grid grid-cols-1 md:grid-cols-3 gap-4"
+                >
                     {Object.entries(audienceOptions).map(([key, { label, description }]) => (
-                        <label key={key} htmlFor={`audience-${key}`} className="flex items-start gap-3 p-3 rounded-lg bg-gray-50 hover:bg-gray-100 transition cursor-pointer border border-transparent has-[:checked]:border-accent-yellow">
+                        <motion.label
+                            key={key}
+                            variants={staggerItem}
+                            htmlFor={`audience-${key}`}
+                            className={`
+                                flex items-start gap-3 p-4 cursor-pointer transition-all duration-200
+                                border ${selectedAudience[key] ? 'border-ink bg-pearl' : 'border-border-subtle bg-paper hover:bg-pearl'}
+                            `}
+                        >
                             <input
                                 type="checkbox"
                                 id={`audience-${key}`}
                                 checked={selectedAudience[key]}
                                 onChange={() => handleAudienceChange(key)}
-                                className="mt-1 h-4 w-4 rounded border-gray-300 bg-white text-accent-salmon focus:ring-accent-salmon"
+                                className="mt-1 h-4 w-4 border-charcoal bg-paper text-ink focus:ring-ink"
                             />
                             <div>
-                                <span className="font-medium text-primary-text">{label}</span>
-                                <p className="text-sm text-secondary-text">{description}</p>
+                                <span className="font-sans text-ui font-medium text-ink">{label}</span>
+                                <p className="font-sans text-caption text-slate mt-1">{description}</p>
                             </div>
-                        </label>
+                        </motion.label>
                     ))}
-                </div>
-            </div>
+                </motion.div>
+            </section>
 
-            {/* What's New & Trending in AI - Rich Compelling Content */}
-            <div className="mb-8 bg-white rounded-2xl shadow-lg p-6 md:p-8 border border-border-light">
-                <h2 className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-accent-salmon to-accent-muted-blue mb-4 flex items-center gap-2">
-                    <LightbulbIcon className="h-6 w-6" />
-                    What's New & Trending in AI?
-                </h2>
-                <p className="text-secondary-text mb-6">Discover the latest and most impactful AI capabilities tailored to your audience. Explore actionable insights and essential tools to level up your AI game.</p>
-                <div className="mb-6 flex gap-3">
-                    <button
-                        onClick={fetchTrendingContent}
-                        disabled={isFetchingTrending || !hasSelectedAudience}
-                        className="flex items-center justify-center gap-2 text-sm bg-gray-200 hover:bg-gray-300 disabled:bg-gray-100 disabled:text-secondary-text disabled:cursor-not-allowed text-primary-text font-semibold py-2 px-4 rounded-lg transition duration-200"
-                    >
-                        <RefreshIcon className="h-4 w-4" />
-                        <span>{isFetchingTrending ? 'Fetching...' : 'Update Latest Trend'}</span>
-                    </button>
-                    <button
-                        onClick={() => setIsArchiveBrowserOpen(true)}
-                        className="flex items-center justify-center gap-2 text-sm bg-indigo-100 hover:bg-indigo-200 text-indigo-700 font-semibold py-2 px-4 rounded-lg transition duration-200"
-                        title="Load from saved archives (no token usage)"
-                    >
-                        <HistoryIcon className="h-4 w-4" />
-                        <span>View Archives</span>
-                    </button>
+            {/* Section 2: What's Trending */}
+            <section className="bg-paper border border-border-subtle p-8">
+                <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-baseline gap-3">
+                        <span className="text-overline text-slate uppercase tracking-widest font-sans">Step 2</span>
+                        <h2 className="font-display text-h3 text-ink">What's Trending</h2>
+                    </div>
+                    <div className="flex gap-2">
+                        <button
+                            onClick={() => setIsArchiveBrowserOpen(true)}
+                            className="flex items-center gap-2 font-sans text-ui text-editorial-navy hover:text-ink transition-colors"
+                            title="Load from saved archives"
+                        >
+                            <HistoryIcon className="h-4 w-4" />
+                            <span>Archives</span>
+                        </button>
+                        <button
+                            onClick={fetchTrendingContent}
+                            disabled={isFetchingTrending || !hasSelectedAudience}
+                            className="flex items-center gap-2 font-sans text-ui text-ink hover:text-charcoal disabled:text-silver disabled:cursor-not-allowed transition-colors"
+                        >
+                            <RefreshIcon className="h-4 w-4" />
+                            <span>{isFetchingTrending ? 'Fetching...' : 'Refresh'}</span>
+                        </button>
+                    </div>
                 </div>
 
                 {isFetchingTrending ? (
-                    <div className="flex items-center gap-3 text-secondary-text">
+                    <div className="flex items-center gap-3 py-12 justify-center">
                         <Spinner />
-                        <span>Fetching latest updates for selected audience...</span>
+                        <span className="font-sans text-ui text-slate">Fetching latest updates...</span>
                     </div>
                 ) : compellingContent ? (
-                    <div className="space-y-8">
-                        {/* Actionable AI Capabilities Section */}
-                        {compellingContent.actionableCapabilities && compellingContent.actionableCapabilities.length > 0 && (
+                    <div className="space-y-10">
+                        {/* Actionable AI Capabilities */}
+                        {compellingContent.actionableCapabilities?.length > 0 && (
                             <div>
-                                <h3 className="text-xl font-bold text-accent-muted-blue mb-4">🚀 Actionable AI Capabilities</h3>
-                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                                <h3 className="font-sans text-overline text-slate uppercase tracking-widest mb-4">
+                                    Actionable Capabilities
+                                </h3>
+                                <motion.div
+                                    variants={staggerContainer}
+                                    initial="hidden"
+                                    animate="visible"
+                                    className="grid grid-cols-1 lg:grid-cols-2 gap-4"
+                                >
                                     {compellingContent.actionableCapabilities.map((capability, idx) => (
-                                        <div key={idx} className="bg-gradient-to-br from-blue-50 to-indigo-50 p-5 rounded-lg border border-border-light hover:border-accent-light-blue transition-all">
-                                            <h4 className="font-bold text-lg text-accent-muted-blue mb-3">{capability.title}</h4>
+                                        <motion.article
+                                            key={idx}
+                                            variants={staggerItem}
+                                            className="bg-pearl border border-border-subtle p-6 hover:shadow-editorial transition-shadow"
+                                        >
+                                            <h4 className="font-display text-h3 text-ink mb-4">{capability.title}</h4>
 
-                                            <div className="space-y-3 text-sm">
+                                            <dl className="space-y-3 font-sans text-ui">
                                                 <div>
-                                                    <p className="font-semibold text-gray-700">What It Is:</p>
-                                                    <p className="text-secondary-text">{capability.whatItIs}</p>
+                                                    <dt className="text-caption font-semibold text-slate uppercase tracking-wide">What It Is</dt>
+                                                    <dd className="text-charcoal mt-1">{capability.whatItIs}</dd>
                                                 </div>
 
-                                                <div className="bg-white bg-opacity-50 p-2 rounded">
-                                                    <p className="font-semibold text-accent-salmon">✨ New Capability:</p>
-                                                    <p className="text-secondary-text">{capability.newCapability}</p>
-                                                </div>
-
-                                                <div>
-                                                    <p className="font-semibold text-gray-700">Who Should Care:</p>
-                                                    <p className="text-secondary-text">{capability.whoShouldCare}</p>
-                                                </div>
-
-                                                <div className="bg-green-50 p-2 rounded border border-green-200">
-                                                    <p className="font-semibold text-green-700">🎯 How to Get Started:</p>
-                                                    <p className="text-secondary-text whitespace-pre-wrap">{capability.howToGetStarted}</p>
+                                                <div className="bg-paper p-3 border-l-2 border-editorial-red">
+                                                    <dt className="text-caption font-semibold text-editorial-red uppercase tracking-wide">New Capability</dt>
+                                                    <dd className="text-charcoal mt-1">{capability.newCapability}</dd>
                                                 </div>
 
                                                 <div>
-                                                    <p className="font-semibold text-gray-700">Expected Impact:</p>
-                                                    <p className="text-secondary-text">{capability.expectedImpact}</p>
+                                                    <dt className="text-caption font-semibold text-slate uppercase tracking-wide">Who Should Care</dt>
+                                                    <dd className="text-charcoal mt-1">{capability.whoShouldCare}</dd>
                                                 </div>
 
+                                                <div className="bg-paper p-3 border-l-2 border-editorial-sage">
+                                                    <dt className="text-caption font-semibold text-editorial-sage uppercase tracking-wide">How to Get Started</dt>
+                                                    <dd className="text-charcoal mt-1 whitespace-pre-wrap">{capability.howToGetStarted}</dd>
+                                                </div>
+
+                                                <div>
+                                                    <dt className="text-caption font-semibold text-slate uppercase tracking-wide">Expected Impact</dt>
+                                                    <dd className="text-charcoal mt-1">{capability.expectedImpact}</dd>
+                                                </div>
+                                            </dl>
+
+                                            <div className="flex gap-3 mt-6 pt-4 border-t border-border-subtle">
                                                 {capability.resource && (
-                                                    <div className="pt-2 flex gap-2">
-                                                        <a
-                                                            href={capability.resource}
-                                                            target="_blank"
-                                                            rel="noopener noreferrer"
-                                                            className="flex-1 text-center bg-accent-light-blue hover:bg-blue-600 text-white text-sm font-semibold py-2 px-3 rounded-lg transition duration-200"
-                                                        >
-                                                            Learn More →
-                                                        </a>
-                                                        <button
-                                                            onClick={() => handleAddTrendingTopic(capability.title)}
-                                                            className="flex items-center justify-center gap-1 text-sm bg-gray-200 hover:bg-gray-300 text-primary-text font-semibold py-2 px-3 rounded-lg transition duration-200"
-                                                        >
-                                                            <PlusIcon className="h-4 w-4" />
-                                                            Add to Topics
-                                                        </button>
-                                                    </div>
+                                                    <a
+                                                        href={capability.resource}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        className="editorial-link font-sans text-ui"
+                                                    >
+                                                        Learn More
+                                                    </a>
                                                 )}
+                                                <button
+                                                    onClick={() => handleAddTrendingTopic(capability.title)}
+                                                    className="flex items-center gap-1 font-sans text-ui text-ink hover:text-charcoal transition-colors ml-auto"
+                                                >
+                                                    <PlusIcon className="h-4 w-4" />
+                                                    Add Topic
+                                                </button>
                                             </div>
-                                        </div>
+                                        </motion.article>
                                     ))}
-                                </div>
+                                </motion.div>
                             </div>
                         )}
 
-                        {/* Essential Tools & Resources Section */}
-                        {compellingContent.essentialTools && compellingContent.essentialTools.length > 0 && (
+                        {/* Essential Tools */}
+                        {compellingContent.essentialTools?.length > 0 && (
                             <div>
-                                <h3 className="text-xl font-bold text-accent-muted-blue mb-4">🛠️ Essential Tools & Resources</h3>
-                                <div className="space-y-3">
+                                <h3 className="font-sans text-overline text-slate uppercase tracking-widest mb-4">
+                                    Essential Tools
+                                </h3>
+                                <motion.div
+                                    variants={staggerContainer}
+                                    initial="hidden"
+                                    animate="visible"
+                                    className="space-y-3"
+                                >
                                     {compellingContent.essentialTools.map((tool, idx) => (
-                                        <div key={idx} className="bg-gradient-to-r from-purple-50 to-pink-50 p-4 rounded-lg border border-border-light hover:border-accent-salmon transition-all">
-                                            <div className="flex justify-between items-start gap-4">
-                                                <div className="flex-1">
-                                                    <h4 className="font-bold text-lg text-accent-muted-blue mb-2">{tool.name}</h4>
-                                                    <p className="text-secondary-text text-sm mb-2">{tool.description}</p>
-                                                    <p className="text-xs bg-yellow-50 text-yellow-800 p-2 rounded-lg border border-yellow-200">
-                                                        <span className="font-semibold">Why Now: </span>{tool.whyNow}
-                                                    </p>
-                                                </div>
-                                                <div className="flex gap-2 flex-shrink-0">
-                                                    {tool.link && (
-                                                        <a
-                                                            href={tool.link}
-                                                            target="_blank"
-                                                            rel="noopener noreferrer"
-                                                            className="bg-accent-salmon hover:bg-red-600 text-white text-sm font-semibold py-2 px-4 rounded-lg transition duration-200 whitespace-nowrap"
-                                                        >
-                                                            Visit →
-                                                        </a>
-                                                    )}
-                                                </div>
+                                        <motion.div
+                                            key={idx}
+                                            variants={staggerItem}
+                                            className="flex items-start justify-between gap-6 p-5 bg-pearl border border-border-subtle"
+                                        >
+                                            <div className="flex-1">
+                                                <h4 className="font-sans text-ui font-semibold text-ink mb-1">{tool.name}</h4>
+                                                <p className="font-sans text-caption text-charcoal mb-2">{tool.description}</p>
+                                                <p className="font-sans text-caption text-slate">
+                                                    <span className="font-semibold">Why now:</span> {tool.whyNow}
+                                                </p>
                                             </div>
-                                        </div>
+                                            {tool.link && (
+                                                <a
+                                                    href={tool.link}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="font-sans text-ui text-editorial-navy hover:text-ink transition-colors flex-shrink-0"
+                                                >
+                                                    Visit
+                                                </a>
+                                            )}
+                                        </motion.div>
                                     ))}
-                                </div>
+                                </motion.div>
                             </div>
                         )}
                     </div>
                 ) : error ? (
-                    <div>
-                        <p className="text-secondary-text mb-4">{error.message}</p>
+                    <div className="py-8 text-center">
+                        <p className="font-sans text-ui text-slate mb-4">{error.message}</p>
                         {error.onRetry === fetchTrendingContent && (
                             <button
                                 onClick={error.onRetry}
-                                className="flex items-center justify-center gap-2 text-sm bg-red-100 hover:bg-red-200 text-red-600 font-semibold py-2 px-3 rounded-lg transition duration-200"
+                                className="flex items-center gap-2 font-sans text-ui text-editorial-red hover:text-ink transition-colors mx-auto"
                             >
                                 <RefreshIcon className="h-4 w-4" />
-                                <span>Retry Fetching Trending Topics</span>
+                                Retry
                             </button>
                         )}
                     </div>
                 ) : (
-                    <p className="text-secondary-text">
+                    <p className="font-sans text-ui text-slate py-8 text-center">
                         {hasSelectedAudience
-                            ? "Click 'Update Latest Trend' to discover the latest AI capabilities and tools tailored to your audience."
-                            : "Please select an audience to see trending topics above."}
+                            ? "Click 'Refresh' to discover trending AI capabilities and tools."
+                            : "Select an audience above to see trending content."}
                     </p>
                 )}
-            </div>
+            </section>
 
-            {/* AI Inspiration Sources - Real trending data from web */}
+            {/* Inspiration Sources */}
             <InspirationSourcesPanel
                 sources={trendingSources}
                 isLoading={isFetchingTrending}
             />
 
-            {/* Set Newsletter Topic(s) */}
-            <div className="bg-white rounded-2xl shadow-lg p-6 md:p-8 border border-border-light">
-                <h2 className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-accent-light-blue to-accent-muted-blue mb-4 flex items-center gap-2">
-                    <SearchIcon className="h-6 w-6" />
-                    2. Set Newsletter Topic(s)
-                </h2>
-                <p className="text-secondary-text mb-6">Add specific topics for your newsletter. You can type them manually or get AI suggestions.</p>
-                 <div className="flex flex-wrap gap-2 mb-3 empty:mb-0">
-                    {selectedTopics.map((topic, index) => (
-                        <div key={index} className="flex items-center gap-2 bg-gray-200 text-primary-text text-sm font-medium px-3 py-1 rounded-full">
-                            <span>{topic}</span>
-                            <button onClick={() => handleRemoveTopic(index)} className="text-secondary-text hover:text-primary-text">
-                                <XIcon className="h-4 w-4" />
-                            </button>
-                        </div>
-                    ))}
+            {/* Section 3: Select Topics */}
+            <section className="bg-paper border border-border-subtle p-8">
+                <div className="flex items-baseline gap-3 mb-4">
+                    <span className="text-overline text-slate uppercase tracking-widest font-sans">Step 3</span>
+                    <h2 className="font-display text-h3 text-ink">Select Topics</h2>
                 </div>
+                <p className="font-sans text-ui text-slate mb-6">
+                    Add topics for your newsletter manually or get AI suggestions
+                </p>
 
-                <div className="flex gap-2">
+                {/* Selected Topics */}
+                {selectedTopics.length > 0 && (
+                    <div className="flex flex-wrap gap-2 mb-6">
+                        {selectedTopics.map((topic, index) => (
+                            <span
+                                key={index}
+                                className="inline-flex items-center gap-2 bg-ink text-paper font-sans text-ui px-3 py-1.5"
+                            >
+                                {topic}
+                                <button
+                                    onClick={() => handleRemoveTopic(index)}
+                                    className="text-silver hover:text-paper transition-colors"
+                                >
+                                    <XIcon className="h-4 w-4" />
+                                </button>
+                            </span>
+                        ))}
+                    </div>
+                )}
+
+                {/* Topic Input */}
+                <div className="flex gap-3 mb-4">
                     <div className="relative flex-grow">
-                        <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+                        <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-silver" />
                         <input
                             type="text"
                             value={customTopic}
                             onChange={(e) => setCustomTopic(e.target.value)}
-                            placeholder="Add a custom topic..."
-                            className="w-full bg-gray-50 border border-border-light rounded-lg py-2 pl-10 pr-4 focus:ring-2 focus:ring-accent-light-blue focus:outline-none transition duration-200 text-primary-text"
+                            placeholder="Enter a topic..."
+                            className="input-editorial w-full pl-10"
                             onKeyDown={(e) => e.key === 'Enter' && handleAddTopic()}
                             disabled={isActionLoading}
                         />
                     </div>
-                    <button onClick={handleAddTopic} disabled={!customTopic.trim() || isActionLoading} className="p-2 bg-gray-200 hover:bg-gray-300 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition text-primary-text">
-                        <PlusIcon className="h-5 w-5"/>
-                    </button>
-                </div>
-                 <div className="mt-3">
                     <button
-                        onClick={handleGenerateSuggestions}
-                        disabled={isActionLoading || !hasSelectedAudience}
-                        className="flex items-center justify-center gap-2 text-sm bg-gray-200 hover:bg-gray-300 disabled:bg-gray-100 disabled:text-secondary-text disabled:cursor-not-allowed text-primary-text font-semibold py-2 px-4 rounded-lg transition duration-200"
+                        onClick={handleAddTopic}
+                        disabled={!customTopic.trim() || isActionLoading}
+                        className="p-2.5 bg-ink text-paper hover:bg-charcoal disabled:bg-silver disabled:cursor-not-allowed transition-colors"
                     >
-                        <LightbulbIcon className="h-4 w-4" />
-                        <span>{isGeneratingTopics ? 'Suggesting...' : 'Suggest Topics'}</span>
+                        <PlusIcon className="h-5 w-5" />
                     </button>
                 </div>
+
+                {/* Generate Suggestions */}
+                <button
+                    onClick={handleGenerateSuggestions}
+                    disabled={isActionLoading || !hasSelectedAudience}
+                    className="flex items-center gap-2 font-sans text-ui text-editorial-navy hover:text-ink disabled:text-silver disabled:cursor-not-allowed transition-colors"
+                >
+                    <LightbulbIcon className="h-4 w-4" />
+                    <span>{isGeneratingTopics ? 'Generating...' : 'Suggest Topics'}</span>
+                </button>
+
+                {/* Suggestions */}
                 {suggestedTopics.length > 0 && (
-                    <div className="mt-6 border-t border-border-light pt-6">
-                         <h4 className="text-sm font-semibold text-secondary-text mb-2">Click to add a suggestion:</h4>
-                         <div className="flex flex-wrap gap-2" aria-label="Suggested topics">
+                    <div className="mt-6 pt-6 border-t border-border-subtle">
+                        <h4 className="font-sans text-overline text-slate uppercase tracking-widest mb-3">
+                            Suggestions
+                        </h4>
+                        <div className="flex flex-wrap gap-2">
                             {suggestedTopics.map((suggestion, i) => (
                                 <button
                                     key={i}
                                     onClick={() => handleSelectSuggestedTopic(suggestion)}
-                                    className="bg-gray-50 hover:bg-gray-100 border border-border-light text-primary-text text-sm px-3 py-1 rounded-full transition duration-200"
+                                    className="font-sans text-ui text-charcoal bg-pearl hover:bg-border-subtle border border-border-subtle px-3 py-1.5 transition-colors"
                                 >
                                     {suggestion}
                                 </button>
@@ -329,18 +399,19 @@ export const DiscoverTopicsPage: React.FC<DiscoverTopicsPageProps> = ({
                         </div>
                     </div>
                 )}
+
                 {error && error.onRetry === handleGenerateSuggestions && (
-                    <div className="mt-4 flex justify-center">
+                    <div className="mt-4">
                         <button
                             onClick={error.onRetry}
-                            className="flex items-center justify-center gap-2 text-sm bg-red-100 hover:bg-red-200 text-red-600 font-semibold py-2 px-3 rounded-lg transition duration-200"
+                            className="flex items-center gap-2 font-sans text-ui text-editorial-red hover:text-ink transition-colors"
                         >
                             <RefreshIcon className="h-4 w-4" />
-                            <span>Retry Suggestions</span>
+                            Retry Suggestions
                         </button>
                     </div>
                 )}
-            </div>
+            </section>
 
             {/* Archive Browser Modal */}
             <ArchiveBrowser
@@ -348,6 +419,6 @@ export const DiscoverTopicsPage: React.FC<DiscoverTopicsPageProps> = ({
                 onClose={() => setIsArchiveBrowserOpen(false)}
                 onLoadArchive={onLoadFromArchive}
             />
-        </div>
+        </motion.div>
     );
 };

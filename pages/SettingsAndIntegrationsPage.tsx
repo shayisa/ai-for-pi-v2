@@ -37,8 +37,6 @@ export const SettingsAndIntegrationsPage: React.FC<SettingsAndIntegrationsPagePr
     onSelectedEmailListsChange,
 }) => {
     const [driveFolderName, setDriveFolderName] = useState(googleSettings?.driveFolderName || 'AI Newsletters');
-    const [logSheetName, setLogSheetName] = useState(googleSettings?.logSheetName || 'Newsletter Log');
-    const [subscribersSheetName, setSubscribersSheetName] = useState(googleSettings?.subscribersSheetName || 'Newsletter Subscribers');
     const [showLoadModal, setShowLoadModal] = useState(false);
     const [driveNewsletters, setDriveNewsletters] = useState<any[]>([]);
     const [isLoadingFromDrive, setIsLoadingFromDrive] = useState(false);
@@ -53,8 +51,6 @@ export const SettingsAndIntegrationsPage: React.FC<SettingsAndIntegrationsPagePr
     useEffect(() => {
         if (googleSettings) {
             setDriveFolderName(googleSettings.driveFolderName);
-            setLogSheetName(googleSettings.logSheetName);
-            setSubscribersSheetName(googleSettings.subscribersSheetName);
         }
     }, [googleSettings]);
 
@@ -72,7 +68,8 @@ export const SettingsAndIntegrationsPage: React.FC<SettingsAndIntegrationsPagePr
         setDriveNewsletters([]);
 
         try {
-            const newsletters = await googleApi.listNewslettersFromDrive(driveFolderName);
+            const userEmail = authData?.email || 'shayisa@gmail.com';
+            const newsletters = await googleApi.listNewslettersFromDrive(userEmail);
             setDriveNewsletters(newsletters.sort((a, b) => new Date(b.modifiedTime).getTime() - new Date(a.modifiedTime).getTime()));
         } catch (error) {
             setLoadError(error instanceof Error ? error.message : 'Failed to load newsletters from Drive');
@@ -84,7 +81,8 @@ export const SettingsAndIntegrationsPage: React.FC<SettingsAndIntegrationsPagePr
     const handleLoadNewsletter = async (fileId: string) => {
         setIsLoadingFromDrive(true);
         try {
-            const { newsletter: loadedNewsletter, topics } = await googleApi.loadNewsletterFromDrive(fileId);
+            const userEmail = authData?.email || 'shayisa@gmail.com';
+            const { newsletter: loadedNewsletter, topics } = await googleApi.loadNewsletterFromDrive(userEmail, fileId);
             setSelectedLoadFile({ fileId, newsletter: loadedNewsletter, topics });
         } catch (error) {
             setLoadError(error instanceof Error ? error.message : 'Failed to load newsletter');
@@ -113,8 +111,6 @@ export const SettingsAndIntegrationsPage: React.FC<SettingsAndIntegrationsPagePr
     const handleSave = () => {
         onSaveSettings({
             driveFolderName,
-            logSheetName,
-            subscribersSheetName,
         });
     };
 
@@ -208,36 +204,6 @@ export const SettingsAndIntegrationsPage: React.FC<SettingsAndIntegrationsPagePr
                             className="w-full bg-gray-50 border border-border-light rounded-lg p-2 focus:ring-2 focus:ring-accent-light-blue focus:outline-none transition disabled:bg-gray-100 text-primary-text"
                         />
                          <p className="text-xs text-secondary-text mt-1">The app will save newsletters here. If the folder doesn't exist, it will be created.</p>
-                    </div>
-                    <div>
-                        <label htmlFor="logSheetName" className="block text-sm font-medium text-primary-text mb-1">
-                            Newsletter Log Sheet Name
-                        </label>
-                        <input
-                            type="text"
-                            id="logSheetName"
-                            value={logSheetName}
-                            onChange={(e) => setLogSheetName(e.target.value)}
-                            placeholder="e.g., Newsletter Log"
-                            disabled={!isAuthenticated}
-                            className="w-full bg-gray-50 border border-border-light rounded-lg p-2 focus:ring-2 focus:ring-accent-light-blue focus:outline-none transition disabled:bg-gray-100 text-primary-text"
-                        />
-                         <p className="text-xs text-secondary-text mt-1">A sheet with this name will be found or created to log your newsletters.</p>
-                    </div>
-                    <div>
-                        <label htmlFor="subscribersSheetName" className="block text-sm font-medium text-primary-text mb-1">
-                            Subscribers Sheet Name
-                        </label>
-                        <input
-                            type="text"
-                            id="subscribersSheetName"
-                            value={subscribersSheetName}
-                            onChange={(e) => setSubscribersSheetName(e.target.value)}
-                            placeholder="e.g., Newsletter Subscribers"
-                            disabled={!isAuthenticated}
-                            className="w-full bg-gray-50 border border-border-light rounded-lg p-2 focus:ring-2 focus:ring-accent-light-blue focus:outline-none transition disabled:bg-gray-100 text-primary-text"
-                        />
-                         <p className="text-xs text-secondary-text mt-1">A sheet with this name will be used to get your subscriber list (must contain an 'Email' column).</p>
                     </div>
                     <div className="pt-4 flex justify-end">
                         <button 
