@@ -73,6 +73,14 @@ export const addSubscriber = (subscriber: Omit<Subscriber, 'id' | 'dateAdded'>):
 
   console.log(`[SubscriberDb] Added subscriber: ${subscriber.email}`);
 
+  // Sync list counts for any lists the subscriber was added to
+  if (subscriber.lists) {
+    const listIds = subscriber.lists.split(',').filter(Boolean);
+    for (const listId of listIds) {
+      syncListCount(listId.trim());
+    }
+  }
+
   return {
     id: Number(result.lastInsertRowid),
     email: subscriber.email,
@@ -130,6 +138,16 @@ export const updateSubscriber = (
 
   console.log(`[SubscriberDb] Updated subscriber: ${email}`);
 
+  // Sync list counts if lists field was changed
+  if (updates.lists !== undefined) {
+    const oldListIds = existing.lists ? existing.lists.split(',').filter(Boolean).map(l => l.trim()) : [];
+    const newListIds = updates.lists ? updates.lists.split(',').filter(Boolean).map(l => l.trim()) : [];
+    const allAffectedLists = new Set([...oldListIds, ...newListIds]);
+    for (const listId of allAffectedLists) {
+      syncListCount(listId);
+    }
+  }
+
   return getSubscriberByEmail(email);
 };
 
@@ -137,6 +155,10 @@ export const updateSubscriber = (
  * Soft delete a subscriber (set status to inactive)
  */
 export const deleteSubscriber = (email: string): boolean => {
+  // Get subscriber's lists before deleting to sync counts
+  const subscriber = getSubscriberByEmail(email);
+  const listIds = subscriber?.lists ? subscriber.lists.split(',').filter(Boolean).map(l => l.trim()) : [];
+
   const stmt = db.prepare(`
     UPDATE subscribers
     SET status = 'inactive', date_removed = ?
@@ -147,6 +169,10 @@ export const deleteSubscriber = (email: string): boolean => {
 
   if (result.changes > 0) {
     console.log(`[SubscriberDb] Soft deleted subscriber: ${email}`);
+    // Sync list counts after status change (inactive subscribers don't count)
+    for (const listId of listIds) {
+      syncListCount(listId);
+    }
   }
 
   return result.changes > 0;
@@ -156,11 +182,19 @@ export const deleteSubscriber = (email: string): boolean => {
  * Hard delete a subscriber (permanently remove)
  */
 export const hardDeleteSubscriber = (email: string): boolean => {
+  // Get subscriber's lists before deleting to sync counts
+  const subscriber = getSubscriberByEmail(email);
+  const listIds = subscriber?.lists ? subscriber.lists.split(',').filter(Boolean).map(l => l.trim()) : [];
+
   const stmt = db.prepare(`DELETE FROM subscribers WHERE email = ?`);
   const result = stmt.run(email);
 
   if (result.changes > 0) {
     console.log(`[SubscriberDb] Hard deleted subscriber: ${email}`);
+    // Sync list counts after removal
+    for (const listId of listIds) {
+      syncListCount(listId);
+    }
   }
 
   return result.changes > 0;

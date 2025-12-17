@@ -9,7 +9,7 @@
 
 import React from 'react';
 import { motion } from 'framer-motion';
-import { Newsletter, NewsletterSection, Preset, PromptOfTheDay, EnhancedNewsletter } from '../types';
+import { Newsletter, NewsletterSection, Preset, PromptOfTheDay, EnhancedNewsletter, WriterPersona } from '../types';
 import { ResizablePanelLayout } from '../components/ResizablePanelLayout';
 import { ConfigurationPanel } from '../components/ConfigurationPanel';
 import { PreviewPanel } from '../components/PreviewPanel';
@@ -57,6 +57,8 @@ interface GenerateNewsletterPageProps {
     onEnhancedUpdate?: (field: string, value: string, sectionIndex?: number) => void;
     onOpenAudienceEditor?: () => void;
     onGenerateImage?: (sectionIndex: number, imagePrompt: string) => Promise<void>;
+    // Persona display
+    activePersona?: WriterPersona | null;
 }
 
 export const GenerateNewsletterPage: React.FC<GenerateNewsletterPageProps> = ({
@@ -100,6 +102,7 @@ export const GenerateNewsletterPage: React.FC<GenerateNewsletterPageProps> = ({
     onEnhancedUpdate,
     onOpenAudienceEditor,
     onGenerateImage,
+    activePersona,
 }) => {
     return (
         <motion.div
@@ -140,6 +143,8 @@ export const GenerateNewsletterPage: React.FC<GenerateNewsletterPageProps> = ({
                         useEnhancedFormat={useEnhancedFormat}
                         onToggleEnhancedFormat={onToggleEnhancedFormat || (() => {})}
                         onOpenAudienceEditor={onOpenAudienceEditor}
+                        // Persona
+                        activePersona={activePersona}
                         // Presets
                         presets={presets}
                         onSavePreset={onSavePreset}

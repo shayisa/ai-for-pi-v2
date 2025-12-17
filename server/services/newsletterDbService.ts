@@ -252,7 +252,7 @@ export const searchNewsletters = (query: string, limit = 20): Newsletter[] => {
  */
 export const logAction = (
   newsletterId: string,
-  action: 'created' | 'saved_to_drive' | 'sent_email',
+  action: 'created' | 'saved_to_drive' | 'sent_email' | 'scheduled_send',
   details?: Record<string, unknown>
 ): void => {
   // Check if newsletter exists first (foreign key constraint)

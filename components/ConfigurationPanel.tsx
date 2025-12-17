@@ -13,7 +13,7 @@
 
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import type { Preset, PromptOfTheDay } from '../types';
+import type { Preset, PromptOfTheDay, WriterPersona } from '../types';
 import { PresetsManager } from './PresetsManager';
 import { PromptOfTheDayEditor } from './PromptOfTheDayEditor';
 import { GenerationProgress } from './GenerationProgress';
@@ -37,6 +37,9 @@ interface ConfigurationPanelProps {
   useEnhancedFormat: boolean;
   onToggleEnhancedFormat: (value: boolean) => void;
   onOpenAudienceEditor?: () => void;
+
+  // Persona
+  activePersona?: WriterPersona | null;
 
   // Presets
   presets: Preset[];
@@ -74,6 +77,7 @@ export const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
   useEnhancedFormat,
   onToggleEnhancedFormat,
   onOpenAudienceEditor,
+  activePersona,
   presets,
   onSavePreset,
   onLoadPreset,
@@ -106,6 +110,7 @@ export const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
   };
 
   const configItems = [
+    { label: 'Persona', value: activePersona?.name || '', required: false },
     { label: 'Audience', value: getSelectedLabels(audienceOptions, selectedAudience), required: true },
     { label: 'Topics', value: selectedTopics.length > 0 ? selectedTopics.join(', ') : '', required: true },
     { label: 'Tone', value: getSelectedLabels(toneOptions, selectedTone), required: true },

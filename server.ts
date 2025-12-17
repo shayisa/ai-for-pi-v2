@@ -16,6 +16,8 @@ import * as sourceFetchingService from './server/services/sourceFetchingService.
 import * as articleExtractorService from './server/services/articleExtractorService.ts';
 import * as audienceGenerationService from './server/services/audienceGenerationService.ts';
 import * as logDbService from './server/services/logDbService.ts';
+import * as calendarDbService from './server/services/calendarDbService.ts';
+import * as personaDbService from './server/services/personaDbService.ts';
 import type { EnhancedNewsletter, AudienceConfig } from './types.ts';
 
 // Load environment variables
@@ -3146,6 +3148,319 @@ app.get("/api/logs/stats", (req, res) => {
     const errorMessage = error instanceof Error ? error.message : String(error);
     console.error("[Logs] Stats error:", errorMessage);
     res.status(500).json({ error: "Failed to fetch log stats", details: errorMessage });
+  }
+});
+
+// ============================================================================
+// CALENDAR ENDPOINTS
+// ============================================================================
+
+// Get all calendar entries (with optional date range)
+app.get("/api/calendar", (req, res) => {
+  try {
+    const { startDate, endDate } = req.query;
+    const entries = calendarDbService.getEntries(
+      startDate as string | undefined,
+      endDate as string | undefined
+    );
+    res.json({ entries, count: entries.length });
+  } catch (error) {
+    console.error("[Calendar] Get entries error:", error);
+    res.status(500).json({ error: "Failed to get calendar entries" });
+  }
+});
+
+// Get entries by month
+app.get("/api/calendar/month/:year/:month", (req, res) => {
+  try {
+    const year = parseInt(req.params.year, 10);
+    const month = parseInt(req.params.month, 10);
+
+    if (isNaN(year) || isNaN(month) || month < 1 || month > 12) {
+      return res.status(400).json({ error: "Invalid year or month" });
+    }
+
+    const entries = calendarDbService.getEntriesByMonth(year, month);
+    res.json({ entries, count: entries.length });
+  } catch (error) {
+    console.error("[Calendar] Get by month error:", error);
+    res.status(500).json({ error: "Failed to get calendar entries" });
+  }
+});
+
+// Get upcoming entries
+app.get("/api/calendar/upcoming", (req, res) => {
+  try {
+    const days = req.query.days ? parseInt(req.query.days as string, 10) : 7;
+    const entries = calendarDbService.getUpcomingEntries(days);
+    res.json({ entries, count: entries.length });
+  } catch (error) {
+    console.error("[Calendar] Get upcoming error:", error);
+    res.status(500).json({ error: "Failed to get upcoming entries" });
+  }
+});
+
+// Get entry by ID
+app.get("/api/calendar/:id", (req, res) => {
+  try {
+    const entry = calendarDbService.getEntryById(req.params.id);
+    if (!entry) {
+      return res.status(404).json({ error: "Calendar entry not found" });
+    }
+    res.json(entry);
+  } catch (error) {
+    console.error("[Calendar] Get entry error:", error);
+    res.status(500).json({ error: "Failed to get calendar entry" });
+  }
+});
+
+// Create calendar entry
+app.post("/api/calendar", (req, res) => {
+  try {
+    const { title, scheduledDate, description, topics, status, settings } = req.body;
+
+    if (!title || !scheduledDate) {
+      return res.status(400).json({ error: "title and scheduledDate are required" });
+    }
+
+    const entry = calendarDbService.createEntry(
+      title,
+      scheduledDate,
+      description || '',
+      topics || [],
+      status || 'planned',
+      settings || null
+    );
+
+    res.status(201).json(entry);
+  } catch (error) {
+    console.error("[Calendar] Create entry error:", error);
+    res.status(500).json({ error: "Failed to create calendar entry" });
+  }
+});
+
+// Update calendar entry
+app.put("/api/calendar/:id", (req, res) => {
+  try {
+    const { title, scheduledDate, description, topics, status, settings } = req.body;
+
+    const updated = calendarDbService.updateEntry(req.params.id, {
+      title,
+      scheduledDate,
+      description,
+      topics,
+      status,
+      settings,
+    });
+
+    if (!updated) {
+      return res.status(404).json({ error: "Calendar entry not found" });
+    }
+
+    res.json(updated);
+  } catch (error) {
+    console.error("[Calendar] Update entry error:", error);
+    res.status(500).json({ error: "Failed to update calendar entry" });
+  }
+});
+
+// Link newsletter to calendar entry
+app.post("/api/calendar/:id/link", (req, res) => {
+  try {
+    const { newsletterId } = req.body;
+
+    if (!newsletterId) {
+      return res.status(400).json({ error: "newsletterId is required" });
+    }
+
+    const updated = calendarDbService.linkNewsletter(req.params.id, newsletterId);
+
+    if (!updated) {
+      return res.status(404).json({ error: "Calendar entry not found" });
+    }
+
+    console.log(`[Calendar] Linked newsletter ${newsletterId} to entry ${req.params.id}`);
+    res.json(updated);
+  } catch (error) {
+    console.error("[Calendar] Link error:", error);
+    res.status(500).json({ error: "Failed to link newsletter" });
+  }
+});
+
+// Unlink newsletter from calendar entry
+app.post("/api/calendar/:id/unlink", (req, res) => {
+  try {
+    const updated = calendarDbService.unlinkNewsletter(req.params.id);
+
+    if (!updated) {
+      return res.status(404).json({ error: "Calendar entry not found" });
+    }
+
+    console.log(`[Calendar] Unlinked newsletter from entry ${req.params.id}`);
+    res.json(updated);
+  } catch (error) {
+    console.error("[Calendar] Unlink error:", error);
+    res.status(500).json({ error: "Failed to unlink newsletter" });
+  }
+});
+
+// Delete calendar entry
+app.delete("/api/calendar/:id", (req, res) => {
+  try {
+    const success = calendarDbService.deleteEntry(req.params.id);
+
+    if (!success) {
+      return res.status(404).json({ error: "Calendar entry not found" });
+    }
+
+    res.json({ success: true, message: "Calendar entry deleted" });
+  } catch (error) {
+    console.error("[Calendar] Delete error:", error);
+    res.status(500).json({ error: "Failed to delete calendar entry" });
+  }
+});
+
+// ============================================================================
+// WRITER PERSONAS ENDPOINTS
+// ============================================================================
+
+// Get all personas
+app.get("/api/personas", (req, res) => {
+  try {
+    const personas = personaDbService.getAllPersonas();
+    res.json(personas);
+  } catch (error) {
+    console.error("[Personas] Get all error:", error);
+    res.status(500).json({ error: "Failed to fetch personas" });
+  }
+});
+
+// Get active persona
+app.get("/api/personas/active", (req, res) => {
+  try {
+    const persona = personaDbService.getActivePersona();
+    res.json(persona);
+  } catch (error) {
+    console.error("[Personas] Get active error:", error);
+    res.status(500).json({ error: "Failed to fetch active persona" });
+  }
+});
+
+// Get persona stats
+app.get("/api/personas/stats", (req, res) => {
+  try {
+    const stats = personaDbService.getPersonaCount();
+    const active = personaDbService.getActivePersona();
+    res.json({
+      total: stats.total,
+      default: stats.default,
+      custom: stats.custom,
+      active: active?.id || null,
+    });
+  } catch (error) {
+    console.error("[Personas] Get stats error:", error);
+    res.status(500).json({ error: "Failed to fetch persona stats" });
+  }
+});
+
+// Get persona by ID
+app.get("/api/personas/:id", (req, res) => {
+  try {
+    const persona = personaDbService.getPersonaById(req.params.id);
+    if (!persona) {
+      return res.status(404).json({ error: "Persona not found" });
+    }
+    res.json(persona);
+  } catch (error) {
+    console.error("[Personas] Get by ID error:", error);
+    res.status(500).json({ error: "Failed to fetch persona" });
+  }
+});
+
+// Create a new persona
+app.post("/api/personas", (req, res) => {
+  try {
+    const { name, tagline, expertise, values, writingStyle, signatureElements, sampleWriting } = req.body;
+
+    if (!name) {
+      return res.status(400).json({ error: "name is required" });
+    }
+
+    const persona = personaDbService.createPersona(
+      name,
+      tagline || '',
+      expertise || '',
+      values || '',
+      writingStyle || '',
+      signatureElements || [],
+      sampleWriting || ''
+    );
+
+    res.status(201).json(persona);
+  } catch (error) {
+    console.error("[Personas] Create error:", error);
+    res.status(500).json({ error: "Failed to create persona" });
+  }
+});
+
+// Update a persona
+app.put("/api/personas/:id", (req, res) => {
+  try {
+    const updates = req.body;
+    const persona = personaDbService.updatePersona(req.params.id, updates);
+
+    if (!persona) {
+      return res.status(404).json({ error: "Persona not found" });
+    }
+
+    res.json(persona);
+  } catch (error) {
+    console.error("[Personas] Update error:", error);
+    res.status(500).json({ error: "Failed to update persona" });
+  }
+});
+
+// Delete a persona
+app.delete("/api/personas/:id", (req, res) => {
+  try {
+    const success = personaDbService.deletePersona(req.params.id);
+
+    if (!success) {
+      return res.status(404).json({ error: "Persona not found or cannot be deleted" });
+    }
+
+    res.json({ success: true, message: "Persona deleted" });
+  } catch (error) {
+    console.error("[Personas] Delete error:", error);
+    res.status(500).json({ error: "Failed to delete persona" });
+  }
+});
+
+// Activate a persona (or deactivate all with "none")
+app.post("/api/personas/:id/activate", (req, res) => {
+  try {
+    const id = req.params.id === 'none' ? null : req.params.id;
+    personaDbService.setActivePersona(id);
+    res.json({ success: true, activePersonaId: id });
+  } catch (error) {
+    console.error("[Personas] Activate error:", error);
+    res.status(500).json({ error: "Failed to activate persona" });
+  }
+});
+
+// Toggle persona favorite
+app.post("/api/personas/:id/favorite", (req, res) => {
+  try {
+    const persona = personaDbService.togglePersonaFavorite(req.params.id);
+
+    if (!persona) {
+      return res.status(404).json({ error: "Persona not found" });
+    }
+
+    res.json(persona);
+  } catch (error) {
+    console.error("[Personas] Toggle favorite error:", error);
+    res.status(500).json({ error: "Failed to toggle favorite" });
   }
 });
 

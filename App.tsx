@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import type { Newsletter, NewsletterSection, TrendingTopic, GoogleSettings, GapiAuthData, Preset, EnhancedHistoryItem, PromptOfTheDay, Subscriber, SubscriberList, EnhancedNewsletter, EnhancedAudienceSection, AudienceConfig } from './types';
+import type { Newsletter, NewsletterSection, TrendingTopic, GoogleSettings, GapiAuthData, Preset, EnhancedHistoryItem, PromptOfTheDay, Subscriber, SubscriberList, EnhancedNewsletter, EnhancedAudienceSection, AudienceConfig, WriterPersona } from './types';
 import { Header } from './components/Header';
 import { NewsletterPreview } from './components/NewsletterPreview';
 import { ImageEditorModal } from './components/ImageEditorModal';
@@ -26,8 +26,14 @@ import { HistoryContentPage } from './pages/HistoryContentPage'; // New
 import { SubscriberManagementPage } from './pages/SubscriberManagementPage'; // New
 import { AuthenticationPage } from './pages/AuthenticationPage'; // New
 import { LogsPage } from './pages/LogsPage'; // System activity logs
+import { ContentCalendarPage } from './pages/ContentCalendarPage'; // Content calendar
 import { useHistory } from './hooks/useHistory';
 import { usePrompts } from './hooks/usePrompts';
+import { usePersonas } from './hooks/usePersonas';
+import { useStyleThumbnails } from './hooks/useStyleThumbnails';
+import { PersonaEditor } from './components/PersonaEditor';
+import * as calendarApi from './services/calendarClientService';
+import type { CalendarEntry } from './services/calendarClientService';
 import type { SavedPrompt } from './services/promptClientService';
 import * as newsletterApi from './services/newsletterClientService';
 import * as subscriberApi from './services/subscriberClientService';
@@ -98,7 +104,7 @@ const imageStyleOptions: Record<string, { label: string; description: string }> 
     },
 };
 
-export type ActivePage = 'authentication' | 'discoverTopics' | 'toneAndVisuals' | 'generateNewsletter' | 'history' | 'subscriberManagement' | 'logs';
+export type ActivePage = 'authentication' | 'discoverTopics' | 'toneAndVisuals' | 'generateNewsletter' | 'history' | 'subscriberManagement' | 'logs' | 'contentCalendar';
 
 
 type ErrorState = {
@@ -163,6 +169,34 @@ const App: React.FC = () => {
         savePrompt: savePromptToLibrary,
         deletePrompt: deletePromptFromLibrary,
     } = usePrompts();
+
+    // Writer personas from SQLite
+    const {
+        personas,
+        activePersona,
+        isLoading: isPersonasLoading,
+        setActivePersona,
+        createPersona,
+        updatePersona,
+        deletePersona,
+        toggleFavorite,
+    } = usePersonas();
+
+    // Image style thumbnails from SQLite
+    const {
+        thumbnails,
+        isLoading: isThumbnailsLoading,
+        isGenerating: isGeneratingThumbnails,
+        generatingStyles,
+        progress: thumbnailProgress,
+    } = useStyleThumbnails();
+
+    // Persona editor modal state
+    const [isPersonaEditorOpen, setIsPersonaEditorOpen] = useState(false);
+    const [editingPersona, setEditingPersona] = useState<WriterPersona | null>(null);
+
+    // Calendar entry linking state
+    const [pendingCalendarEntryId, setPendingCalendarEntryId] = useState<string | null>(null);
 
     const [promptOfTheDay, setPromptOfTheDay] = useState<PromptOfTheDay | null>(null);
 
@@ -272,6 +306,18 @@ const App: React.FC = () => {
         try {
             await addToHistory(generatedNewsletter, topics);
             console.log('[App] Newsletter saved to SQLite');
+
+            // Link to calendar entry if generation was started from calendar
+            if (pendingCalendarEntryId && generatedNewsletter.id) {
+                try {
+                    await calendarApi.linkNewsletter(pendingCalendarEntryId, generatedNewsletter.id);
+                    console.log(`[App] Linked newsletter to calendar entry: ${pendingCalendarEntryId}`);
+                    setPendingCalendarEntryId(null); // Clear after linking
+                } catch (linkErr) {
+                    console.warn('[App] Failed to link newsletter to calendar:', linkErr);
+                    // Non-critical - don't block the user
+                }
+            }
         } catch (err) {
             console.error('[App] Failed to save newsletter to SQLite:', err);
             // Non-critical - don't show error to user
@@ -301,6 +347,33 @@ const App: React.FC = () => {
             previewElement.scrollIntoView({ behavior: 'smooth' });
         }
     };
+
+    // Handle starting generation from calendar entry (pre-populates settings)
+    const handleStartFromCalendarEntry = useCallback((entry: CalendarEntry) => {
+        setPendingCalendarEntryId(entry.id);
+        setSelectedTopics(entry.topics);
+
+        // Apply saved settings if available
+        if (entry.settings) {
+            if (entry.settings.selectedAudience) {
+                setSelectedAudience(entry.settings.selectedAudience);
+            }
+            if (entry.settings.selectedTone) {
+                setSelectedTone(entry.settings.selectedTone);
+            }
+            if (entry.settings.selectedFlavors) {
+                setSelectedFlavors(entry.settings.selectedFlavors);
+            }
+            if (entry.settings.selectedImageStyle) {
+                setSelectedImageStyle(entry.settings.selectedImageStyle);
+            }
+            if (entry.settings.personaId) {
+                setActivePersona(entry.settings.personaId);
+            }
+        }
+
+        setActivePage('generateNewsletter');
+    }, [setActivePersona]);
 
     // Load newsletter from Drive with format detection (supports v1 and v2)
     const handleLoadFromDrive = (
@@ -1131,6 +1204,31 @@ const App: React.FC = () => {
         }
     }, []);
 
+    // Auto-save calendar entry settings when editing from calendar
+    useEffect(() => {
+        if (!pendingCalendarEntryId) return;
+
+        const saveTimer = setTimeout(async () => {
+            try {
+                await calendarApi.updateEntry(pendingCalendarEntryId, {
+                    settings: {
+                        selectedAudience,
+                        selectedTone,
+                        selectedFlavors,
+                        selectedImageStyle,
+                        personaId: activePersona?.id || null,
+                    },
+                    topics: selectedTopics,
+                });
+                console.log(`[App] Auto-saved settings to calendar entry: ${pendingCalendarEntryId}`);
+            } catch (err) {
+                console.warn('[App] Failed to auto-save calendar settings:', err);
+            }
+        }, 1000); // Debounce 1 second
+
+        return () => clearTimeout(saveTimer);
+    }, [pendingCalendarEntryId, selectedAudience, selectedTone, selectedFlavors, selectedImageStyle, activePersona?.id, selectedTopics]);
+
     const handleWorkflowAction = async (action: 'drive' | 'gmail') => {
         // Support both legacy and enhanced newsletters
         const activeNewsletter = useEnhancedFormat && enhancedNewsletter
@@ -1285,6 +1383,26 @@ const App: React.FC = () => {
                             selectedImageStyle={selectedImageStyle}
                             setSelectedImageStyle={setSelectedImageStyle}
                             imageStyleOptions={imageStyleOptions}
+                            // Persona props
+                            personas={personas}
+                            activePersona={activePersona}
+                            onSetActivePersona={setActivePersona}
+                            onToggleFavorite={toggleFavorite}
+                            onOpenPersonaEditor={() => {
+                                setEditingPersona(null);
+                                setIsPersonaEditorOpen(true);
+                            }}
+                            onEditPersona={(persona) => {
+                                setEditingPersona(persona);
+                                setIsPersonaEditorOpen(true);
+                            }}
+                            isPersonasLoading={isPersonasLoading}
+                            // Thumbnail props
+                            thumbnails={thumbnails}
+                            isThumbnailsLoading={isThumbnailsLoading}
+                            isGeneratingThumbnails={isGeneratingThumbnails}
+                            generatingStyles={generatingStyles}
+                            thumbnailProgress={thumbnailProgress}
                         />
                     )}
                     
@@ -1332,6 +1450,8 @@ const App: React.FC = () => {
                             onEnhancedUpdate={handleEnhancedNewsletterUpdate}
                             onOpenAudienceEditor={() => setIsAudienceEditorOpen(true)}
                             onGenerateImage={handleGenerateSectionImage}
+                            // Persona display
+                            activePersona={activePersona}
                         />
                     )}
 
@@ -1363,6 +1483,12 @@ const App: React.FC = () => {
 
                     {activePage === 'logs' && (
                         <LogsPage />
+                    )}
+
+                    {activePage === 'contentCalendar' && (
+                        <ContentCalendarPage
+                            onStartGeneration={handleStartFromCalendarEntry}
+                        />
                     )}
 
                 </main>
@@ -1412,6 +1538,23 @@ const App: React.FC = () => {
                     customAudiences={customAudiences}
                     onAddAudience={handleAddCustomAudience}
                     onRemoveAudience={handleRemoveCustomAudience}
+                />
+
+                {/* Persona Editor modal */}
+                <PersonaEditor
+                    isOpen={isPersonaEditorOpen}
+                    onClose={() => {
+                        setIsPersonaEditorOpen(false);
+                        setEditingPersona(null);
+                    }}
+                    onSave={async (data) => {
+                        if (editingPersona) {
+                            await updatePersona(editingPersona.id, data);
+                        } else {
+                            await createPersona(data);
+                        }
+                    }}
+                    editingPersona={editingPersona}
                 />
             </div>
         </div>
