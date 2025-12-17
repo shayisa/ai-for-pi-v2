@@ -154,9 +154,153 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_saved_prompts_created
     ON saved_prompts(created_at DESC);
+
+  -- Image Style Thumbnails table
+  CREATE TABLE IF NOT EXISTS image_style_thumbnails (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    style_name TEXT UNIQUE NOT NULL,
+    thumbnail_base64 TEXT NOT NULL,
+    prompt_used TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_thumbnails_style
+    ON image_style_thumbnails(style_name);
+
+  -- Writer Personas table
+  CREATE TABLE IF NOT EXISTS writer_personas (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    tagline TEXT,
+    expertise TEXT,
+    persona_values TEXT,
+    writing_style TEXT,
+    signature_elements TEXT,
+    sample_writing TEXT,
+    is_active INTEGER DEFAULT 0,
+    is_default INTEGER DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_personas_active
+    ON writer_personas(is_active);
+  CREATE INDEX IF NOT EXISTS idx_personas_default
+    ON writer_personas(is_default);
+
+  -- Custom Audiences table
+  CREATE TABLE IF NOT EXISTS custom_audiences (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT,
+    persona TEXT,
+    relevance_keywords TEXT,
+    subreddits TEXT,
+    arxiv_categories TEXT,
+    search_templates TEXT,
+    is_default INTEGER DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_audiences_default
+    ON custom_audiences(is_default);
+
+  -- Newsletter Templates table
+  CREATE TABLE IF NOT EXISTS newsletter_templates (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT,
+    structure TEXT NOT NULL,
+    default_settings TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_templates_created
+    ON newsletter_templates(created_at DESC);
+
+  -- Newsletter Drafts table (auto-save)
+  CREATE TABLE IF NOT EXISTS newsletter_drafts (
+    id TEXT PRIMARY KEY,
+    user_email TEXT NOT NULL,
+    content TEXT NOT NULL,
+    topics TEXT NOT NULL,
+    settings TEXT NOT NULL,
+    last_saved_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_drafts_user
+    ON newsletter_drafts(user_email);
+
+  -- Calendar Entries table (content planning)
+  CREATE TABLE IF NOT EXISTS calendar_entries (
+    id TEXT PRIMARY KEY,
+    scheduled_date TEXT NOT NULL,
+    title TEXT NOT NULL,
+    description TEXT,
+    topics TEXT NOT NULL DEFAULT '[]',
+    status TEXT NOT NULL DEFAULT 'planned',
+    newsletter_id TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (newsletter_id) REFERENCES newsletters(id)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_calendar_date
+    ON calendar_entries(scheduled_date);
+  CREATE INDEX IF NOT EXISTS idx_calendar_status
+    ON calendar_entries(status);
+
+  -- Scheduled Sends table
+  CREATE TABLE IF NOT EXISTS scheduled_sends (
+    id TEXT PRIMARY KEY,
+    newsletter_id TEXT NOT NULL,
+    scheduled_at TEXT NOT NULL,
+    recipient_lists TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    error_message TEXT,
+    sent_at TEXT,
+    sent_count INTEGER DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (newsletter_id) REFERENCES newsletters(id)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_scheduled_status
+    ON scheduled_sends(status);
+  CREATE INDEX IF NOT EXISTS idx_scheduled_time
+    ON scheduled_sends(scheduled_at);
+
+  -- Email Tracking table
+  CREATE TABLE IF NOT EXISTS email_tracking (
+    id TEXT PRIMARY KEY,
+    newsletter_id TEXT NOT NULL,
+    recipient_email TEXT NOT NULL,
+    tracking_type TEXT NOT NULL,
+    link_url TEXT,
+    tracked_at TEXT NOT NULL DEFAULT (datetime('now')),
+    ip_address TEXT,
+    user_agent TEXT,
+    FOREIGN KEY (newsletter_id) REFERENCES newsletters(id)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_tracking_newsletter
+    ON email_tracking(newsletter_id);
+
+  -- Email Stats table
+  CREATE TABLE IF NOT EXISTS email_stats (
+    newsletter_id TEXT PRIMARY KEY,
+    total_sent INTEGER DEFAULT 0,
+    total_opens INTEGER DEFAULT 0,
+    unique_opens INTEGER DEFAULT 0,
+    total_clicks INTEGER DEFAULT 0,
+    unique_clicks INTEGER DEFAULT 0,
+    last_updated TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (newsletter_id) REFERENCES newsletters(id)
+  );
 `);
 
-console.log('[SQLite] Tables initialized (archives, newsletters, newsletter_logs, subscribers, subscriber_lists, api_keys, api_key_audit_log, oauth_tokens, saved_prompts)');
+console.log('[SQLite] Tables initialized (archives, newsletters, newsletter_logs, subscribers, subscriber_lists, api_keys, api_key_audit_log, oauth_tokens, saved_prompts, image_style_thumbnails, writer_personas, custom_audiences, newsletter_templates, newsletter_drafts, calendar_entries, scheduled_sends, email_tracking, email_stats)');
 
 // ============================================================================
 // Migration: Enhanced Newsletter Format (v2)
@@ -232,5 +376,210 @@ function runEnhancedNewsletterMigration() {
 
 // Run migrations
 runEnhancedNewsletterMigration();
+
+// ============================================================================
+// Migration: Persona Favorites
+// ============================================================================
+
+/**
+ * Run migrations for persona favorites
+ */
+function runPersonaFavoritesMigration() {
+  const migrations: Array<{ check: () => boolean; sql: string; name: string }> = [
+    {
+      name: 'Add is_favorite column to writer_personas',
+      check: () => !columnExists('writer_personas', 'is_favorite'),
+      sql: 'ALTER TABLE writer_personas ADD COLUMN is_favorite INTEGER DEFAULT 0',
+    },
+  ];
+
+  let migrationsRun = 0;
+  for (const migration of migrations) {
+    if (migration.check()) {
+      try {
+        db.exec(migration.sql);
+        console.log(`[SQLite Migration] ${migration.name}`);
+        migrationsRun++;
+      } catch (err) {
+        console.error(`[SQLite Migration] Failed: ${migration.name}`, err);
+      }
+    }
+  }
+
+  // Create index for favorites (if not exists)
+  try {
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_personas_favorite
+        ON writer_personas(is_favorite);
+    `);
+  } catch {
+    // Index may already exist
+  }
+
+  if (migrationsRun > 0) {
+    console.log(`[SQLite Migration] Persona favorites: ${migrationsRun} migrations applied`);
+  }
+}
+
+// Run persona favorites migration
+runPersonaFavoritesMigration();
+
+// ============================================================================
+// Migration: Newsletter Persona Tracking
+// ============================================================================
+
+/**
+ * Run migrations for newsletter persona tracking
+ */
+function runNewsletterPersonaMigration() {
+  const migrations: Array<{ check: () => boolean; sql: string; name: string }> = [
+    {
+      name: 'Add persona_id column to newsletters',
+      check: () => !columnExists('newsletters', 'persona_id'),
+      sql: 'ALTER TABLE newsletters ADD COLUMN persona_id TEXT',
+    },
+  ];
+
+  let migrationsRun = 0;
+  for (const migration of migrations) {
+    if (migration.check()) {
+      try {
+        db.exec(migration.sql);
+        console.log(`[SQLite Migration] ${migration.name}`);
+        migrationsRun++;
+      } catch (err) {
+        console.error(`[SQLite Migration] Failed: ${migration.name}`, err);
+      }
+    }
+  }
+
+  // Create index for persona_id (if not exists)
+  try {
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_newsletters_persona
+        ON newsletters(persona_id);
+    `);
+  } catch {
+    // Index may already exist
+  }
+
+  if (migrationsRun > 0) {
+    console.log(`[SQLite Migration] Newsletter persona tracking: ${migrationsRun} migrations applied`);
+  }
+}
+
+// Run newsletter persona migration
+runNewsletterPersonaMigration();
+
+// ============================================================================
+// Migration: Email Tracking Feature
+// ============================================================================
+
+/**
+ * Run migrations for email tracking feature
+ */
+function runEmailTrackingMigration() {
+  const migrations: Array<{ check: () => boolean; sql: string; name: string }> = [
+    {
+      name: 'Add tracking_enabled column to newsletters',
+      check: () => !columnExists('newsletters', 'tracking_enabled'),
+      sql: 'ALTER TABLE newsletters ADD COLUMN tracking_enabled INTEGER DEFAULT 1',
+    },
+  ];
+
+  let migrationsRun = 0;
+  for (const migration of migrations) {
+    if (migration.check()) {
+      try {
+        db.exec(migration.sql);
+        console.log(`[SQLite Migration] ${migration.name}`);
+        migrationsRun++;
+      } catch (err) {
+        console.error(`[SQLite Migration] Failed: ${migration.name}`, err);
+      }
+    }
+  }
+
+  if (migrationsRun > 0) {
+    console.log(`[SQLite Migration] Email tracking: ${migrationsRun} migrations applied`);
+  }
+}
+
+// Run email tracking migration
+runEmailTrackingMigration();
+
+// ============================================================================
+// Migration: Multi-language Support
+// ============================================================================
+
+/**
+ * Run migrations for multi-language support
+ */
+function runMultiLanguageMigration() {
+  const migrations: Array<{ check: () => boolean; sql: string; name: string }> = [
+    {
+      name: 'Add language column to newsletters',
+      check: () => !columnExists('newsletters', 'language'),
+      sql: "ALTER TABLE newsletters ADD COLUMN language TEXT DEFAULT 'en'",
+    },
+  ];
+
+  let migrationsRun = 0;
+  for (const migration of migrations) {
+    if (migration.check()) {
+      try {
+        db.exec(migration.sql);
+        console.log(`[SQLite Migration] ${migration.name}`);
+        migrationsRun++;
+      } catch (err) {
+        console.error(`[SQLite Migration] Failed: ${migration.name}`, err);
+      }
+    }
+  }
+
+  if (migrationsRun > 0) {
+    console.log(`[SQLite Migration] Multi-language support: ${migrationsRun} migrations applied`);
+  }
+}
+
+// Run multi-language migration
+runMultiLanguageMigration();
+
+// ============================================================================
+// Migration: Calendar Entry Settings
+// ============================================================================
+
+/**
+ * Run migrations for calendar entry settings (tone, persona, etc.)
+ */
+function runCalendarSettingsMigration() {
+  const migrations: Array<{ check: () => boolean; sql: string; name: string }> = [
+    {
+      name: 'Add settings column to calendar_entries',
+      check: () => !columnExists('calendar_entries', 'settings'),
+      sql: 'ALTER TABLE calendar_entries ADD COLUMN settings TEXT',
+    },
+  ];
+
+  let migrationsRun = 0;
+  for (const migration of migrations) {
+    if (migration.check()) {
+      try {
+        db.exec(migration.sql);
+        console.log(`[SQLite Migration] ${migration.name}`);
+        migrationsRun++;
+      } catch (err) {
+        console.error(`[SQLite Migration] Failed: ${migration.name}`, err);
+      }
+    }
+  }
+
+  if (migrationsRun > 0) {
+    console.log(`[SQLite Migration] Calendar entry settings: ${migrationsRun} migrations applied`);
+  }
+}
+
+// Run calendar settings migration
+runCalendarSettingsMigration();
 
 export default db;

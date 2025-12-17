@@ -229,7 +229,7 @@ export interface EnhancedHistoryItem {
 
 export type LogSource = 'newsletter' | 'api_audit';
 
-export type NewsletterLogAction = 'created' | 'saved_to_drive' | 'sent_email';
+export type NewsletterLogAction = 'created' | 'saved_to_drive' | 'sent_email' | 'scheduled_send';
 export type ApiAuditLogAction = 'save' | 'delete' | 'validate_success' | 'validate_failure';
 
 export interface UnifiedLogEntry {
@@ -268,4 +268,50 @@ export interface LogStats {
   totalNewsletter: number;
   totalApiAudit: number;
   byAction: Record<string, number>;
+}
+
+// ============================================================================
+// Writer Persona Types
+// ============================================================================
+
+export interface WriterPersona {
+  id: string;
+  name: string;
+  tagline: string | null;
+  expertise: string | null;
+  values: string | null;
+  writingStyle: string | null;
+  signatureElements: string[];
+  sampleWriting: string | null;
+  isActive: boolean;
+  isDefault: boolean;
+  isFavorite: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PersonaStats {
+  total: number;
+  default: number;
+  custom: number;
+  active: string | null;
+}
+
+// ============================================================================
+// Image Style Thumbnail Types
+// ============================================================================
+
+export interface StyleThumbnail {
+  id: string;
+  styleName: string;
+  thumbnailBase64: string;
+  mimeType: string;
+  prompt: string;
+  createdAt: string;
+}
+
+export interface ThumbnailStatus {
+  total: number;
+  generated: number;
+  missing: string[];
 }
