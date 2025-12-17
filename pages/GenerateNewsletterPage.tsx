@@ -10,6 +10,7 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import { Newsletter, NewsletterSection, Preset, PromptOfTheDay, EnhancedNewsletter, WriterPersona } from '../types';
+import type { NewsletterTemplate } from '../services/templateClientService';
 import { ResizablePanelLayout } from '../components/ResizablePanelLayout';
 import { ConfigurationPanel } from '../components/ConfigurationPanel';
 import { PreviewPanel } from '../components/PreviewPanel';
@@ -59,6 +60,12 @@ interface GenerateNewsletterPageProps {
     onGenerateImage?: (sectionIndex: number, imagePrompt: string) => Promise<void>;
     // Persona display
     activePersona?: WriterPersona | null;
+    // Templates
+    templates?: NewsletterTemplate[];
+    selectedTemplateId?: string | null;
+    onSelectTemplate?: (templateId: string | null) => void;
+    onSaveAsTemplate?: (name: string, description: string) => Promise<void>;
+    isTemplatesLoading?: boolean;
 }
 
 export const GenerateNewsletterPage: React.FC<GenerateNewsletterPageProps> = ({
@@ -103,7 +110,15 @@ export const GenerateNewsletterPage: React.FC<GenerateNewsletterPageProps> = ({
     onOpenAudienceEditor,
     onGenerateImage,
     activePersona,
+    // Templates
+    templates = [],
+    selectedTemplateId,
+    onSelectTemplate,
+    onSaveAsTemplate,
+    isTemplatesLoading,
 }) => {
+    // Determine if there's newsletter content to save as template
+    const hasNewsletterContent = !!(newsletter || enhancedNewsletter);
     return (
         <motion.div
             variants={fadeInUp}
@@ -157,6 +172,13 @@ export const GenerateNewsletterPage: React.FC<GenerateNewsletterPageProps> = ({
                         promptOfTheDay={promptOfTheDay}
                         onSavePromptOfTheDay={onSavePromptOfTheDay}
                         onSavePromptToLibrary={onSavePromptToLibrary}
+                        // Templates
+                        templates={templates}
+                        selectedTemplateId={selectedTemplateId}
+                        onSelectTemplate={onSelectTemplate}
+                        onSaveAsTemplate={onSaveAsTemplate}
+                        isTemplatesLoading={isTemplatesLoading}
+                        hasNewsletterContent={hasNewsletterContent}
                         // Generation
                         handleGenerateNewsletter={handleGenerateNewsletter}
                         hasSelectedAudience={hasSelectedAudience}

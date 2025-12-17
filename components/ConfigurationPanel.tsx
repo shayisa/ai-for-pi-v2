@@ -11,14 +11,15 @@
  * - Generate Newsletter Button (sticky footer)
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { Preset, PromptOfTheDay, WriterPersona } from '../types';
+import type { NewsletterTemplate } from '../services/templateClientService';
 import { PresetsManager } from './PresetsManager';
 import { PromptOfTheDayEditor } from './PromptOfTheDayEditor';
 import { GenerationProgress } from './GenerationProgress';
 import { ActionButton } from './ActionButton';
-import { SparklesIcon, RefreshIcon } from './IconComponents';
+import { SparklesIcon, RefreshIcon, SaveIcon, ChevronDownIcon } from './IconComponents';
 import { staggerContainer, staggerItem } from '../utils/animations';
 
 interface ConfigurationPanelProps {
@@ -55,6 +56,14 @@ interface ConfigurationPanelProps {
   onSavePromptOfTheDay: (prompt: PromptOfTheDay | null) => void;
   onSavePromptToLibrary?: (prompt: PromptOfTheDay) => Promise<void>;
 
+  // Templates
+  templates?: NewsletterTemplate[];
+  selectedTemplateId?: string | null;
+  onSelectTemplate?: (templateId: string | null) => void;
+  onSaveAsTemplate?: (name: string, description: string) => Promise<void>;
+  isTemplatesLoading?: boolean;
+  hasNewsletterContent?: boolean;
+
   // Generation
   handleGenerateNewsletter: () => Promise<void>;
   hasSelectedAudience: boolean;
@@ -88,6 +97,12 @@ export const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
   promptOfTheDay,
   onSavePromptOfTheDay,
   onSavePromptToLibrary,
+  templates = [],
+  selectedTemplateId,
+  onSelectTemplate,
+  onSaveAsTemplate,
+  isTemplatesLoading,
+  hasNewsletterContent,
   handleGenerateNewsletter,
   hasSelectedAudience,
   isLoading,
@@ -95,6 +110,29 @@ export const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
   progress,
   error,
 }) => {
+  // Template save modal state
+  const [showTemplateSaveModal, setShowTemplateSaveModal] = useState(false);
+  const [newTemplateName, setNewTemplateName] = useState('');
+  const [newTemplateDescription, setNewTemplateDescription] = useState('');
+  const [isSavingTemplate, setIsSavingTemplate] = useState(false);
+
+  // Handle saving current newsletter as template
+  const handleSaveAsTemplate = async () => {
+    if (!newTemplateName.trim() || !onSaveAsTemplate) return;
+
+    setIsSavingTemplate(true);
+    try {
+      await onSaveAsTemplate(newTemplateName.trim(), newTemplateDescription.trim());
+      setShowTemplateSaveModal(false);
+      setNewTemplateName('');
+      setNewTemplateDescription('');
+    } catch (err) {
+      console.error('[ConfigurationPanel] Failed to save template:', err);
+    } finally {
+      setIsSavingTemplate(false);
+    }
+  };
+
   const getSelectedLabels = (
     options: Record<string, { label: string }>,
     selected: Record<string, boolean> | string
@@ -187,6 +225,122 @@ export const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
             </div>
           </div>
         </section>
+
+        {/* Newsletter Templates */}
+        {onSelectTemplate && (
+          <section className="border-t border-border-subtle pt-4">
+            <div className="flex items-center justify-between mb-3">
+              <p className="font-sans text-ui font-medium text-ink">Template</p>
+              {hasNewsletterContent && onSaveAsTemplate && (
+                <button
+                  onClick={() => setShowTemplateSaveModal(true)}
+                  className="flex items-center gap-1 font-sans text-caption text-editorial-red hover:text-ink transition-colors"
+                >
+                  <SaveIcon className="h-3.5 w-3.5" />
+                  Save as Template
+                </button>
+              )}
+            </div>
+
+            {/* Template Selector */}
+            <div className="relative">
+              <select
+                value={selectedTemplateId || ''}
+                onChange={(e) => onSelectTemplate(e.target.value || null)}
+                disabled={isTemplatesLoading}
+                className="w-full px-3 py-2 bg-paper border border-border-subtle text-ink font-sans text-ui appearance-none cursor-pointer hover:border-slate transition-colors focus:outline-none focus:border-editorial-red disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <option value="">No template</option>
+                {templates.map((template) => (
+                  <option key={template.id} value={template.id}>
+                    {template.name}
+                  </option>
+                ))}
+              </select>
+              <ChevronDownIcon className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate pointer-events-none" />
+            </div>
+
+            {/* Selected Template Description */}
+            {selectedTemplateId && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                className="mt-2"
+              >
+                {templates.find(t => t.id === selectedTemplateId)?.description && (
+                  <p className="font-sans text-caption text-slate">
+                    {templates.find(t => t.id === selectedTemplateId)?.description}
+                  </p>
+                )}
+              </motion.div>
+            )}
+
+            {/* Save Template Modal */}
+            <AnimatePresence>
+              {showTemplateSaveModal && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="fixed inset-0 bg-ink/50 flex items-center justify-center z-50 p-4"
+                  onClick={() => setShowTemplateSaveModal(false)}
+                >
+                  <motion.div
+                    initial={{ scale: 0.95, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    exit={{ scale: 0.95, opacity: 0 }}
+                    className="bg-paper p-6 max-w-md w-full shadow-lg"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <h3 className="font-display text-h4 text-ink mb-4">Save as Template</h3>
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block font-sans text-caption text-slate mb-1">
+                          Template Name *
+                        </label>
+                        <input
+                          type="text"
+                          value={newTemplateName}
+                          onChange={(e) => setNewTemplateName(e.target.value)}
+                          placeholder="e.g., Weekly Tech Roundup"
+                          className="w-full px-3 py-2 border border-border-subtle bg-paper text-ink font-sans text-ui focus:outline-none focus:border-editorial-red"
+                        />
+                      </div>
+                      <div>
+                        <label className="block font-sans text-caption text-slate mb-1">
+                          Description (optional)
+                        </label>
+                        <textarea
+                          value={newTemplateDescription}
+                          onChange={(e) => setNewTemplateDescription(e.target.value)}
+                          placeholder="Brief description of this template..."
+                          rows={2}
+                          className="w-full px-3 py-2 border border-border-subtle bg-paper text-ink font-sans text-ui resize-none focus:outline-none focus:border-editorial-red"
+                        />
+                      </div>
+                      <div className="flex gap-3 pt-2">
+                        <button
+                          onClick={() => setShowTemplateSaveModal(false)}
+                          className="flex-1 px-4 py-2 border border-border-subtle text-ink font-sans text-ui hover:bg-pearl transition-colors"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={handleSaveAsTemplate}
+                          disabled={!newTemplateName.trim() || isSavingTemplate}
+                          className="flex-1 px-4 py-2 bg-editorial-red text-paper font-sans text-ui hover:bg-ink transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {isSavingTemplate ? 'Saving...' : 'Save Template'}
+                        </button>
+                      </div>
+                    </div>
+                  </motion.div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </section>
+        )}
 
         {/* Presets Manager */}
         <section className="border-t border-border-subtle pt-4">

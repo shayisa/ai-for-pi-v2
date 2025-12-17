@@ -31,6 +31,8 @@ import { useHistory } from './hooks/useHistory';
 import { usePrompts } from './hooks/usePrompts';
 import { usePersonas } from './hooks/usePersonas';
 import { useStyleThumbnails } from './hooks/useStyleThumbnails';
+import { useTemplates } from './hooks/useTemplates';
+import * as draftApi from './services/draftClientService';
 import { PersonaEditor } from './components/PersonaEditor';
 import * as calendarApi from './services/calendarClientService';
 import type { CalendarEntry } from './services/calendarClientService';
@@ -191,6 +193,16 @@ const App: React.FC = () => {
         progress: thumbnailProgress,
     } = useStyleThumbnails();
 
+    // Newsletter templates from SQLite
+    const {
+        templates,
+        isLoading: isTemplatesLoading,
+        createFromNewsletter: createTemplateFromNewsletter,
+    } = useTemplates();
+
+    // Template selection state
+    const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
+
     // Persona editor modal state
     const [isPersonaEditorOpen, setIsPersonaEditorOpen] = useState(false);
     const [editingPersona, setEditingPersona] = useState<WriterPersona | null>(null);
@@ -249,6 +261,59 @@ const App: React.FC = () => {
         const updatedPresets = presets.filter(p => p.name !== name);
         setPresets(updatedPresets);
         localStorage.setItem('newsletterPresets', JSON.stringify(updatedPresets));
+    };
+
+    // Template handlers
+    const handleSelectTemplate = (templateId: string | null) => {
+        setSelectedTemplateId(templateId);
+        if (templateId) {
+            const template = templates.find(t => t.id === templateId);
+            if (template?.defaultSettings) {
+                // Apply template's default settings
+                if (template.defaultSettings.tone) setSelectedTone(template.defaultSettings.tone);
+                if (template.defaultSettings.imageStyle) setSelectedImageStyle(template.defaultSettings.imageStyle);
+                if (template.defaultSettings.audiences) {
+                    const audienceRecord: Record<string, boolean> = {};
+                    template.defaultSettings.audiences.forEach(key => { audienceRecord[key] = true; });
+                    setSelectedAudience(audienceRecord);
+                }
+                console.log(`[App] Applied template settings: ${template.name}`);
+            }
+        }
+    };
+
+    const handleSaveAsTemplate = async (name: string, description: string) => {
+        const currentNewsletter = useEnhancedFormat ? enhancedNewsletter : newsletter;
+        if (!currentNewsletter) {
+            throw new Error('No newsletter content to save as template');
+        }
+
+        // Build sections array based on format
+        const sections = useEnhancedFormat && enhancedNewsletter
+            ? enhancedNewsletter.audienceSections.map(s => ({
+                title: s.title,
+                content: s.content,
+                imagePrompt: s.imagePrompt,
+            }))
+            : newsletter?.sections || [];
+
+        await createTemplateFromNewsletter(
+            name,
+            description,
+            {
+                introduction: newsletter?.introduction || enhancedNewsletter?.editorsNote?.message || '',
+                sections,
+                conclusion: newsletter?.conclusion || enhancedNewsletter?.conclusion || '',
+                promptOfTheDay,
+            },
+            {
+                tone: selectedTone,
+                imageStyle: selectedImageStyle,
+                audiences: Object.keys(selectedAudience).filter(k => selectedAudience[k]),
+                personaId: activePersona?.id,
+            }
+        );
+        console.log(`[App] Saved template: ${name}`);
     };
 
     const handleSyncPresetsToCloud = async () => {
@@ -316,6 +381,17 @@ const App: React.FC = () => {
                 } catch (linkErr) {
                     console.warn('[App] Failed to link newsletter to calendar:', linkErr);
                     // Non-critical - don't block the user
+                }
+            }
+
+            // Clear draft after successful generation (work is now saved in history)
+            if (authData?.email) {
+                try {
+                    await draftApi.deleteDraft(authData.email);
+                    console.log('[App] Draft cleared after successful generation');
+                } catch (draftErr) {
+                    console.warn('[App] Failed to clear draft:', draftErr);
+                    // Non-critical - draft will be overwritten or recovered anyway
                 }
             }
         } catch (err) {
@@ -1172,13 +1248,84 @@ const App: React.FC = () => {
     // Newsletter history is now loaded from SQLite via useHistory hook
 
 
-    // Handle authentication state changes - navigate to app when authenticated
+    // Handle authentication state changes - navigate to app when authenticated + draft recovery
     useEffect(() => {
-        if (authData?.access_token && activePage === 'authentication') {
-            // User just logged in, navigate to first app page
-            setActivePage('discoverTopics');
-        }
-    }, [authData?.access_token]);
+        const handleAuthAndDraftRecovery = async () => {
+            if (!authData?.access_token || !authData?.email) return;
+
+            // Check for draft recovery when user logs in
+            if (activePage === 'authentication') {
+                try {
+                    const draft = await draftApi.getDraft(authData.email);
+                    if (draft) {
+                        const savedAt = new Date(draft.lastSavedAt).toLocaleString();
+                        const shouldRecover = window.confirm(
+                            `Found an unsaved draft from ${savedAt}.\n\nWould you like to recover it?`
+                        );
+
+                        if (shouldRecover) {
+                            // Restore content based on format version
+                            if (draft.content.formatVersion === 'v2' && draft.content.enhancedNewsletter) {
+                                setUseEnhancedFormat(true);
+                                setEnhancedNewsletter(draft.content.enhancedNewsletter as EnhancedNewsletter);
+                                setNewsletter(null);
+                            } else if (draft.content.newsletter) {
+                                setUseEnhancedFormat(false);
+                                setNewsletter({
+                                    id: `draft-${Date.now()}`,
+                                    subject: draft.content.newsletter.subject || '',
+                                    introduction: draft.content.newsletter.introduction || '',
+                                    sections: (draft.content.newsletter.sections || []).map(s => ({
+                                        title: s.title,
+                                        content: s.content,
+                                        imagePrompt: s.imagePrompt || '',
+                                    })),
+                                    conclusion: draft.content.newsletter.conclusion || '',
+                                });
+                                setEnhancedNewsletter(null);
+                            }
+
+                            // Restore topics
+                            if (draft.topics?.length > 0) {
+                                setSelectedTopics(draft.topics);
+                            }
+
+                            // Restore settings
+                            if (draft.settings) {
+                                if (draft.settings.selectedTone) setSelectedTone(draft.settings.selectedTone);
+                                if (draft.settings.selectedImageStyle) setSelectedImageStyle(draft.settings.selectedImageStyle);
+                                if (draft.settings.selectedAudiences) {
+                                    const audiences: Record<string, boolean> = {};
+                                    draft.settings.selectedAudiences.forEach(a => { audiences[a] = true; });
+                                    setSelectedAudience(audiences);
+                                }
+                                if (draft.settings.promptOfTheDay) {
+                                    setPromptOfTheDay(draft.settings.promptOfTheDay as PromptOfTheDay);
+                                }
+                                // Note: persona restoration would require fetching persona by ID
+                            }
+
+                            console.log('[App] Draft recovered successfully');
+                            setActivePage('generateNewsletter');
+                        } else {
+                            // User declined - delete the draft
+                            await draftApi.deleteDraft(authData.email);
+                            console.log('[App] Draft discarded by user');
+                            setActivePage('discoverTopics');
+                        }
+                    } else {
+                        // No draft, proceed normally
+                        setActivePage('discoverTopics');
+                    }
+                } catch (err) {
+                    console.warn('[App] Draft recovery check failed:', err);
+                    setActivePage('discoverTopics');
+                }
+            }
+        };
+
+        handleAuthAndDraftRecovery();
+    }, [authData?.access_token, authData?.email]);
 
     // Load default audiences for enhanced newsletter format
     useEffect(() => {
@@ -1228,6 +1375,60 @@ const App: React.FC = () => {
 
         return () => clearTimeout(saveTimer);
     }, [pendingCalendarEntryId, selectedAudience, selectedTone, selectedFlavors, selectedImageStyle, activePersona?.id, selectedTopics]);
+
+    // Draft auto-save effect - saves work in progress every 2 seconds
+    useEffect(() => {
+        // Skip if: no newsletter content, loading, or no auth
+        const hasContent = newsletter || enhancedNewsletter;
+        if (!hasContent || loading || !authData?.email) return;
+
+        const saveTimer = setTimeout(async () => {
+            try {
+                const content: draftApi.DraftContent = {
+                    formatVersion: useEnhancedFormat ? 'v2' : 'v1',
+                    newsletter: newsletter ? {
+                        subject: newsletter.subject,
+                        introduction: newsletter.introduction,
+                        sections: newsletter.sections?.map(s => ({
+                            title: s.title,
+                            content: s.content,
+                            imagePrompt: s.imagePrompt,
+                        })),
+                        conclusion: newsletter.conclusion,
+                    } : undefined,
+                    enhancedNewsletter: useEnhancedFormat ? enhancedNewsletter : undefined,
+                };
+
+                const settings: draftApi.DraftSettings = {
+                    selectedTone,
+                    selectedImageStyle,
+                    selectedAudiences: Object.keys(selectedAudience).filter(k => selectedAudience[k]),
+                    personaId: activePersona?.id || null,
+                    promptOfTheDay: promptOfTheDay || undefined,
+                };
+
+                await draftApi.saveDraft(authData.email, content, selectedTopics, settings);
+                console.log('[App] Draft auto-saved');
+            } catch (err) {
+                console.warn('[App] Failed to auto-save draft:', err);
+                // Non-blocking - don't interrupt user
+            }
+        }, 2000); // 2-second debounce
+
+        return () => clearTimeout(saveTimer);
+    }, [
+        newsletter,
+        enhancedNewsletter,
+        useEnhancedFormat,
+        selectedTopics,
+        selectedTone,
+        selectedImageStyle,
+        selectedAudience,
+        activePersona?.id,
+        promptOfTheDay,
+        loading,
+        authData?.email,
+    ]);
 
     const handleWorkflowAction = async (action: 'drive' | 'gmail') => {
         // Support both legacy and enhanced newsletters
@@ -1452,6 +1653,12 @@ const App: React.FC = () => {
                             onGenerateImage={handleGenerateSectionImage}
                             // Persona display
                             activePersona={activePersona}
+                            // Templates
+                            templates={templates}
+                            selectedTemplateId={selectedTemplateId}
+                            onSelectTemplate={handleSelectTemplate}
+                            onSaveAsTemplate={handleSaveAsTemplate}
+                            isTemplatesLoading={isTemplatesLoading}
                         />
                     )}
 

@@ -18,6 +18,9 @@ import * as audienceGenerationService from './server/services/audienceGeneration
 import * as logDbService from './server/services/logDbService.ts';
 import * as calendarDbService from './server/services/calendarDbService.ts';
 import * as personaDbService from './server/services/personaDbService.ts';
+import * as thumbnailDbService from './server/services/thumbnailDbService.ts';
+import * as templateDbService from './server/services/templateDbService.ts';
+import * as draftDbService from './server/services/draftDbService.ts';
 import type { EnhancedNewsletter, AudienceConfig } from './types.ts';
 
 // Load environment variables
@@ -803,6 +806,9 @@ app.post("/api/generateNewsletter", async (req, res) => {
       pixel: "pixel art",
       minimalist: "minimalist line art",
       oilPainting: "oil painting",
+      cyberpunk: "cyberpunk neon-lit futuristic",
+      abstract: "abstract non-representational art",
+      isometric: "isometric 3D perspective",
     };
     const styleDescription = imageStyleMap[imageStyle] || "photorealistic";
 
@@ -1810,6 +1816,9 @@ app.post("/api/generateImage", async (req, res) => {
       pixel: "pixel art",
       minimalist: "minimalist line art",
       oilPainting: "oil painting",
+      cyberpunk: "cyberpunk neon-lit futuristic",
+      abstract: "abstract non-representational art",
+      isometric: "isometric 3D perspective",
     };
     const styleDescription = imageStyleMap[imageStyle] || "photorealistic";
 
@@ -3461,6 +3470,350 @@ app.post("/api/personas/:id/favorite", (req, res) => {
   } catch (error) {
     console.error("[Personas] Toggle favorite error:", error);
     res.status(500).json({ error: "Failed to toggle favorite" });
+  }
+});
+
+// ============================================================================
+// IMAGE STYLE THUMBNAIL ENDPOINTS
+// ============================================================================
+
+// All available image styles (must match App.tsx IMAGE_STYLES)
+const ALL_IMAGE_STYLES = [
+  'photorealistic', 'vector', 'watercolor', 'pixel',
+  'minimalist', 'cyberpunk', 'abstract', 'oilPainting', 'isometric'
+];
+
+// Get all thumbnails
+app.get("/api/thumbnails", (req, res) => {
+  try {
+    const thumbnails = thumbnailDbService.getAllThumbnails();
+    res.json({ thumbnails });
+  } catch (error) {
+    console.error("[Thumbnails] Get all error:", error);
+    res.status(500).json({ error: "Failed to fetch thumbnails" });
+  }
+});
+
+// Get thumbnail generation status (which styles have/need thumbnails)
+app.get("/api/thumbnails/status", (req, res) => {
+  try {
+    const missing = thumbnailDbService.getMissingStyles(ALL_IMAGE_STYLES);
+    const count = thumbnailDbService.getThumbnailCount();
+
+    res.json({
+      total: ALL_IMAGE_STYLES.length,
+      generated: count,
+      missing
+    });
+  } catch (error) {
+    console.error("[Thumbnails] Get status error:", error);
+    res.status(500).json({ error: "Failed to fetch thumbnail status" });
+  }
+});
+
+// Generate thumbnail for a specific style
+app.post("/api/thumbnails/:styleName/generate", async (req, res) => {
+  try {
+    const { styleName } = req.params;
+
+    // Validate style name
+    if (!ALL_IMAGE_STYLES.includes(styleName)) {
+      return res.status(400).json({ error: `Invalid style name: ${styleName}` });
+    }
+
+    // Check if already exists
+    const existing = thumbnailDbService.getThumbnailByStyle(styleName);
+    if (existing) {
+      return res.json({ thumbnail: existing, cached: true });
+    }
+
+    // Get Stability API key
+    const adminEmail = process.env.ADMIN_EMAIL;
+    let stabilityApiKey = adminEmail ? apiKeyDbService.getApiKey(adminEmail, 'stability') : null;
+    if (!stabilityApiKey) {
+      stabilityApiKey = process.env.VITE_STABILITY_API_KEY || null;
+    }
+    if (!stabilityApiKey) {
+      return res.status(500).json({ error: "Stability AI API key not configured" });
+    }
+
+    // Map style to description (same mapping as generateImage)
+    const thumbnailStyleMap: Record<string, string> = {
+      photorealistic: "photorealistic",
+      vector: "vector illustration",
+      watercolor: "watercolor painting",
+      pixel: "pixel art",
+      minimalist: "minimalist line art",
+      oilPainting: "oil painting",
+      cyberpunk: "cyberpunk neon-lit futuristic",
+      abstract: "abstract non-representational art",
+      isometric: "isometric 3D perspective",
+    };
+
+    const styleDescription = thumbnailStyleMap[styleName] || styleName;
+    const prompt = `${styleDescription} style: A beautiful abstract composition showcasing the ${styleDescription} aesthetic, professional quality, visually striking, modern design`;
+
+    console.log(`[Thumbnails] Generating thumbnail for: ${styleName}`);
+
+    // Generate image via Stability AI
+    const formData = new FormData();
+    formData.append("prompt", prompt);
+    formData.append("output_format", "png");
+    formData.append("aspect_ratio", "1:1");
+
+    const response = await fetch("https://api.stability.ai/v2beta/stable-image/generate/core", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${stabilityApiKey}`,
+        "Accept": "application/json",
+      },
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("[Thumbnails] Stability AI error:", response.status, errorText);
+      return res.status(response.status).json({
+        error: "Image generation failed",
+        details: errorText
+      });
+    }
+
+    const responseJson = await response.json() as { image?: string; errors?: string[] };
+
+    if (responseJson.errors && responseJson.errors.length > 0) {
+      return res.status(400).json({
+        error: "Image generation failed",
+        details: responseJson.errors.join(", ")
+      });
+    }
+
+    if (!responseJson.image) {
+      return res.status(500).json({ error: "No image in Stability AI response" });
+    }
+
+    // Save to SQLite
+    const thumbnail = thumbnailDbService.saveThumbnail(styleName, responseJson.image, prompt);
+
+    console.log(`[Thumbnails] Generated and saved: ${styleName}`);
+    res.json({ thumbnail, cached: false });
+
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("[Thumbnails] Generate error:", errorMessage);
+    res.status(500).json({ error: "Failed to generate thumbnail", details: errorMessage });
+  }
+});
+
+// Delete a thumbnail
+app.delete("/api/thumbnails/:styleName", (req, res) => {
+  try {
+    const success = thumbnailDbService.deleteThumbnail(req.params.styleName);
+    if (!success) {
+      return res.status(404).json({ error: "Thumbnail not found" });
+    }
+    res.json({ success: true, message: "Thumbnail deleted" });
+  } catch (error) {
+    console.error("[Thumbnails] Delete error:", error);
+    res.status(500).json({ error: "Failed to delete thumbnail" });
+  }
+});
+
+// ============================================================================
+// NEWSLETTER TEMPLATE ENDPOINTS
+// ============================================================================
+
+// Get all templates
+app.get("/api/templates", (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit as string) || 50;
+    const templates = templateDbService.getTemplates(limit);
+    res.json({ templates, count: templates.length });
+  } catch (error) {
+    console.error("[Templates] Get all error:", error);
+    res.status(500).json({ error: "Failed to fetch templates" });
+  }
+});
+
+// Search templates (must be before /:id route)
+app.get("/api/templates/search", (req, res) => {
+  try {
+    const query = req.query.q as string;
+    const limit = parseInt(req.query.limit as string) || 20;
+
+    if (!query) {
+      return res.status(400).json({ error: "Search query (q) is required" });
+    }
+
+    const templates = templateDbService.searchTemplates(query, limit);
+    res.json({ templates, count: templates.length });
+  } catch (error) {
+    console.error("[Templates] Search error:", error);
+    res.status(500).json({ error: "Failed to search templates" });
+  }
+});
+
+// Get template by ID
+app.get("/api/templates/:id", (req, res) => {
+  try {
+    const template = templateDbService.getTemplateById(req.params.id);
+    if (!template) {
+      return res.status(404).json({ error: "Template not found" });
+    }
+    res.json(template);
+  } catch (error) {
+    console.error("[Templates] Get by ID error:", error);
+    res.status(500).json({ error: "Failed to fetch template" });
+  }
+});
+
+// Create new template
+app.post("/api/templates", (req, res) => {
+  try {
+    const { name, description, structure, defaultSettings } = req.body;
+
+    if (!name || !structure) {
+      return res.status(400).json({ error: "name and structure are required" });
+    }
+
+    const template = templateDbService.createTemplate(
+      name,
+      description || '',
+      structure,
+      defaultSettings
+    );
+
+    console.log(`[Templates] Created: ${name} (${template.id})`);
+    res.status(201).json(template);
+  } catch (error) {
+    console.error("[Templates] Create error:", error);
+    res.status(500).json({ error: "Failed to create template" });
+  }
+});
+
+// Create template from existing newsletter
+app.post("/api/templates/from-newsletter", (req, res) => {
+  try {
+    const { name, description, newsletter, settings } = req.body;
+
+    if (!name || !newsletter || !newsletter.sections) {
+      return res.status(400).json({ error: "name and newsletter with sections are required" });
+    }
+
+    const template = templateDbService.createTemplateFromNewsletter(
+      name,
+      description || '',
+      newsletter,
+      settings
+    );
+
+    console.log(`[Templates] Created from newsletter: ${name} (${template.id})`);
+    res.status(201).json(template);
+  } catch (error) {
+    console.error("[Templates] Create from newsletter error:", error);
+    res.status(500).json({ error: "Failed to create template from newsletter" });
+  }
+});
+
+// Update template
+app.put("/api/templates/:id", (req, res) => {
+  try {
+    const updates = req.body;
+    const template = templateDbService.updateTemplate(req.params.id, updates);
+
+    if (!template) {
+      return res.status(404).json({ error: "Template not found" });
+    }
+
+    console.log(`[Templates] Updated: ${req.params.id}`);
+    res.json(template);
+  } catch (error) {
+    console.error("[Templates] Update error:", error);
+    res.status(500).json({ error: "Failed to update template" });
+  }
+});
+
+// Delete template
+app.delete("/api/templates/:id", (req, res) => {
+  try {
+    const success = templateDbService.deleteTemplate(req.params.id);
+    if (!success) {
+      return res.status(404).json({ error: "Template not found" });
+    }
+    console.log(`[Templates] Deleted: ${req.params.id}`);
+    res.json({ success: true, message: "Template deleted" });
+  } catch (error) {
+    console.error("[Templates] Delete error:", error);
+    res.status(500).json({ error: "Failed to delete template" });
+  }
+});
+
+// ============================================================================
+// NEWSLETTER DRAFT ENDPOINTS
+// ============================================================================
+
+// Get draft for user
+app.get("/api/drafts/:userEmail", (req, res) => {
+  try {
+    const draft = draftDbService.getDraft(req.params.userEmail);
+
+    if (!draft) {
+      return res.status(404).json({ error: "No draft found" });
+    }
+
+    res.json(draft);
+  } catch (error) {
+    console.error("[Drafts] Get error:", error);
+    res.status(500).json({ error: "Failed to fetch draft" });
+  }
+});
+
+// Check if draft exists
+app.get("/api/drafts/:userEmail/exists", (req, res) => {
+  try {
+    const exists = draftDbService.hasDraft(req.params.userEmail);
+    res.json({ exists });
+  } catch (error) {
+    console.error("[Drafts] Check exists error:", error);
+    res.status(500).json({ error: "Failed to check draft" });
+  }
+});
+
+// Save or update draft
+app.post("/api/drafts", (req, res) => {
+  try {
+    const { userEmail, content, topics, settings } = req.body;
+
+    if (!userEmail || !content) {
+      return res.status(400).json({ error: "userEmail and content are required" });
+    }
+
+    const draft = draftDbService.saveDraft(
+      userEmail,
+      content,
+      topics || [],
+      settings || {}
+    );
+
+    res.json(draft);
+  } catch (error) {
+    console.error("[Drafts] Save error:", error);
+    res.status(500).json({ error: "Failed to save draft" });
+  }
+});
+
+// Delete draft
+app.delete("/api/drafts/:userEmail", (req, res) => {
+  try {
+    const success = draftDbService.deleteDraft(req.params.userEmail);
+    if (!success) {
+      return res.status(404).json({ error: "Draft not found" });
+    }
+    console.log(`[Drafts] Deleted draft for: ${req.params.userEmail}`);
+    res.json({ success: true, message: "Draft deleted" });
+  } catch (error) {
+    console.error("[Drafts] Delete error:", error);
+    res.status(500).json({ error: "Failed to delete draft" });
   }
 });
 
