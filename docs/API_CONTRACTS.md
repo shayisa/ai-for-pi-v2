@@ -240,6 +240,302 @@ interface LoadPresetsResponse {
 
 ---
 
+---
+
+## Phase 8 Endpoints
+
+### Thumbnail Endpoints
+
+#### GET /api/thumbnails
+
+Returns all cached image style thumbnails.
+
+**Response:**
+```typescript
+interface GetThumbnailsResponse {
+  thumbnails: StyleThumbnail[];
+}
+
+interface StyleThumbnail {
+  id: string;
+  styleName: string;
+  imageBase64: string;
+  prompt: string;
+  createdAt: string;
+}
+```
+
+---
+
+#### GET /api/thumbnails/status
+
+Returns thumbnail generation status.
+
+**Response:**
+```typescript
+interface ThumbnailStatusResponse {
+  total: 9;
+  generated: number;
+  missing: string[];  // Style names not yet generated
+}
+```
+
+---
+
+#### POST /api/thumbnails/:styleName/generate
+
+Generates and caches a thumbnail for the specified style.
+
+**Response:**
+```typescript
+interface GenerateThumbnailResponse {
+  thumbnail: StyleThumbnail;
+  cached: boolean;  // true if returned from existing cache
+}
+```
+
+**Error Responses:**
+- `400`: Invalid style name
+- `500`: Stability AI generation failed
+
+---
+
+#### DELETE /api/thumbnails/:styleName
+
+Deletes a cached thumbnail.
+
+**Response:**
+```typescript
+interface DeleteThumbnailResponse {
+  success: true;
+  message: string;
+}
+```
+
+---
+
+### Template Endpoints
+
+#### GET /api/templates
+
+Lists all newsletter templates.
+
+**Query Parameters:**
+- `limit` (optional): Max templates to return (default: 50)
+
+**Response:**
+```typescript
+interface GetTemplatesResponse {
+  templates: NewsletterTemplate[];
+  count: number;
+}
+
+interface NewsletterTemplate {
+  id: string;
+  name: string;
+  description: string;
+  structure: TemplateStructure;
+  defaultSettings?: TemplateSettings;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface TemplateStructure {
+  introduction: string;
+  sections: Array<{
+    title: string;
+    content: string;
+    imagePrompt?: string;
+  }>;
+  conclusion: string;
+  includePromptOfDay: boolean;
+  promptOfTheDay?: PromptOfTheDay;
+}
+
+interface TemplateSettings {
+  tone?: string;
+  imageStyle?: string;
+  audiences?: string[];
+  personaId?: string;
+}
+```
+
+---
+
+#### GET /api/templates/:id
+
+Get template by ID.
+
+**Response:** `NewsletterTemplate`
+
+**Error Responses:**
+- `404`: Template not found
+
+---
+
+#### POST /api/templates
+
+Create a new template.
+
+**Request:**
+```typescript
+interface CreateTemplateRequest {
+  name: string;           // Required
+  description?: string;
+  structure: TemplateStructure;  // Required
+  defaultSettings?: TemplateSettings;
+}
+```
+
+**Response:** 201 with created `NewsletterTemplate`
+
+**Error Responses:**
+- `400`: Missing name or structure
+
+---
+
+#### POST /api/templates/from-newsletter
+
+Create template from existing newsletter content.
+
+**Request:**
+```typescript
+interface CreateFromNewsletterRequest {
+  name: string;           // Required
+  description?: string;
+  newsletter: {           // Required
+    introduction?: string;
+    sections: Array<{ title: string; content: string; imagePrompt?: string }>;
+    conclusion?: string;
+  };
+  settings?: TemplateSettings;
+}
+```
+
+**Response:** 201 with created `NewsletterTemplate`
+
+**Error Responses:**
+- `400`: Missing name or newsletter.sections
+
+---
+
+#### PUT /api/templates/:id
+
+Update an existing template.
+
+**Request:** Partial `NewsletterTemplate` fields
+
+**Response:** Updated `NewsletterTemplate`
+
+**Error Responses:**
+- `404`: Template not found
+
+---
+
+#### DELETE /api/templates/:id
+
+Delete a template.
+
+**Response:**
+```typescript
+interface DeleteTemplateResponse {
+  success: true;
+  message: string;
+}
+```
+
+---
+
+### Draft Endpoints
+
+#### GET /api/drafts/:userEmail
+
+Get user's saved draft.
+
+**Response:**
+```typescript
+interface NewsletterDraft {
+  id: string;
+  userEmail: string;
+  content: DraftContent;
+  topics: string[];
+  settings: DraftSettings;
+  lastSavedAt: string;
+}
+
+interface DraftContent {
+  newsletter?: {
+    subject?: string;
+    introduction?: string;
+    sections?: Array<{ title: string; content: string; imagePrompt?: string }>;
+    conclusion?: string;
+  };
+  enhancedNewsletter?: EnhancedNewsletter;
+  formatVersion: 'v1' | 'v2';
+}
+
+interface DraftSettings {
+  selectedTone?: string;
+  selectedImageStyle?: string;
+  selectedAudiences?: string[];
+  personaId?: string | null;
+  promptOfTheDay?: PromptOfTheDay;
+}
+```
+
+**Error Responses:**
+- `404`: No draft found for user
+
+---
+
+#### GET /api/drafts/:userEmail/exists
+
+Check if draft exists for user.
+
+**Response:**
+```typescript
+interface DraftExistsResponse {
+  exists: boolean;
+}
+```
+
+---
+
+#### POST /api/drafts
+
+Save or update a draft.
+
+**Request:**
+```typescript
+interface SaveDraftRequest {
+  userEmail: string;      // Required
+  content: DraftContent;  // Required
+  topics?: string[];
+  settings?: DraftSettings;
+}
+```
+
+**Response:** Saved `NewsletterDraft`
+
+**Error Responses:**
+- `400`: Missing userEmail or content
+
+---
+
+#### DELETE /api/drafts/:userEmail
+
+Delete user's draft.
+
+**Response:**
+```typescript
+interface DeleteDraftResponse {
+  success: true;
+  message: string;
+}
+```
+
+---
+
 ## Supabase Edge Functions
 
 ### POST /functions/v1/save-api-key

@@ -620,6 +620,238 @@ Health check endpoint.
 
 ---
 
+#### Thumbnail Endpoints (Phase 8)
+
+Manage cached preview images for image style selection.
+
+##### GET /api/thumbnails
+
+Returns all cached style thumbnails.
+
+**Response:**
+```typescript
+{
+  thumbnails: StyleThumbnail[]
+}
+
+interface StyleThumbnail {
+  id: string;
+  styleName: string;
+  imageBase64: string;
+  prompt: string;
+  createdAt: string;
+}
+```
+
+##### GET /api/thumbnails/status
+
+Returns thumbnail generation status.
+
+**Response:**
+```typescript
+{
+  total: 9,              // Total style count
+  generated: number,     // Cached thumbnails
+  missing: string[]      // Styles needing generation
+}
+```
+
+**Supported Styles:** `photorealistic`, `vector`, `watercolor`, `pixel`, `minimalist`, `oilPainting`, `cyberpunk`, `abstract`, `isometric`
+
+##### POST /api/thumbnails/:styleName/generate
+
+Generates and caches thumbnail for a style.
+
+**Response:**
+```typescript
+{
+  thumbnail: StyleThumbnail,
+  cached: boolean         // true if returned from cache
+}
+```
+
+##### DELETE /api/thumbnails/:styleName
+
+Deletes a cached thumbnail.
+
+**Response:**
+```typescript
+{
+  success: true,
+  message: string
+}
+```
+
+---
+
+#### Template Endpoints (Phase 8)
+
+Manage reusable newsletter templates.
+
+##### GET /api/templates
+
+List all templates.
+
+**Query:** `?limit=50`
+
+**Response:**
+```typescript
+{
+  templates: NewsletterTemplate[],
+  count: number
+}
+
+interface NewsletterTemplate {
+  id: string;
+  name: string;
+  description: string;
+  structure: TemplateStructure;
+  defaultSettings?: TemplateSettings;
+  createdAt: string;
+  updatedAt: string;
+}
+```
+
+##### GET /api/templates/:id
+
+Get template by ID.
+
+**Response:** `NewsletterTemplate` or 404
+
+##### POST /api/templates
+
+Create new template.
+
+**Request:**
+```typescript
+{
+  name: string,           // Required
+  description?: string,
+  structure: TemplateStructure,  // Required
+  defaultSettings?: TemplateSettings
+}
+```
+
+**Response:** 201 with created template
+
+##### POST /api/templates/from-newsletter
+
+Create template from existing newsletter content.
+
+**Request:**
+```typescript
+{
+  name: string,           // Required
+  description?: string,
+  newsletter: {           // Required
+    introduction?: string,
+    sections: Array<{ title, content, imagePrompt? }>,
+    conclusion?: string
+  },
+  settings?: TemplateSettings
+}
+```
+
+**Response:** 201 with created template
+
+##### PUT /api/templates/:id
+
+Update template.
+
+**Request:** Partial template fields
+
+**Response:** Updated template or 404
+
+##### DELETE /api/templates/:id
+
+Delete template.
+
+**Response:**
+```typescript
+{
+  success: true,
+  message: string
+}
+```
+
+---
+
+#### Draft Endpoints (Phase 8)
+
+Auto-save and recover work-in-progress newsletters.
+
+##### GET /api/drafts/:userEmail
+
+Get user's saved draft.
+
+**Response:** `NewsletterDraft` or 404
+
+```typescript
+interface NewsletterDraft {
+  id: string;
+  userEmail: string;
+  content: DraftContent;
+  topics: string[];
+  settings: DraftSettings;
+  lastSavedAt: string;
+}
+
+interface DraftContent {
+  newsletter?: { subject, introduction, sections, conclusion };
+  enhancedNewsletter?: EnhancedNewsletter;
+  formatVersion: 'v1' | 'v2';
+}
+
+interface DraftSettings {
+  selectedTone?: string;
+  selectedImageStyle?: string;
+  selectedAudiences?: string[];
+  personaId?: string | null;
+  promptOfTheDay?: PromptOfTheDay;
+}
+```
+
+##### GET /api/drafts/:userEmail/exists
+
+Check if draft exists.
+
+**Response:**
+```typescript
+{
+  exists: boolean
+}
+```
+
+##### POST /api/drafts
+
+Save or update draft.
+
+**Request:**
+```typescript
+{
+  userEmail: string,      // Required
+  content: DraftContent,  // Required
+  topics: string[],
+  settings: DraftSettings
+}
+```
+
+**Response:** Saved draft
+
+##### DELETE /api/drafts/:userEmail
+
+Delete user's draft.
+
+**Response:**
+```typescript
+{
+  success: true,
+  message: string
+}
+```
+
+---
+
 ### 3.2 Supabase Edge Functions
 
 **Base URL:** `https://{project}.supabase.co/functions/v1/`
@@ -2626,6 +2858,98 @@ CREATE TABLE IF NOT EXISTS archives (
 );
 
 CREATE INDEX IF NOT EXISTS idx_archives_created ON archives(created_at DESC);
+```
+
+#### image_style_thumbnails (Phase 8)
+
+Cached preview thumbnails for image style selection.
+
+```sql
+CREATE TABLE IF NOT EXISTS image_style_thumbnails (
+  id TEXT PRIMARY KEY,
+  style_name TEXT UNIQUE NOT NULL,   -- 'photorealistic', 'vector', etc.
+  image_base64 TEXT NOT NULL,        -- Base64-encoded PNG
+  prompt TEXT NOT NULL,              -- Prompt used to generate
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_thumbnails_style ON image_style_thumbnails(style_name);
+```
+
+#### newsletter_templates (Phase 8)
+
+Reusable newsletter structures with default settings.
+
+```sql
+CREATE TABLE IF NOT EXISTS newsletter_templates (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT DEFAULT '',
+  structure TEXT NOT NULL,           -- JSON: TemplateStructure
+  default_settings TEXT,             -- JSON: TemplateSettings (optional)
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_templates_name ON newsletter_templates(name);
+CREATE INDEX IF NOT EXISTS idx_templates_created ON newsletter_templates(created_at DESC);
+```
+
+#### newsletter_drafts (Phase 8)
+
+Auto-saved work-in-progress newsletters per user.
+
+```sql
+CREATE TABLE IF NOT EXISTS newsletter_drafts (
+  id TEXT PRIMARY KEY,
+  user_email TEXT UNIQUE NOT NULL,   -- One draft per user
+  content TEXT NOT NULL,             -- JSON: DraftContent
+  topics TEXT NOT NULL DEFAULT '[]', -- JSON: string[]
+  settings TEXT,                     -- JSON: DraftSettings
+  last_saved_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_drafts_user ON newsletter_drafts(user_email);
+```
+
+#### writer_personas (Phase 8)
+
+Custom writer personas for newsletter generation.
+
+```sql
+CREATE TABLE IF NOT EXISTS writer_personas (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT,
+  writing_style TEXT,                -- JSON: style preferences
+  expertise_areas TEXT,              -- JSON: string[]
+  sample_writing TEXT,               -- Example output
+  is_favorite INTEGER DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+```
+
+#### calendar_entries (Phase 8)
+
+Content planning calendar entries.
+
+```sql
+CREATE TABLE IF NOT EXISTS calendar_entries (
+  id TEXT PRIMARY KEY,
+  date TEXT NOT NULL,                -- YYYY-MM-DD
+  title TEXT NOT NULL,
+  description TEXT,
+  topics TEXT NOT NULL DEFAULT '[]', -- JSON: string[]
+  settings TEXT,                     -- JSON: saved generation settings
+  newsletter_id TEXT,                -- Link to generated newsletter
+  status TEXT DEFAULT 'planned',     -- 'planned' | 'generated' | 'sent'
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_calendar_date ON calendar_entries(date);
+CREATE INDEX IF NOT EXISTS idx_calendar_status ON calendar_entries(status);
 ```
 
 ### 8.3 Row-Level Security (RLS)
