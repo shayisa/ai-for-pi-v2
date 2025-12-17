@@ -2,26 +2,47 @@
  * ToneAndVisualsPage
  *
  * Combined page for:
+ * - Step 0: Writer Persona (NEW - selectable persona cards)
  * - Step 1: Select Tone (radio buttons)
  * - Step 2: Stylistic Flavors (checkboxes, optional)
- * - Step 3: Image Aesthetic (radio buttons)
+ * - Step 3: Image Aesthetic (radio buttons with thumbnail previews)
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { ImageIcon } from '../components/IconComponents';
+import { ImageIcon, PlusIcon } from '../components/IconComponents';
+import { PersonaCard } from '../components/PersonaCard';
+import { Spinner } from '../components/Spinner';
 import { fadeInUp, staggerContainer, staggerItem } from '../utils/animations';
+import type { WriterPersona } from '../types';
 
 interface ToneAndVisualsPageProps {
+    // Tone props
     selectedTone: string;
     setSelectedTone: (tone: string) => void;
     toneOptions: Record<string, { label: string; description: string; sampleOutput: string }>;
+    // Flavor props
     selectedFlavors: Record<string, boolean>;
     handleFlavorChange: (key: string) => void;
     flavorOptions: Record<string, { label: string; description: string }>;
+    // Image style props
     selectedImageStyle: string;
     setSelectedImageStyle: (style: string) => void;
     imageStyleOptions: Record<string, { label: string; description: string }>;
+    // Persona props (NEW)
+    personas?: WriterPersona[];
+    activePersona?: WriterPersona | null;
+    onSetActivePersona?: (id: string | null) => Promise<void>;
+    onToggleFavorite?: (id: string) => Promise<void>;
+    onOpenPersonaEditor?: () => void;
+    onEditPersona?: (persona: WriterPersona) => void;
+    isPersonasLoading?: boolean;
+    // Thumbnail props (NEW)
+    thumbnails?: Record<string, string>;
+    isThumbnailsLoading?: boolean;
+    isGeneratingThumbnails?: boolean;
+    generatingStyles?: string[];
+    thumbnailProgress?: { current: number; total: number } | null;
 }
 
 export const ToneAndVisualsPage: React.FC<ToneAndVisualsPageProps> = ({
@@ -34,7 +55,28 @@ export const ToneAndVisualsPage: React.FC<ToneAndVisualsPageProps> = ({
     selectedImageStyle,
     setSelectedImageStyle,
     imageStyleOptions,
+    // Persona props
+    personas = [],
+    activePersona = null,
+    onSetActivePersona,
+    onToggleFavorite,
+    onOpenPersonaEditor,
+    onEditPersona,
+    isPersonasLoading = false,
+    // Thumbnail props
+    thumbnails = {},
+    isThumbnailsLoading = false,
+    isGeneratingThumbnails = false,
+    generatingStyles = [],
+    thumbnailProgress = null,
 }) => {
+    // Sort personas: favorites first, then defaults, then alphabetically
+    const sortedPersonas = [...personas].sort((a, b) => {
+        if (a.isFavorite !== b.isFavorite) return b.isFavorite ? 1 : -1;
+        if (a.isDefault !== b.isDefault) return b.isDefault ? 1 : -1;
+        return a.name.localeCompare(b.name);
+    });
+
     return (
         <motion.div
             variants={fadeInUp}
@@ -51,6 +93,77 @@ export const ToneAndVisualsPage: React.FC<ToneAndVisualsPageProps> = ({
                     Set the voice, style, and visual aesthetic of your newsletter
                 </p>
             </header>
+
+            {/* Section 0: Writer Persona (NEW) */}
+            {personas.length > 0 && (
+                <section className="bg-paper border border-border-subtle p-8">
+                    <div className="flex items-baseline justify-between mb-4">
+                        <div className="flex items-baseline gap-3">
+                            <span className="text-overline text-slate uppercase tracking-widest font-sans">Step 0</span>
+                            <h2 className="font-display text-h3 text-ink">Writer Persona</h2>
+                        </div>
+                        {onOpenPersonaEditor && (
+                            <button
+                                onClick={onOpenPersonaEditor}
+                                className="font-sans text-ui text-editorial-red hover:text-ink transition-colors flex items-center gap-1"
+                            >
+                                <PlusIcon className="h-4 w-4" />
+                                Create New
+                            </button>
+                        )}
+                    </div>
+                    <p className="font-sans text-ui text-slate mb-6">
+                        Choose a writing voice that shapes the entire newsletter's personality
+                    </p>
+
+                    {isPersonasLoading ? (
+                        <div className="flex items-center justify-center py-8">
+                            <Spinner />
+                            <span className="ml-2 text-slate">Loading personas...</span>
+                        </div>
+                    ) : (
+                        <motion.div
+                            variants={staggerContainer}
+                            initial="hidden"
+                            animate="visible"
+                            className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4"
+                        >
+                            {sortedPersonas.map((persona) => (
+                                <motion.div key={persona.id} variants={staggerItem}>
+                                    <PersonaCard
+                                        persona={persona}
+                                        isActive={activePersona?.id === persona.id}
+                                        onSelect={() => onSetActivePersona?.(persona.id)}
+                                        onToggleFavorite={() => onToggleFavorite?.(persona.id)}
+                                        onEdit={!persona.isDefault && onEditPersona ? () => onEditPersona(persona) : undefined}
+                                    />
+                                </motion.div>
+                            ))}
+                        </motion.div>
+                    )}
+
+                    {/* Active persona info */}
+                    {activePersona && (
+                        <motion.div
+                            initial={{ opacity: 0, y: -10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            className="mt-6 p-4 bg-pearl border-l-4 border-editorial-red"
+                        >
+                            <p className="font-sans text-ui">
+                                <span className="font-semibold">Active:</span> {activePersona.name}
+                                {activePersona.tagline && (
+                                    <span className="text-slate italic ml-2">— "{activePersona.tagline}"</span>
+                                )}
+                            </p>
+                            {activePersona.writingStyle && (
+                                <p className="font-sans text-caption text-slate mt-1">
+                                    Style: {activePersona.writingStyle}
+                                </p>
+                            )}
+                        </motion.div>
+                    )}
+                </section>
+            )}
 
             {/* Section 1: Select Tone */}
             <section className="bg-paper border border-border-subtle p-8">
@@ -151,7 +264,7 @@ export const ToneAndVisualsPage: React.FC<ToneAndVisualsPageProps> = ({
                 </motion.div>
             </section>
 
-            {/* Section 3: Image Aesthetic */}
+            {/* Section 3: Image Aesthetic (with thumbnails) */}
             <section className="bg-paper border border-border-subtle p-8">
                 <div className="flex items-baseline gap-3 mb-4">
                     <span className="text-overline text-slate uppercase tracking-widest font-sans">Step 3</span>
@@ -167,35 +280,83 @@ export const ToneAndVisualsPage: React.FC<ToneAndVisualsPageProps> = ({
                     animate="visible"
                     className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4"
                 >
-                    {Object.entries(imageStyleOptions).map(([key, { label, description }]) => (
-                        <motion.div key={key} variants={staggerItem}>
-                            <input
-                                type="radio"
-                                id={`style-${key}`}
-                                name="style"
-                                value={key}
-                                checked={selectedImageStyle === key}
-                                onChange={() => setSelectedImageStyle(key)}
-                                className="sr-only peer"
-                            />
-                            <label
-                                htmlFor={`style-${key}`}
-                                className={`
-                                    flex flex-col items-center text-center p-6 cursor-pointer transition-all duration-200
-                                    border ${selectedImageStyle === key
-                                        ? 'border-ink bg-ink text-paper'
-                                        : 'border-border-subtle bg-paper hover:bg-pearl text-ink'}
-                                `}
-                            >
-                                <ImageIcon className={`h-10 w-10 mb-3 ${selectedImageStyle === key ? 'text-silver' : 'text-slate'}`} />
-                                <span className="font-sans text-ui font-medium block mb-1">{label}</span>
-                                <p className={`font-sans text-caption ${selectedImageStyle === key ? 'text-silver' : 'text-slate'}`}>
-                                    {description}
-                                </p>
-                            </label>
-                        </motion.div>
-                    ))}
+                    {Object.entries(imageStyleOptions).map(([key, { label, description }]) => {
+                        const thumbnail = thumbnails[key];
+                        const isGenerating = generatingStyles.includes(key);
+
+                        return (
+                            <motion.div key={key} variants={staggerItem}>
+                                <input
+                                    type="radio"
+                                    id={`style-${key}`}
+                                    name="style"
+                                    value={key}
+                                    checked={selectedImageStyle === key}
+                                    onChange={() => setSelectedImageStyle(key)}
+                                    className="sr-only peer"
+                                />
+                                <label
+                                    htmlFor={`style-${key}`}
+                                    className={`
+                                        flex flex-col items-center text-center p-4 cursor-pointer transition-all duration-200
+                                        border ${selectedImageStyle === key
+                                            ? 'border-ink bg-ink text-paper'
+                                            : 'border-border-subtle bg-paper hover:bg-pearl text-ink'}
+                                    `}
+                                >
+                                    {/* Thumbnail Preview */}
+                                    <div className={`aspect-square w-full mb-3 overflow-hidden flex items-center justify-center ${
+                                        selectedImageStyle === key ? 'bg-charcoal/30' : 'bg-pearl'
+                                    }`}>
+                                        {thumbnail ? (
+                                            <img
+                                                src={`data:image/png;base64,${thumbnail}`}
+                                                alt={`${label} style preview`}
+                                                className="w-full h-full object-cover"
+                                            />
+                                        ) : isGenerating ? (
+                                            <div className="flex flex-col items-center justify-center">
+                                                <Spinner />
+                                                <span className={`text-caption mt-2 ${
+                                                    selectedImageStyle === key ? 'text-silver' : 'text-slate'
+                                                }`}>
+                                                    Generating...
+                                                </span>
+                                            </div>
+                                        ) : (
+                                            <ImageIcon className={`h-10 w-10 ${
+                                                selectedImageStyle === key ? 'text-silver' : 'text-slate'
+                                            }`} />
+                                        )}
+                                    </div>
+
+                                    <span className="font-sans text-ui font-medium block mb-1">{label}</span>
+                                    <p className={`font-sans text-caption ${
+                                        selectedImageStyle === key ? 'text-silver' : 'text-slate'
+                                    }`}>
+                                        {description}
+                                    </p>
+                                </label>
+                            </motion.div>
+                        );
+                    })}
                 </motion.div>
+
+                {/* Thumbnail Generation Progress */}
+                {thumbnailProgress && isGeneratingThumbnails && (
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        className="mt-6 text-center"
+                    >
+                        <div className="inline-flex items-center gap-2 px-4 py-2 bg-pearl border border-border-subtle">
+                            <Spinner />
+                            <p className="font-sans text-caption text-slate">
+                                Generating style thumbnails: {thumbnailProgress.current}/{thumbnailProgress.total}
+                            </p>
+                        </div>
+                    </motion.div>
+                )}
             </section>
         </motion.div>
     );
