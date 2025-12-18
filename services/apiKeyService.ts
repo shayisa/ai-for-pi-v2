@@ -3,6 +3,8 @@
  * Handles API key management via local backend endpoints
  */
 
+import { apiRequest } from './apiHelper.ts';
+
 // Supported service types for API keys
 export type ServiceType = 'claude' | 'stability' | 'brave' | 'google_api_key' | 'google_client_id';
 
@@ -17,7 +19,27 @@ export interface StoredApiKey {
   lastValidated: string | null;
 }
 
-const API_BASE = 'http://localhost:3001';
+// Response types from backend
+interface SaveApiKeyResponse {
+  success: boolean;
+  record: {
+    service: ServiceType;
+    isValid: boolean;
+  };
+}
+
+interface DeleteApiKeyResponse {
+  success: boolean;
+  message: string;
+}
+
+interface ListApiKeysResponse {
+  statuses: StoredApiKey[];
+}
+
+interface ValidateApiKeyResponse {
+  isValid: boolean;
+}
 
 /**
  * Save API key to backend
@@ -28,11 +50,8 @@ export const saveApiKey = async (credentials: ApiKeyCredentials, userEmail: stri
   }
 
   try {
-    const response = await fetch(`${API_BASE}/api/keys`, {
+    const result = await apiRequest<SaveApiKeyResponse>('/api/keys', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
       body: JSON.stringify({
         userEmail,
         service: credentials.service,
@@ -40,14 +59,8 @@ export const saveApiKey = async (credentials: ApiKeyCredentials, userEmail: stri
       })
     });
 
-    if (!response.ok) {
-      const error = await response.text();
-      console.error('Error saving API key:', error);
-      return false;
-    }
-
     console.log(`API key for ${credentials.service} saved successfully`);
-    return true;
+    return result.success;
   } catch (error) {
     console.error('Error in saveApiKey:', error);
     throw error;
@@ -80,18 +93,13 @@ export const deleteApiKey = async (service: ServiceType, userEmail: string): Pro
   }
 
   try {
-    const response = await fetch(`${API_BASE}/api/keys/${service}?userEmail=${encodeURIComponent(userEmail)}`, {
-      method: 'DELETE',
-    });
-
-    if (!response.ok) {
-      const error = await response.text();
-      console.error('Error deleting API key:', error);
-      return false;
-    }
+    const result = await apiRequest<DeleteApiKeyResponse>(
+      `/api/keys/${service}?userEmail=${encodeURIComponent(userEmail)}`,
+      { method: 'DELETE' }
+    );
 
     console.log(`API key for ${service} deleted successfully`);
-    return true;
+    return result.success;
   } catch (error) {
     console.error('Error in deleteApiKey:', error);
     throw error;
@@ -124,20 +132,10 @@ export const listApiKeyStatuses = async (userEmail: string): Promise<StoredApiKe
   }
 
   try {
-    const response = await fetch(`${API_BASE}/api/keys?userEmail=${encodeURIComponent(userEmail)}`, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-      }
-    });
-
-    if (!response.ok) {
-      console.error('Error retrieving API key statuses: HTTP', response.status);
-      return [];
-    }
-
-    const data = await response.json();
-    return data.statuses || [];
+    const result = await apiRequest<ListApiKeysResponse>(
+      `/api/keys?userEmail=${encodeURIComponent(userEmail)}`
+    );
+    return result.statuses || [];
   } catch (error) {
     console.error('Error listing API key statuses:', error);
     return [];
@@ -153,21 +151,14 @@ export const validateApiKey = async (service: ServiceType, userEmail: string): P
   }
 
   try {
-    const response = await fetch(`${API_BASE}/api/keys/${service}/validate`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ userEmail })
-    });
-
-    if (!response.ok) {
-      console.error('Error validating API key: HTTP', response.status);
-      return false;
-    }
-
-    const data = await response.json();
-    return data.isValid || false;
+    const result = await apiRequest<ValidateApiKeyResponse>(
+      `/api/keys/${service}/validate`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ userEmail })
+      }
+    );
+    return result.isValid || false;
   } catch (error) {
     console.error('Error in validateApiKey:', error);
     throw error;

@@ -3,7 +3,7 @@
  * Frontend API client for auto-saving and restoring newsletter drafts
  */
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+import { apiRequest, API_BASE } from './apiHelper.ts';
 
 // Types matching backend
 export interface DraftContent {
@@ -36,22 +36,28 @@ export interface NewsletterDraft {
 
 /**
  * Get draft for current user
+ *
+ * Returns null if no draft exists (200 response with { draft: null }).
+ * Backend returns 200 for both "draft exists" and "no draft" cases
+ * since checking for a draft is a valid query, not an error case.
+ *
+ * Usage in App.tsx:
+ *   const draft = await getDraft(userEmail);
+ *   if (draft) { showRecoveryPrompt(); }
  */
 export const getDraft = async (userEmail: string): Promise<NewsletterDraft | null> => {
   const response = await fetch(
     `${API_BASE}/api/drafts/${encodeURIComponent(userEmail)}`
   );
 
-  if (response.status === 404) {
-    return null;
-  }
-
   if (!response.ok) {
     const error = await response.json();
-    throw new Error(error.error || 'Failed to fetch draft');
+    throw new Error(error.error?.message || error.error || 'Failed to fetch draft');
   }
 
-  return response.json();
+  const json = await response.json();
+  // Backend returns { data: { draft: <draft_or_null> } }
+  return json.data?.draft ?? null;
 };
 
 /**
@@ -63,18 +69,10 @@ export const saveDraft = async (
   topics: string[],
   settings: DraftSettings
 ): Promise<NewsletterDraft> => {
-  const response = await fetch(`${API_BASE}/api/drafts`, {
+  return apiRequest<NewsletterDraft>('/api/drafts', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ userEmail, content, topics, settings }),
   });
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to save draft');
-  }
-
-  return response.json();
 };
 
 /**
@@ -83,31 +81,11 @@ export const saveDraft = async (
 export const deleteDraft = async (
   userEmail: string
 ): Promise<{ success: boolean; message: string }> => {
-  const response = await fetch(
-    `${API_BASE}/api/drafts/${encodeURIComponent(userEmail)}`,
+  return apiRequest<{ success: boolean; message: string }>(
+    `/api/drafts/${encodeURIComponent(userEmail)}`,
     { method: 'DELETE' }
   );
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to delete draft');
-  }
-
-  return response.json();
 };
 
-/**
- * Check if draft exists
- */
-export const hasDraft = async (userEmail: string): Promise<boolean> => {
-  const response = await fetch(
-    `${API_BASE}/api/drafts/${encodeURIComponent(userEmail)}/exists`
-  );
-
-  if (!response.ok) {
-    return false;
-  }
-
-  const result = await response.json();
-  return result.exists;
-};
+// NOTE: hasDraft() function removed in Phase 7b (dead code - never called from frontend)
+// Backend still has GET /api/drafts/:userEmail/exists endpoint if needed in future

@@ -4,8 +4,7 @@
  */
 
 import type { WriterPersona, PersonaStats } from '../types.ts';
-
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+import { apiRequest } from './apiHelper.ts';
 
 // ======================
 // PERSONA API
@@ -15,42 +14,23 @@ const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
  * Get all personas (defaults + custom)
  */
 export const getAllPersonas = async (): Promise<WriterPersona[]> => {
-  const response = await fetch(`${API_BASE}/api/personas`);
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to fetch personas');
-  }
-
-  return response.json();
+  // API returns array directly in data field
+  return apiRequest<WriterPersona[]>('/api/personas');
 };
 
 /**
  * Get the currently active persona (or null if none)
  */
 export const getActivePersona = async (): Promise<WriterPersona | null> => {
-  const response = await fetch(`${API_BASE}/api/personas/active`);
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to fetch active persona');
-  }
-
-  return response.json();
+  // API returns persona directly in data field (or null)
+  return apiRequest<WriterPersona | null>('/api/personas/active');
 };
 
 /**
  * Get a persona by ID
  */
 export const getPersonaById = async (id: string): Promise<WriterPersona> => {
-  const response = await fetch(`${API_BASE}/api/personas/${encodeURIComponent(id)}`);
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to fetch persona');
-  }
-
-  return response.json();
+  return apiRequest<WriterPersona>(`/api/personas/${encodeURIComponent(id)}`);
 };
 
 /**
@@ -65,18 +45,10 @@ export const createPersona = async (persona: {
   signatureElements?: string[];
   sampleWriting?: string;
 }): Promise<WriterPersona> => {
-  const response = await fetch(`${API_BASE}/api/personas`, {
+  return apiRequest<WriterPersona>('/api/personas', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(persona)
   });
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to create persona');
-  }
-
-  return response.json();
 };
 
 /**
@@ -94,34 +66,19 @@ export const updatePersona = async (
     sampleWriting: string;
   }>
 ): Promise<WriterPersona> => {
-  const response = await fetch(`${API_BASE}/api/personas/${encodeURIComponent(id)}`, {
+  return apiRequest<WriterPersona>(`/api/personas/${encodeURIComponent(id)}`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(updates)
   });
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to update persona');
-  }
-
-  return response.json();
 };
 
 /**
  * Delete a custom persona (defaults cannot be deleted)
  */
 export const deletePersona = async (id: string): Promise<{ success: boolean }> => {
-  const response = await fetch(`${API_BASE}/api/personas/${encodeURIComponent(id)}`, {
+  return apiRequest<{ success: boolean }>(`/api/personas/${encodeURIComponent(id)}`, {
     method: 'DELETE'
   });
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to delete persona');
-  }
-
-  return response.json();
 };
 
 /**
@@ -129,44 +86,42 @@ export const deletePersona = async (id: string): Promise<{ success: boolean }> =
  */
 export const setActivePersona = async (id: string | null): Promise<{ success: boolean; activePersonaId: string | null }> => {
   const personaId = id || 'none';
-  const response = await fetch(`${API_BASE}/api/personas/${encodeURIComponent(personaId)}/activate`, {
-    method: 'POST'
-  });
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to activate persona');
-  }
-
-  return response.json();
+  return apiRequest<{ success: boolean; activePersonaId: string | null }>(
+    `/api/personas/${encodeURIComponent(personaId)}/activate`,
+    { method: 'POST' }
+  );
 };
 
 /**
  * Get persona statistics
  */
 export const getPersonaStats = async (): Promise<PersonaStats> => {
-  const response = await fetch(`${API_BASE}/api/personas/stats`);
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to fetch persona stats');
-  }
-
-  return response.json();
+  return apiRequest<PersonaStats>('/api/personas/stats');
 };
 
 /**
  * Toggle persona favorite status
  */
 export const togglePersonaFavorite = async (id: string): Promise<WriterPersona> => {
-  const response = await fetch(`${API_BASE}/api/personas/${encodeURIComponent(id)}/favorite`, {
+  return apiRequest<WriterPersona>(`/api/personas/${encodeURIComponent(id)}/favorite`, {
     method: 'POST'
   });
+};
 
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to toggle persona favorite');
-  }
+// ======================
+// PERSONA PREVIEW (Phase 12.0)
+// ======================
 
-  return response.json();
+/**
+ * Generate a short preview paragraph in a persona's voice
+ * Used for A/B persona comparison feature
+ */
+export const generatePersonaPreview = async (
+  personaId: string,
+  sampleTopic: string
+): Promise<{ preview: string; personaName: string }> => {
+  return apiRequest<{ preview: string; personaName: string }>('/api/generatePersonaPreview', {
+    method: 'POST',
+    body: JSON.stringify({ personaId, sampleTopic }),
+  });
 };

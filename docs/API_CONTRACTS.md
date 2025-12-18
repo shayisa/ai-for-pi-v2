@@ -2,6 +2,79 @@
 
 > **Purpose**: Define request/response schemas for all API endpoints to prevent breaking changes
 
+## Standardized Response Format
+
+All API endpoints return responses in a standardized wrapper format for consistent handling.
+
+### Success Response Structure
+
+```typescript
+interface ApiResponse<T> {
+  success: true;
+  data: T;                        // Generic data payload
+  correlationId: string;          // Request tracking ID (uuid)
+  timestamp: string;              // ISO 8601 timestamp
+  meta?: {                        // Optional metadata
+    duration?: number;            // Request duration in ms
+    pagination?: PaginationMeta;
+    rateLimit?: RateLimitMeta;
+  };
+}
+```
+
+### Error Response Structure
+
+```typescript
+interface ApiErrorResponse {
+  success: false;
+  error: {
+    code: string;                 // e.g., "VALIDATION_ERROR"
+    message: string;              // Human-readable message
+    details?: Record<string, unknown>;
+  };
+  correlationId: string;
+  timestamp: string;
+}
+```
+
+### Standard Error Codes
+
+| Code | HTTP Status | Use Case |
+|------|-------------|----------|
+| `VALIDATION_ERROR` | 400 | Invalid input |
+| `INVALID_INPUT` | 400 | Malformed request |
+| `MISSING_FIELD` | 400 | Required field missing |
+| `UNAUTHORIZED` | 401 | Not authenticated |
+| `MISSING_API_KEY` | 401 | API key not configured |
+| `INVALID_API_KEY` | 401 | API key invalid |
+| `MISSING_OAUTH_TOKEN` | 401 | OAuth token required |
+| `TOKEN_EXPIRED` | 401 | OAuth token expired |
+| `FORBIDDEN` | 403 | Insufficient permissions |
+| `NOT_FOUND` | 404 | Resource not found |
+| `CONFLICT` | 409 | Duplicate resource |
+| `RATE_LIMITED` | 429 | Too many requests |
+| `INTERNAL_ERROR` | 500 | Server error |
+| `DATABASE_ERROR` | 500 | Database operation failed |
+| `EXTERNAL_SERVICE_ERROR` | 500 | External API failed |
+| `SERVICE_UNAVAILABLE` | 503 | Service temporarily unavailable |
+
+### Frontend Response Handling
+
+Frontend services use `apiRequest()` from `apiHelper.ts` which automatically:
+1. Unwraps the `data` field from success responses
+2. Extracts error messages from error responses
+3. Handles both wrapped and legacy (unwrapped) formats for backward compatibility
+
+```typescript
+import { apiRequest } from './apiHelper';
+
+// Returns unwrapped data directly
+const newsletters = await apiRequest<{ newsletters: Newsletter[] }>('/api/newsletters');
+// newsletters = { newsletters: [...] }  // data field unwrapped
+```
+
+---
+
 ## Backend Endpoints
 
 ### POST /api/generateNewsletter

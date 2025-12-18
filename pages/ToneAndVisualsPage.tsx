@@ -1,75 +1,74 @@
 /**
  * ToneAndVisualsPage
  *
+ * Phase 6g.4: Migrated from props to contexts
+ *
  * Combined page for:
- * - Step 0: Writer Persona (NEW - selectable persona cards)
+ * - Step 0: Writer Persona (selectable persona cards)
  * - Step 1: Select Tone (radio buttons)
  * - Step 2: Stylistic Flavors (checkboxes, optional)
  * - Step 3: Image Aesthetic (radio buttons with thumbnail previews)
+ *
+ * State sources:
+ * - Tone/Flavor/ImageStyle: NewsletterContext (useNewsletterSettings)
+ * - Personas: usePersonas hook
+ * - Thumbnails: useStyleThumbnails hook
+ * - Modal actions: UIContext (useModals)
  */
 
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { ImageIcon, PlusIcon } from '../components/IconComponents';
+import { ImageIcon, PlusIcon, SparklesIcon } from '../components/IconComponents';
 import { PersonaCard } from '../components/PersonaCard';
+import { PersonaABPreview } from '../components/PersonaABPreview';
 import { Spinner } from '../components/Spinner';
 import { fadeInUp, staggerContainer, staggerItem } from '../utils/animations';
-import type { WriterPersona } from '../types';
+import { useNewsletterSettings, useModals } from '../contexts';
+import { usePersonas } from '../hooks/usePersonas';
+import { useStyleThumbnails } from '../hooks/useStyleThumbnails';
+import { useSelectedTopics } from '../contexts';
 
-interface ToneAndVisualsPageProps {
-    // Tone props
-    selectedTone: string;
-    setSelectedTone: (tone: string) => void;
-    toneOptions: Record<string, { label: string; description: string; sampleOutput: string }>;
-    // Flavor props
-    selectedFlavors: Record<string, boolean>;
-    handleFlavorChange: (key: string) => void;
-    flavorOptions: Record<string, { label: string; description: string }>;
-    // Image style props
-    selectedImageStyle: string;
-    setSelectedImageStyle: (style: string) => void;
-    imageStyleOptions: Record<string, { label: string; description: string }>;
-    // Persona props (NEW)
-    personas?: WriterPersona[];
-    activePersona?: WriterPersona | null;
-    onSetActivePersona?: (id: string | null) => Promise<void>;
-    onToggleFavorite?: (id: string) => Promise<void>;
-    onOpenPersonaEditor?: () => void;
-    onEditPersona?: (persona: WriterPersona) => void;
-    isPersonasLoading?: boolean;
-    // Thumbnail props (NEW)
-    thumbnails?: Record<string, string>;
-    isThumbnailsLoading?: boolean;
-    isGeneratingThumbnails?: boolean;
-    generatingStyles?: string[];
-    thumbnailProgress?: { current: number; total: number } | null;
-}
+export const ToneAndVisualsPage: React.FC = () => {
+    // Get tone/flavor/imageStyle from NewsletterContext (Phase 6g.0)
+    const {
+        selectedTone,
+        setSelectedTone,
+        toneOptions,
+        selectedFlavors,
+        handleFlavorChange,
+        flavorOptions,
+        selectedImageStyle,
+        setSelectedImageStyle,
+        imageStyleOptions,
+    } = useNewsletterSettings();
 
-export const ToneAndVisualsPage: React.FC<ToneAndVisualsPageProps> = ({
-    selectedTone,
-    setSelectedTone,
-    toneOptions,
-    selectedFlavors,
-    handleFlavorChange,
-    flavorOptions,
-    selectedImageStyle,
-    setSelectedImageStyle,
-    imageStyleOptions,
-    // Persona props
-    personas = [],
-    activePersona = null,
-    onSetActivePersona,
-    onToggleFavorite,
-    onOpenPersonaEditor,
-    onEditPersona,
-    isPersonasLoading = false,
-    // Thumbnail props
-    thumbnails = {},
-    isThumbnailsLoading = false,
-    isGeneratingThumbnails = false,
-    generatingStyles = [],
-    thumbnailProgress = null,
-}) => {
+    // Get persona state from usePersonas hook
+    const {
+        personas,
+        activePersona,
+        isLoading: isPersonasLoading,
+        setActivePersona: onSetActivePersona,
+        toggleFavorite: onToggleFavorite,
+    } = usePersonas();
+
+    // Get thumbnail state from useStyleThumbnails hook
+    const {
+        thumbnails,
+        isLoading: isThumbnailsLoading,
+        isGenerating: isGeneratingThumbnails,
+        generatingStyles,
+        progress: thumbnailProgress,
+    } = useStyleThumbnails();
+
+    // Get modal actions from UIContext (Phase 6g.0)
+    const { openPersonaEditor } = useModals();
+
+    // Get selected topics for A/B preview (Phase 12.0)
+    const { topics: selectedTopics } = useSelectedTopics();
+
+    // Phase 12.0: A/B Persona Preview modal state
+    const [showABPreview, setShowABPreview] = useState(false);
+
     // Sort personas: favorites first, then defaults, then alphabetically
     const sortedPersonas = [...personas].sort((a, b) => {
         if (a.isFavorite !== b.isFavorite) return b.isFavorite ? 1 : -1;
@@ -102,15 +101,25 @@ export const ToneAndVisualsPage: React.FC<ToneAndVisualsPageProps> = ({
                             <span className="text-overline text-slate uppercase tracking-widest font-sans">Step 0</span>
                             <h2 className="font-display text-h3 text-ink">Writer Persona</h2>
                         </div>
-                        {onOpenPersonaEditor && (
+                        <div className="flex items-center gap-4">
+                            {/* Phase 12.0: A/B Persona Preview button */}
+                            {personas.length >= 2 && (
+                                <button
+                                    onClick={() => setShowABPreview(true)}
+                                    className="font-sans text-ui text-editorial-navy hover:text-ink transition-colors flex items-center gap-1"
+                                >
+                                    <SparklesIcon className="h-4 w-4" />
+                                    Compare Personas
+                                </button>
+                            )}
                             <button
-                                onClick={onOpenPersonaEditor}
+                                onClick={() => openPersonaEditor()}
                                 className="font-sans text-ui text-editorial-red hover:text-ink transition-colors flex items-center gap-1"
                             >
                                 <PlusIcon className="h-4 w-4" />
                                 Create New
                             </button>
-                        )}
+                        </div>
                     </div>
                     <p className="font-sans text-ui text-slate mb-6">
                         Choose a writing voice that shapes the entire newsletter's personality
@@ -133,9 +142,9 @@ export const ToneAndVisualsPage: React.FC<ToneAndVisualsPageProps> = ({
                                     <PersonaCard
                                         persona={persona}
                                         isActive={activePersona?.id === persona.id}
-                                        onSelect={() => onSetActivePersona?.(persona.id)}
-                                        onToggleFavorite={() => onToggleFavorite?.(persona.id)}
-                                        onEdit={!persona.isDefault && onEditPersona ? () => onEditPersona(persona) : undefined}
+                                        onSelect={() => onSetActivePersona(persona.id)}
+                                        onToggleFavorite={() => onToggleFavorite(persona.id)}
+                                        onEdit={!persona.isDefault ? () => openPersonaEditor(persona) : undefined}
                                     />
                                 </motion.div>
                             ))}
@@ -205,6 +214,12 @@ export const ToneAndVisualsPage: React.FC<ToneAndVisualsPageProps> = ({
                                 <p className={`font-sans text-caption ${selectedTone === key ? 'text-silver' : 'text-slate'}`}>
                                     {description}
                                 </p>
+                                {/* Phase 12.0: Inline sample output preview */}
+                                <div className={`mt-2 pt-2 border-t ${selectedTone === key ? 'border-silver/30' : 'border-border-subtle'}`}>
+                                    <p className={`font-serif text-caption italic ${selectedTone === key ? 'text-silver' : 'text-slate'}`}>
+                                        "{sampleOutput}"
+                                    </p>
+                                </div>
                             </label>
                             {/* Tooltip */}
                             <div className="absolute left-full ml-4 top-1/2 -translate-y-1/2 z-20 w-72 p-4 bg-ink text-paper shadow-editorial-modal opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 pointer-events-none">
@@ -358,6 +373,18 @@ export const ToneAndVisualsPage: React.FC<ToneAndVisualsPageProps> = ({
                     </motion.div>
                 )}
             </section>
+
+            {/* Phase 12.0: A/B Persona Preview Modal */}
+            <PersonaABPreview
+                personas={personas}
+                currentTopic={selectedTopics[0] || 'AI tools for productivity'}
+                isOpen={showABPreview}
+                onClose={() => setShowABPreview(false)}
+                onSelectPersona={(persona) => {
+                    onSetActivePersona(persona.id);
+                    setShowABPreview(false);
+                }}
+            />
         </motion.div>
     );
 };

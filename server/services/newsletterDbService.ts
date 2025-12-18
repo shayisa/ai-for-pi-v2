@@ -471,6 +471,48 @@ export const getEnhancedNewsletterById = (id: string): EnhancedNewsletter | null
 };
 
 /**
+ * Phase 9c: Get newsletters that used a specific saved prompt
+ * Uses SQLite json_extract to search the prompt_of_day JSON for savedPromptId
+ */
+export const getNewslettersBySavedPromptId = (promptId: string): NewsletterWithFormat[] => {
+  const stmt = db.prepare(`
+    SELECT id, created_at, subject, introduction, conclusion, sections, prompt_of_day,
+           topics, audience, tone, image_style,
+           editors_note, tool_of_day, audience_sections, format_version
+    FROM newsletters
+    WHERE json_extract(prompt_of_day, '$.savedPromptId') = ?
+    ORDER BY created_at DESC
+    LIMIT 50
+  `);
+
+  const rows = stmt.all(promptId) as DbNewsletterRowExtended[];
+
+  return rows.map((row): NewsletterWithFormat => {
+    const isV2 = row.format_version === 'v2' && row.audience_sections;
+
+    if (isV2) {
+      return {
+        formatVersion: 'v2',
+        newsletter: rowToEnhancedNewsletter(row),
+        id: row.id,
+        createdAt: row.created_at,
+        subject: row.subject,
+        topics: JSON.parse(row.topics),
+      };
+    }
+
+    return {
+      formatVersion: 'v1',
+      newsletter: rowToNewsletter(row),
+      id: row.id,
+      createdAt: row.created_at,
+      subject: row.subject,
+      topics: JSON.parse(row.topics),
+    };
+  });
+};
+
+/**
  * Get a newsletter by ID with format detection
  */
 export const getNewsletterByIdWithFormat = (id: string): NewsletterWithFormat | null => {

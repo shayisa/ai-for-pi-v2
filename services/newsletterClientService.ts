@@ -5,8 +5,7 @@
  */
 
 import type { EnhancedNewsletter } from '../types';
-
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+import { apiRequest } from './apiHelper.ts';
 
 // Types
 export interface NewsletterSection {
@@ -81,76 +80,40 @@ export const saveNewsletter = async (
   topics: string[],
   settings?: NewsletterSettings
 ): Promise<Newsletter> => {
-  const response = await fetch(`${API_BASE}/api/newsletters`, {
+  return apiRequest<Newsletter>('/api/newsletters', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ newsletter, topics, settings })
   });
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to save newsletter');
-  }
-
-  return response.json();
 };
 
 /**
  * Get all newsletters (newest first)
  */
 export const getNewsletters = async (limit = 50): Promise<NewsletterListResponse> => {
-  const response = await fetch(`${API_BASE}/api/newsletters?limit=${limit}`);
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to fetch newsletters');
-  }
-
-  return response.json();
+  return apiRequest<NewsletterListResponse>(`/api/newsletters?limit=${limit}`);
 };
 
 /**
  * Get a single newsletter by ID with format detection
  */
 export const getNewsletterById = async (id: string): Promise<NewsletterWithFormat> => {
-  const response = await fetch(`${API_BASE}/api/newsletters/${id}`);
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to fetch newsletter');
-  }
-
-  return response.json();
+  return apiRequest<NewsletterWithFormat>(`/api/newsletters/${id}`);
 };
 
 /**
  * Get an enhanced newsletter by ID (v2 format only)
  */
 export const getEnhancedNewsletterById = async (id: string): Promise<EnhancedNewsletter> => {
-  const response = await fetch(`${API_BASE}/api/newsletters/${id}/enhanced`);
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to fetch enhanced newsletter');
-  }
-
-  return response.json();
+  return apiRequest<EnhancedNewsletter>(`/api/newsletters/${id}/enhanced`);
 };
 
 /**
  * Delete a newsletter
  */
 export const deleteNewsletter = async (id: string): Promise<{ success: boolean; message: string }> => {
-  const response = await fetch(`${API_BASE}/api/newsletters/${id}`, {
+  return apiRequest<{ success: boolean; message: string }>(`/api/newsletters/${id}`, {
     method: 'DELETE'
   });
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to delete newsletter');
-  }
-
-  return response.json();
 };
 
 /**
@@ -162,18 +125,13 @@ export const updateNewsletterSections = async (
   audienceSections?: unknown[],
   formatVersion?: 'v1' | 'v2'
 ): Promise<{ success: boolean; message: string }> => {
-  const response = await fetch(`${API_BASE}/api/newsletters/${newsletterId}/sections`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ sections, audienceSections, formatVersion })
-  });
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to update newsletter sections');
-  }
-
-  return response.json();
+  return apiRequest<{ success: boolean; message: string }>(
+    `/api/newsletters/${newsletterId}/sections`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify({ sections, audienceSections, formatVersion })
+    }
+  );
 };
 
 /**
@@ -184,30 +142,26 @@ export const logAction = async (
   action: 'created' | 'saved_to_drive' | 'sent_email',
   details?: Record<string, unknown>
 ): Promise<{ success: boolean; message: string }> => {
-  const response = await fetch(`${API_BASE}/api/newsletters/${newsletterId}/log`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action, details })
-  });
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to log action');
-  }
-
-  return response.json();
+  return apiRequest<{ success: boolean; message: string }>(
+    `/api/newsletters/${newsletterId}/log`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ action, details })
+    }
+  );
 };
 
 /**
  * Get logs for a newsletter
  */
 export const getNewsletterLogs = async (newsletterId: string): Promise<{ logs: NewsletterLog[] }> => {
-  const response = await fetch(`${API_BASE}/api/newsletters/${newsletterId}/logs`);
+  return apiRequest<{ logs: NewsletterLog[] }>(`/api/newsletters/${newsletterId}/logs`);
+};
 
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to fetch logs');
-  }
-
-  return response.json();
+/**
+ * Phase 9c: Get newsletters that used a specific saved prompt
+ * Uses the savedPromptId stored in prompt_of_day JSON
+ */
+export const getNewslettersBySavedPromptId = async (promptId: string): Promise<NewsletterListResponse> => {
+  return apiRequest<NewsletterListResponse>(`/api/newsletters/by-prompt/${encodeURIComponent(promptId)}`);
 };

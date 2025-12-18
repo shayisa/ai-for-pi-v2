@@ -1,13 +1,30 @@
-import React, { useState } from 'react';
+/**
+ * DiscoverTopicsPage
+ *
+ * Phase 6g.6: Migrated from props to contexts/hooks
+ *
+ * State sources:
+ * - Topics: TopicsContext (useSelectedTopics, useTopics)
+ * - Trending: TopicsContext (useTrendingContent)
+ * - Audience: TopicsContext (useAudienceSelection)
+ * - Loading/Error: UIContext (useLoading, useError)
+ *
+ * Remaining props (API call handlers and multi-state handlers):
+ * - handleGenerateSuggestions: API call handler (Claude topic suggestions)
+ * - fetchTrendingContent: API call handler (trending + compelling content)
+ * - onLoadFromArchive: Multi-state handler (modifies topics, audience, content)
+ */
+
+import React, { useState, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import type { TrendingTopic } from '../types';
-import { InspirationSources } from '../components/InspirationSources';
-import { InspirationSourcesPanel, TrendingSource } from '../components/InspirationSourcesPanel';
+import { InspirationSourcesPanel } from '../components/InspirationSourcesPanel';
 import { Spinner } from '../components/Spinner';
-import { PlusIcon, RefreshIcon, SearchIcon, LightbulbIcon, XIcon, HistoryIcon } from '../components/IconComponents';
+import { PlusIcon, RefreshIcon, SearchIcon, LightbulbIcon, XIcon, HistoryIcon, SettingsIcon } from '../components/IconComponents';
 import { ArchiveBrowser } from '../components/ArchiveBrowser';
 import type { ArchiveContent } from '../services/archiveClientService';
 import { fadeInUp, staggerContainer, staggerItem } from '../utils/animations';
+import { useSelectedTopics, useTrendingContent, useAudienceSelection, useTopics } from '../contexts';
+import { useLoading, useError, useModals, useCustomAudiences } from '../contexts';
 
 interface ActionableCapability {
     title: string;
@@ -32,54 +49,53 @@ interface CompellingContent {
 }
 
 interface DiscoverTopicsPageProps {
-    trendingContent: TrendingTopic[] | null;
-    compellingContent: CompellingContent | null;
-    isFetchingTrending: boolean;
-    selectedTopics: string[];
-    customTopic: string;
-    setCustomTopic: (topic: string) => void;
-    handleAddTopic: () => void;
-    handleRemoveTopic: (index: number) => void;
-    suggestedTopics: string[];
-    handleSelectSuggestedTopic: (suggestion: string) => void;
+    // API call handlers that must remain as props
     handleGenerateSuggestions: () => Promise<void>;
-    isGeneratingTopics: boolean;
-    handleAddTrendingTopic: (topic: string) => void;
-    hasSelectedAudience: boolean;
-    loading: string | null;
-    error: { message: string; onRetry?: () => void; } | null;
     fetchTrendingContent: () => Promise<void>;
-    audienceOptions: Record<string, { label: string; description: string }>;
-    selectedAudience: Record<string, boolean>;
-    handleAudienceChange: (key: string) => void;
-    trendingSources: TrendingSource[];
+    // Multi-state handler
     onLoadFromArchive: (content: ArchiveContent, audience: string[]) => void;
 }
 
 export const DiscoverTopicsPage: React.FC<DiscoverTopicsPageProps> = ({
-    trendingContent,
-    compellingContent,
-    isFetchingTrending,
-    selectedTopics,
-    customTopic,
-    setCustomTopic,
-    handleAddTopic,
-    handleRemoveTopic,
-    suggestedTopics,
-    handleSelectSuggestedTopic,
     handleGenerateSuggestions,
-    isGeneratingTopics,
-    handleAddTrendingTopic,
-    hasSelectedAudience,
-    loading,
-    error,
     fetchTrendingContent,
-    audienceOptions,
-    selectedAudience,
-    handleAudienceChange,
-    trendingSources,
     onLoadFromArchive,
 }) => {
+    // Topics state from TopicsContext
+    const { topics: selectedTopics, customTopic, setCustomTopic, addTopic, removeTopic } = useSelectedTopics();
+    const { suggestedTopics, selectSuggestedTopic, isGeneratingTopics } = useTopics();
+
+    // Trending content from TopicsContext
+    const {
+        trendingContent,
+        compellingContent,
+        trendingSources,
+        isFetchingTrending,
+        addTrendingTopic,
+    } = useTrendingContent();
+
+    // Audience selection from TopicsContext
+    const { selectedAudience, audienceOptions, handleAudienceChange, hasSelectedAudience } = useAudienceSelection();
+
+    // Loading/error from UIContext
+    const { loading } = useLoading();
+    const { error } = useError();
+
+    // Phase 12.1: Modal actions and custom audiences for Manage Audiences button
+    const { openAudienceEditor } = useModals();
+    const { customAudiences } = useCustomAudiences();
+
+    // Local wrapper for addTopic to use customTopic
+    const handleAddTopic = useCallback(() => {
+        if (customTopic.trim()) {
+            addTopic(customTopic);
+        }
+    }, [customTopic, addTopic]);
+
+    // Aliases for props API compatibility
+    const handleRemoveTopic = removeTopic;
+    const handleSelectSuggestedTopic = selectSuggestedTopic;
+    const handleAddTrendingTopic = addTrendingTopic;
     const isActionLoading = !!loading || isGeneratingTopics;
     const [isArchiveBrowserOpen, setIsArchiveBrowserOpen] = useState(false);
 
@@ -102,9 +118,24 @@ export const DiscoverTopicsPage: React.FC<DiscoverTopicsPageProps> = ({
 
             {/* Section 1: Audience Selection */}
             <section className="bg-paper border border-border-subtle p-8">
-                <div className="flex items-baseline gap-3 mb-4">
-                    <span className="text-overline text-slate uppercase tracking-widest font-sans">Step 1</span>
-                    <h2 className="font-display text-h3 text-ink">Select Target Audience</h2>
+                <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-baseline gap-3">
+                        <span className="text-overline text-slate uppercase tracking-widest font-sans">Step 1</span>
+                        <h2 className="font-display text-h3 text-ink">Select Target Audience</h2>
+                    </div>
+                    {/* Phase 12.1: Manage Audiences button - opens AudienceConfigEditor modal */}
+                    <button
+                        onClick={openAudienceEditor}
+                        className="flex items-center gap-2 font-sans text-ui text-editorial-red hover:text-ink transition-colors"
+                    >
+                        <SettingsIcon className="h-4 w-4" />
+                        <span>Manage Audiences</span>
+                        {customAudiences.length > 0 && (
+                            <span className="ml-1 px-1.5 py-0.5 bg-editorial-red/10 text-editorial-red text-xs font-medium rounded">
+                                {customAudiences.length}
+                            </span>
+                        )}
+                    </button>
                 </div>
                 <p className="font-sans text-ui text-slate mb-6">
                     Choose your audience to tailor content recommendations

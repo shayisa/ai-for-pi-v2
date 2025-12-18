@@ -3,7 +3,7 @@
  * Frontend API client for managing newsletter templates via SQLite backend
  */
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+import { apiRequest } from './apiHelper.ts';
 
 // Types
 export interface TemplateSection {
@@ -45,28 +45,14 @@ export interface TemplateListResponse {
  * Get all templates (newest first)
  */
 export const getTemplates = async (limit = 50): Promise<TemplateListResponse> => {
-  const response = await fetch(`${API_BASE}/api/templates?limit=${limit}`);
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to fetch templates');
-  }
-
-  return response.json();
+  return apiRequest<TemplateListResponse>(`/api/templates?limit=${limit}`);
 };
 
 /**
  * Get template by ID
  */
 export const getTemplateById = async (id: string): Promise<NewsletterTemplate> => {
-  const response = await fetch(`${API_BASE}/api/templates/${encodeURIComponent(id)}`);
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to fetch template');
-  }
-
-  return response.json();
+  return apiRequest<NewsletterTemplate>(`/api/templates/${encodeURIComponent(id)}`);
 };
 
 /**
@@ -78,18 +64,10 @@ export const createTemplate = async (
   structure: TemplateStructure,
   defaultSettings?: TemplateSettings
 ): Promise<NewsletterTemplate> => {
-  const response = await fetch(`${API_BASE}/api/templates`, {
+  return apiRequest<NewsletterTemplate>('/api/templates', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, description, structure, defaultSettings }),
   });
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to create template');
-  }
-
-  return response.json();
 };
 
 /**
@@ -106,18 +84,10 @@ export const createTemplateFromNewsletter = async (
   },
   settings?: TemplateSettings
 ): Promise<NewsletterTemplate> => {
-  const response = await fetch(`${API_BASE}/api/templates/from-newsletter`, {
+  return apiRequest<NewsletterTemplate>('/api/templates/from-newsletter', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, description, newsletter, settings }),
   });
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to create template from newsletter');
-  }
-
-  return response.json();
 };
 
 /**
@@ -132,32 +102,17 @@ export const updateTemplate = async (
     defaultSettings: TemplateSettings;
   }>
 ): Promise<NewsletterTemplate> => {
-  const response = await fetch(`${API_BASE}/api/templates/${encodeURIComponent(id)}`, {
+  return apiRequest<NewsletterTemplate>(`/api/templates/${encodeURIComponent(id)}`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(updates),
   });
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to update template');
-  }
-
-  return response.json();
 };
 
 /**
  * Delete a template
  */
 export const deleteTemplate = async (id: string): Promise<{ success: boolean; message: string }> => {
-  const response = await fetch(`${API_BASE}/api/templates/${encodeURIComponent(id)}`, {
+  return apiRequest<{ success: boolean; message: string }>(`/api/templates/${encodeURIComponent(id)}`, {
     method: 'DELETE',
   });
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to delete template');
-  }
-
-  return response.json();
 };

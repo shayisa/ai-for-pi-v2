@@ -2,20 +2,27 @@
 
 > **Comprehensive technical documentation** for understanding, maintaining, and extending the AI Newsletter Generator application.
 
-**Last Updated:** December 2024
-**Version:** 2.0 (Refactored)
+**Last Updated:** December 2024 (Phase 7 Complete)
+**Version:** 3.0 (Control Plane Architecture)
 **Status:** Production-ready MVP
 
-## What's New in v2
+## What's New in v3 (Control Plane Architecture)
 
+| Improvement | Before (v2) | After (v3) |
+|-------------|-------------|------------|
+| **Backend** | Monolithic server.ts (3,828 lines) | Modular Control Plane (255 lines entry) |
+| **Database** | Supabase (cloud) | SQLite (local, self-contained) |
+| **Routes** | Inline in server.ts | 16 modular route files (98 endpoints) |
+| **Services** | Mixed in server.ts | Domain services in `/server/domains/` |
+| **State Mgmt** | Props drilling (68 useState) | 6 React Contexts + hooks |
+| **API Format** | Inconsistent | Standardized `{ success, data }` wrapper |
+
+### Previous v2 Improvements (retained)
 | Improvement | Before | After |
 |-------------|--------|-------|
 | **Token Cost** | ~12,000 tokens/newsletter | <5,000 tokens (65% reduction) |
-| **State Management** | 30+ variables in App.tsx | Modular hooks in `/hooks/` |
-| **Mock Data** | 200+ lines fake data | Real data only with graceful fallbacks |
 | **Testing** | None | 24 unit tests with Vitest |
 | **Error Handling** | Ad-hoc | Error boundaries + typed errors |
-| **Progress UI** | Simple gauge | Stage-based progress with indicators |
 
 ---
 
@@ -48,42 +55,49 @@
 │                         FRONTEND (React + Vite)                              │
 │                            Port 5173                                         │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│  App.tsx ──► Pages ──► Components                                           │
+│  contexts/ ──► App.tsx ──► Pages ──► Components                             │
 │      │                                                                       │
-│      ├── services/claudeService.ts ────────────────┐                        │
-│      ├── services/googleApiService.ts ─────────────┼──► Google APIs         │
-│      ├── services/apiKeyService.ts ────────────────┼──► Supabase Edge Fn    │
-│      ├── services/trendingDataService.ts ──────────┤                        │
-│      └── lib/supabase.ts ──────────────────────────┘                        │
+│      ├── AuthContext, UIContext, NewsletterContext (6 total)                │
+│      ├── services/*ClientService.ts ──────────────┐                         │
+│      ├── services/googleApiService.ts ────────────┼──► Google APIs          │
+│      └── services/trendingDataService.ts ─────────┘                         │
 └─────────────────────────────────────────────────────────────────────────────┘
                                       │
-                    ┌─────────────────┴─────────────────┐
-                    ▼                                   ▼
-┌───────────────────────────────────┐   ┌─────────────────────────────────────┐
-│      BACKEND (Express.js)         │   │     SUPABASE EDGE FUNCTIONS         │
-│          Port 3001                │   │         (Deno Runtime)              │
-├───────────────────────────────────┤   ├─────────────────────────────────────┤
-│  server.ts                        │   │  save-api-key/                      │
-│    ├── /api/generateNewsletter    │   │  validate-api-key/                  │
-│    ├── /api/generateImage         │   │  get-api-key-statuses/              │
-│    ├── /api/generateTopicSugg...  │   │  setup-supabase-auth/               │
-│    ├── /api/generateTrending...   │   │  claude-api/ (proxy)                │
-│    ├── /api/fetchTrendingSources  │   │  gemini-api/ (proxy)                │
-│    └── /api/health                │   │                                     │
-└───────────────────────────────────┘   └─────────────────────────────────────┘
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                   BACKEND (Express.js + Control Plane)                       │
+│                              Port 3001                                       │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  server.ts (255 lines - entry point only)                                   │
+│      │                                                                       │
+│      └── /api/* ──► server/routes/ (16 route files, 98 endpoints)           │
+│                         │                                                    │
+│                         ├── generation.routes.ts (11) ──► domains/generation│
+│                         ├── newsletter.routes.ts (8)  ──► services/*DbSvc   │
+│                         ├── subscriber.routes.ts (14) ──► services/*DbSvc   │
+│                         ├── calendar.routes.ts (9)    ──► services/*DbSvc   │
+│                         ├── persona.routes.ts (9)     ──► services/*DbSvc   │
+│                         ├── template.routes.ts (7)    ──► services/*DbSvc   │
+│                         └── (10 more route files...)                        │
+│                                                                              │
+│  server/control-plane/                                                       │
+│      ├── invocation/contextManager.ts (correlation IDs)                     │
+│      ├── feedback/logger.ts (structured logging)                            │
+│      └── validators/schemas/*.ts (Zod validation)                           │
+└─────────────────────────────────────────────────────────────────────────────┘
                     │                                   │
                     ▼                                   ▼
 ┌───────────────────────────────────┐   ┌─────────────────────────────────────┐
-│        EXTERNAL APIs              │   │     SUPABASE DATABASE               │
-├───────────────────────────────────┤   │        (PostgreSQL)                 │
+│        EXTERNAL APIs              │   │         SQLite DATABASE             │
+├───────────────────────────────────┤   │        (Local, self-contained)      │
 │  • Anthropic Claude API           │   ├─────────────────────────────────────┤
-│  • Stability AI API               │   │  Tables:                            │
-│  • Brave Search API               │   │    • api_keys (encrypted)           │
-│  • Google Workspace APIs          │   │    • api_key_audit_log              │
-│    - Drive, Sheets, Gmail, Docs   │   │                                     │
-│  • Trending Sources (free):       │   │  Security:                          │
-│    - HackerNews, ArXiv, GitHub    │   │    • Row-Level Security (RLS)       │
-│    - Reddit, Dev.to               │   │    • pgcrypto encryption            │
+│  • Stability AI API               │   │  Tables (7):                        │
+│  • Brave Search API               │   │    • newsletters, archives          │
+│  • Google Workspace APIs          │   │    • subscribers, lists             │
+│    - Drive, Sheets, Gmail         │   │    • api_keys, newsletter_logs      │
+│  • Trending Sources (free):       │   │    • newsletter_drafts              │
+│    - HackerNews, ArXiv, GitHub    │   │                                     │
+│    - Reddit, Dev.to               │   │  Features: WAL mode, proper indexes │
 └───────────────────────────────────┘   └─────────────────────────────────────┘
 ```
 
@@ -91,14 +105,14 @@
 
 | Layer | Technologies |
 |-------|-------------|
-| **Frontend** | React 19, TypeScript, Vite 7, TailwindCSS |
-| **Backend** | Node.js, Express 5, TypeScript |
-| **Database** | Supabase (PostgreSQL), pgcrypto |
-| **Edge Functions** | Supabase Functions (Deno) |
-| **AI Services** | Anthropic Claude 3.5 Sonnet, Stability AI |
+| **Frontend** | React 19, TypeScript, Vite 7, TailwindCSS, Framer Motion |
+| **State Mgmt** | 6 React Contexts (Auth, UI, Newsletter, Topics, Presets, Settings) |
+| **Backend** | Node.js, Express 5, TypeScript, Control Plane Architecture |
+| **Database** | SQLite with better-sqlite3 (local, self-contained) |
+| **AI Services** | Anthropic Claude Sonnet 4, Stability AI |
 | **Search** | Brave Search API |
-| **Cloud** | Google Drive, Sheets, Gmail, Docs APIs |
-| **Auth** | Google OAuth 2.0, Supabase Auth |
+| **Cloud** | Google Drive, Sheets, Gmail APIs |
+| **Auth** | Google OAuth 2.0 (backend-managed tokens) |
 
 ### 1.3 Application Purpose
 
@@ -116,101 +130,92 @@ The AI Newsletter Generator automates the creation and distribution of AI-powere
 
 ## 2. File Dependency Graph
 
-### 2.1 Project Structure
+### 2.1 Project Structure (v3 Control Plane)
 
 ```
 /
-├── App.tsx                          # Main React app - orchestrates pages
-├── server.ts                        # Express backend - API endpoints
+├── App.tsx                          # Main React app (provider wrapper)
+├── server.ts                        # Express entry point (255 lines)
 ├── types.ts                         # TypeScript interfaces
-├── vite.config.ts                   # Vite + Vitest configuration
-├── tsconfig.json                    # TypeScript configuration
-├── package.json                     # Dependencies & scripts
 ├── .env.local                       # Environment variables (not committed)
 │
-├── hooks/                           # Custom React hooks (v2 NEW)
-│   ├── index.ts                     # Hook exports
-│   ├── useNewsletterGeneration.ts   # Newsletter state, generate, edit
-│   ├── useTopicSelection.ts         # Topics, suggestions, trending
-│   ├── useGoogleWorkspace.ts        # OAuth, Drive, Sheets, Gmail
-│   ├── usePresets.ts                # Preset save/load/delete
-│   ├── useHistory.ts                # Generation history management
-│   └── __tests__/                   # Hook unit tests (v2 NEW)
-│       ├── useNewsletterGeneration.test.ts
-│       ├── usePresets.test.ts
-│       └── useHistory.test.ts
+├── contexts/                        # React Contexts (v3 NEW)
+│   ├── AuthContext.tsx              # Google OAuth state
+│   ├── UIContext.tsx                # UI state (modals, navigation)
+│   ├── NewsletterContext.tsx        # Newsletter generation state
+│   ├── TopicsContext.tsx            # Topic selection state
+│   ├── PresetsContext.tsx           # Preset management
+│   ├── SettingsContext.tsx          # App settings
+│   └── AppProviders.tsx             # Provider composition
 │
-├── pages/                           # Page components (7 files)
-│   ├── AuthenticationPage.tsx       # Google OAuth login
-│   ├── DiscoverTopicsPage.tsx       # Topic selection & trending
-│   ├── DefineTonePage.tsx           # Tone & flavor selection
-│   ├── ImageStylePage.tsx           # Image style selection
+├── hooks/                           # Custom React hooks
+│   ├── useNewsletterGeneration.ts   # Newsletter generation logic
+│   ├── useSystemLogs.ts             # Log viewer state
+│   ├── usePersonas.ts               # Writer personas
+│   ├── useTemplates.ts              # Newsletter templates
+│   └── __tests__/                   # Hook unit tests
+│
+├── pages/                           # Page components (10 files)
 │   ├── GenerateNewsletterPage.tsx   # Main generation workflow
-│   ├── HistoryContentPage.tsx       # History browser
-│   └── SubscriberManagementPage.tsx # Subscriber CRUD
+│   ├── DiscoverTopicsPage.tsx       # Topic selection & trending
+│   ├── ToneAndVisualsPage.tsx       # Tone, flavor, image style
+│   ├── HistoryContentPage.tsx       # History & archives
+│   ├── SubscriberManagementPage.tsx # Subscribers & lists
+│   ├── ContentCalendarPage.tsx      # Content calendar (v3 NEW)
+│   └── LogsPage.tsx                 # System logs (v3 NEW)
 │
-├── components/                      # UI components (17 files)
-│   ├── Header.tsx                   # Top navigation
-│   ├── SideNavigation.tsx           # Page navigation
-│   ├── NewsletterPreview.tsx        # Newsletter display/edit
-│   ├── ImageEditorModal.tsx         # Image editing modal
-│   ├── SettingsModal.tsx            # Settings & API keys
-│   ├── PresetsManager.tsx           # Preset CRUD
-│   ├── HistoryPanel.tsx             # History list
-│   ├── PromptOfTheDayEditor.tsx     # Daily prompt editor
-│   ├── LoadFromDriveModal.tsx       # Load from Drive UI
-│   ├── InspirationSources.tsx       # Web sources display
-│   ├── InspirationSourcesPanel.tsx  # Sources panel
-│   ├── EditableText.tsx             # Inline editing
-│   ├── ProgressGauge.tsx            # Circular progress display
-│   ├── GenerationProgress.tsx       # Stage-based progress (v2 NEW)
-│   ├── Spinner.tsx                  # Loading indicator
-│   └── IconComponents.tsx           # 20+ SVG icons
+├── services/                        # Frontend API clients (v3 refactored)
+│   ├── apiHelper.ts                 # Canonical API request helper
+│   ├── claudeService.ts             # Generation API client
+│   ├── googleApiService.ts          # Google Workspace
+│   ├── *ClientService.ts            # 12 modular client services
+│   └── trendingDataService.ts       # External trending sources
 │
-├── src/
-│   ├── components/
-│   │   └── ErrorBoundary.tsx        # React error boundaries (v2 NEW)
-│   ├── types/
-│   │   └── apiContracts.ts          # Zod schemas & API types (v2 NEW)
-│   └── test/
-│       └── setup.ts                 # Vitest test setup (v2 NEW)
+├── server/                          # Backend (v3 Control Plane NEW)
+│   ├── routes/                      # 16 route files (98 endpoints)
+│   │   ├── index.ts                 # Route aggregator
+│   │   ├── generation.routes.ts     # 11 AI generation endpoints
+│   │   ├── newsletter.routes.ts     # 8 newsletter CRUD
+│   │   ├── subscriber.routes.ts     # 14 subscriber management
+│   │   ├── calendar.routes.ts       # 9 content calendar
+│   │   ├── persona.routes.ts        # 9 writer personas
+│   │   ├── template.routes.ts       # 7 newsletter templates
+│   │   └── (9 more route files...)
+│   │
+│   ├── domains/                     # Domain services
+│   │   └── generation/
+│   │       ├── services/            # 5 generation services
+│   │       ├── helpers/             # Audience, flavor, sanitizers
+│   │       └── sources/             # 5 trending source fetchers
+│   │
+│   ├── services/                    # Database services
+│   │   ├── *DbService.ts            # 12 SQLite service modules
+│   │   └── logCleanupService.ts     # Auto-cleanup scheduler
+│   │
+│   ├── external/                    # External API clients
+│   │   ├── claude/client.ts         # Anthropic Claude
+│   │   ├── stability/client.ts      # Stability AI
+│   │   └── brave/client.ts          # Brave Search
+│   │
+│   ├── control-plane/               # Control Plane modules
+│   │   ├── invocation/              # Request context, correlation IDs
+│   │   ├── feedback/                # Structured logging
+│   │   └── validators/schemas/      # Zod validation schemas
+│   │
+│   ├── cache/                       # Caching
+│   │   ├── trendingCache.ts         # 1-hour TTL
+│   │   └── searchCache.ts           # 15-minute TTL
+│   │
+│   └── db/
+│       └── init.ts                  # SQLite initialization
 │
-├── __mocks__/                       # Test mocks (v2 NEW)
-│   └── services.ts                  # Mock API services
-│
-├── services/                        # Service layer (6 files)
-│   ├── claudeService.ts             # Backend API client
-│   ├── geminiService.ts             # Gemini API (legacy)
-│   ├── googleApiService.ts          # Google Workspace integration
-│   ├── apiKeyService.ts             # Supabase key management
-│   ├── supabaseAuthHelper.ts        # Supabase auth setup
-│   └── trendingDataService.ts       # Trending data fetching
-│
-├── utils/                           # Utility functions (4 files)
-│   ├── emailGenerator.ts            # Newsletter → HTML
-│   ├── retry.ts                     # Retry with backoff
-│   ├── fileUtils.ts                 # File → Base64
-│   └── stringUtils.ts               # JSON extraction
-│
-├── lib/                             # Shared libraries
-│   └── supabase.ts                  # Supabase client config
-│
-├── docs/                            # Documentation (v2 NEW)
+├── docs/                            # Documentation
 │   ├── API_CONTRACTS.md             # Request/response schemas
-│   ├── ERROR_HANDLING.md            # Error types & recovery
-│   └── TESTING_STRATEGY.md          # Test approach
+│   ├── architecture/                # Architecture docs
+│   └── STATE_DEPENDENCIES.md        # State dependency graph
 │
-└── supabase/                        # Supabase configuration
-    ├── config.toml                  # Project config
-    ├── functions/                   # Edge Functions (6 functions)
-    │   ├── save-api-key/
-    │   ├── validate-api-key/
-    │   ├── get-api-key-statuses/
-    │   ├── setup-supabase-auth/
-    │   ├── claude-api/
-    │   └── gemini-api/
-    └── migrations/                  # Database schema
-        └── *.sql
+└── data/
+    └── newsletter.db                # SQLite database (7 tables)
 ```
 
 ### 2.2 Import Dependency Map
@@ -2719,58 +2724,16 @@ Edit optional daily prompt section.
 
 ## 8. Database Schema
 
-### 8.1 Tables
+> **Note (v3):** Supabase has been replaced with a local SQLite database for self-contained deployment.
+> All data is stored in `./data/newsletter.db` using better-sqlite3 with WAL mode.
 
-#### api_keys
+### 8.1 SQLite Database (Primary)
 
-Stores encrypted API keys per user per service.
+Local SQLite database for all application data.
 
-```sql
-CREATE TABLE api_keys (
-  id              BIGSERIAL PRIMARY KEY,
-  user_id         TEXT,                           -- Optional Supabase user ID
-  user_email      TEXT NOT NULL,                  -- Primary identifier
-  service         TEXT NOT NULL                   -- 'claude', 'gemini', 'stability'
-                  CHECK (service IN ('claude', 'gemini', 'stability')),
-  encrypted_key   TEXT NOT NULL,                  -- Encrypted with pgcrypto
-  key_valid       BOOLEAN DEFAULT false,          -- Last validation result
-  last_validated_at TIMESTAMP WITH TIME ZONE,     -- When last validated
-  created_at      TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at      TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-
-  UNIQUE(user_email, service)                     -- One key per service per user
-);
-
--- Indexes
-CREATE INDEX idx_api_keys_user_email ON api_keys(user_email);
-CREATE INDEX idx_api_keys_service ON api_keys(service);
-```
-
-#### api_key_audit_log
-
-Audit trail for all API key operations.
-
-```sql
-CREATE TABLE api_key_audit_log (
-  id              BIGSERIAL PRIMARY KEY,
-  user_id         TEXT,                           -- Optional Supabase user ID
-  user_email      TEXT NOT NULL,                  -- Who performed action
-  action          TEXT NOT NULL,                  -- 'created', 'updated', 'validated', 'deleted'
-  service         TEXT,                           -- Which service
-  ip_address      TEXT,                           -- Request IP
-  created_at      TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
--- Indexes
-CREATE INDEX idx_audit_log_user_email ON api_key_audit_log(user_email);
-CREATE INDEX idx_audit_log_created_at ON api_key_audit_log(created_at);
-```
-
-### 8.2 SQLite Local Database
-
-Local SQLite database for fast offline storage of newsletters, subscribers, and lists.
-
-**Location:** `./data/archives.db`
+**Location:** `./data/newsletter.db`
+**Tables:** 7 core tables + optional Phase 8 tables
+**Features:** WAL mode, proper indexes, automatic cleanup
 
 #### newsletters
 

@@ -3,7 +3,7 @@
  * Frontend API client for scheduled newsletter sends
  */
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+import { apiRequest } from './apiHelper.ts';
 
 // Types
 export type ScheduledSendStatus = 'pending' | 'sending' | 'sent' | 'failed' | 'cancelled';
@@ -40,42 +40,21 @@ export interface ScheduledSendListResponse {
  * Get all scheduled sends
  */
 export const getScheduledSends = async (): Promise<ScheduledSendListResponse> => {
-  const response = await fetch(`${API_BASE}/api/scheduler`);
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to fetch scheduled sends');
-  }
-
-  return response.json();
+  return apiRequest<ScheduledSendListResponse>('/api/scheduler');
 };
 
 /**
  * Get scheduler status
  */
 export const getSchedulerStatus = async (): Promise<SchedulerStatus> => {
-  const response = await fetch(`${API_BASE}/api/scheduler/status`);
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to fetch scheduler status');
-  }
-
-  return response.json();
+  return apiRequest<SchedulerStatus>('/api/scheduler/status');
 };
 
 /**
  * Get scheduled send by ID
  */
 export const getScheduledSendById = async (id: string): Promise<ScheduledSend> => {
-  const response = await fetch(`${API_BASE}/api/scheduler/${encodeURIComponent(id)}`);
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to fetch scheduled send');
-  }
-
-  return response.json();
+  return apiRequest<ScheduledSend>(`/api/scheduler/${encodeURIComponent(id)}`);
 };
 
 /**
@@ -84,16 +63,9 @@ export const getScheduledSendById = async (id: string): Promise<ScheduledSend> =
 export const getScheduledSendsForNewsletter = async (
   newsletterId: string
 ): Promise<ScheduledSendListResponse> => {
-  const response = await fetch(
-    `${API_BASE}/api/scheduler/newsletter/${encodeURIComponent(newsletterId)}`
+  return apiRequest<ScheduledSendListResponse>(
+    `/api/scheduler/newsletter/${encodeURIComponent(newsletterId)}`
   );
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to fetch scheduled sends');
-  }
-
-  return response.json();
 };
 
 /**
@@ -104,34 +76,20 @@ export const scheduleNewsletter = async (
   scheduledAt: string,
   recipientLists: string[]
 ): Promise<ScheduledSend> => {
-  const response = await fetch(`${API_BASE}/api/scheduler`, {
+  return apiRequest<ScheduledSend>('/api/scheduler', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ newsletterId, scheduledAt, recipientLists }),
   });
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to schedule newsletter');
-  }
-
-  return response.json();
 };
 
 /**
  * Cancel a scheduled send
  */
 export const cancelScheduledSend = async (id: string): Promise<ScheduledSend> => {
-  const response = await fetch(`${API_BASE}/api/scheduler/${encodeURIComponent(id)}/cancel`, {
-    method: 'POST',
-  });
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to cancel scheduled send');
-  }
-
-  return response.json();
+  return apiRequest<ScheduledSend>(
+    `/api/scheduler/${encodeURIComponent(id)}/cancel`,
+    { method: 'POST' }
+  );
 };
 
 /**
@@ -141,18 +99,13 @@ export const rescheduleNewsletter = async (
   id: string,
   newScheduledAt: string
 ): Promise<ScheduledSend> => {
-  const response = await fetch(`${API_BASE}/api/scheduler/${encodeURIComponent(id)}/reschedule`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ scheduledAt: newScheduledAt }),
-  });
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to reschedule send');
-  }
-
-  return response.json();
+  return apiRequest<ScheduledSend>(
+    `/api/scheduler/${encodeURIComponent(id)}/reschedule`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ scheduledAt: newScheduledAt }),
+    }
+  );
 };
 
 /**
@@ -161,16 +114,10 @@ export const rescheduleNewsletter = async (
 export const triggerSendNow = async (
   id: string
 ): Promise<{ success: boolean; sentCount: number; error?: string }> => {
-  const response = await fetch(`${API_BASE}/api/scheduler/${encodeURIComponent(id)}/send-now`, {
-    method: 'POST',
-  });
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to trigger send');
-  }
-
-  return response.json();
+  return apiRequest<{ success: boolean; sentCount: number; error?: string }>(
+    `/api/scheduler/${encodeURIComponent(id)}/send-now`,
+    { method: 'POST' }
+  );
 };
 
 /**
@@ -179,28 +126,15 @@ export const triggerSendNow = async (
 export const deleteScheduledSend = async (
   id: string
 ): Promise<{ success: boolean; message: string }> => {
-  const response = await fetch(`${API_BASE}/api/scheduler/${encodeURIComponent(id)}`, {
-    method: 'DELETE',
-  });
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to delete scheduled send');
-  }
-
-  return response.json();
+  return apiRequest<{ success: boolean; message: string }>(
+    `/api/scheduler/${encodeURIComponent(id)}`,
+    { method: 'DELETE' }
+  );
 };
 
 /**
  * Get upcoming scheduled sends
  */
 export const getUpcomingScheduledSends = async (days = 7): Promise<ScheduledSendListResponse> => {
-  const response = await fetch(`${API_BASE}/api/scheduler/upcoming?days=${days}`);
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to fetch upcoming sends');
-  }
-
-  return response.json();
+  return apiRequest<ScheduledSendListResponse>(`/api/scheduler/upcoming?days=${days}`);
 };

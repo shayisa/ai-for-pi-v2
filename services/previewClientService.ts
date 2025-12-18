@@ -3,7 +3,7 @@
  * Frontend API client for generating persona preview samples
  */
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+import { apiRequest } from './apiHelper.ts';
 
 export interface PersonaPreview {
   personaId: string;
@@ -26,16 +26,8 @@ export const getPersonaPreviews = async (
   personaIds: string[],
   tone: string
 ): Promise<PersonaPreviewsResponse> => {
-  const response = await fetch(`${API_BASE}/api/preview/personas`, {
+  return apiRequest<PersonaPreviewsResponse>('/api/preview/personas', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ topic, personaIds, tone }),
   });
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to generate persona previews');
-  }
-
-  return response.json();
 };

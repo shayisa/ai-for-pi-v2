@@ -3,7 +3,7 @@
  * Frontend API client for email tracking analytics
  */
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+import { apiRequest } from './apiHelper.ts';
 
 // Types
 export type TrackingType = 'open' | 'click';
@@ -46,16 +46,9 @@ export interface TrackingEventsResponse {
  * Get stats for a newsletter
  */
 export const getNewsletterStats = async (newsletterId: string): Promise<EmailStats> => {
-  const response = await fetch(
-    `${API_BASE}/api/newsletters/${encodeURIComponent(newsletterId)}/stats`
+  return apiRequest<EmailStats>(
+    `/api/newsletters/${encodeURIComponent(newsletterId)}/stats`
   );
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to fetch stats');
-  }
-
-  return response.json();
 };
 
 /**
@@ -66,16 +59,9 @@ export const getTrackingEvents = async (
   limit = 100,
   offset = 0
 ): Promise<TrackingEventsResponse> => {
-  const response = await fetch(
-    `${API_BASE}/api/newsletters/${encodeURIComponent(newsletterId)}/tracking?limit=${limit}&offset=${offset}`
+  return apiRequest<TrackingEventsResponse>(
+    `/api/newsletters/${encodeURIComponent(newsletterId)}/tracking?limit=${limit}&offset=${offset}`
   );
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to fetch tracking events');
-  }
-
-  return response.json();
 };
 
 /**
@@ -85,16 +71,9 @@ export const getTopLinks = async (
   newsletterId: string,
   limit = 10
 ): Promise<{ links: TopLink[] }> => {
-  const response = await fetch(
-    `${API_BASE}/api/newsletters/${encodeURIComponent(newsletterId)}/top-links?limit=${limit}`
+  return apiRequest<{ links: TopLink[] }>(
+    `/api/newsletters/${encodeURIComponent(newsletterId)}/top-links?limit=${limit}`
   );
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to fetch top links');
-  }
-
-  return response.json();
 };
 
 /**
@@ -104,19 +83,11 @@ export const setTrackingEnabled = async (
   newsletterId: string,
   enabled: boolean
 ): Promise<{ success: boolean; trackingEnabled: boolean }> => {
-  const response = await fetch(
-    `${API_BASE}/api/newsletters/${encodeURIComponent(newsletterId)}/tracking`,
+  return apiRequest<{ success: boolean; trackingEnabled: boolean }>(
+    `/api/newsletters/${encodeURIComponent(newsletterId)}/tracking`,
     {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ enabled }),
     }
   );
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to set tracking');
-  }
-
-  return response.json();
 };

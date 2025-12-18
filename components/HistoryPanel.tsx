@@ -95,10 +95,16 @@ export const HistoryPanel: React.FC<HistoryPanelProps> = ({ history, onLoad, onC
                                             {item.newsletter.promptOfTheDay && (
                                                 <span
                                                     className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] font-sans font-medium bg-editorial-red text-paper flex-shrink-0"
-                                                    title="Includes Prompt of the Day"
+                                                    title={item.newsletter.promptOfTheDay.title
+                                                        ? `Prompt: ${item.newsletter.promptOfTheDay.title}`
+                                                        : 'Includes Prompt of the Day'}
                                                 >
                                                     <CodeIcon className="h-3 w-3" />
-                                                    Prompt
+                                                    {item.newsletter.promptOfTheDay.title
+                                                        ? (item.newsletter.promptOfTheDay.title.length > 15
+                                                            ? `${item.newsletter.promptOfTheDay.title.substring(0, 15)}...`
+                                                            : item.newsletter.promptOfTheDay.title)
+                                                        : 'Prompt'}
                                                 </span>
                                             )}
                                         </div>

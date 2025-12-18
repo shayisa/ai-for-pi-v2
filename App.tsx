@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import type { Newsletter, NewsletterSection, TrendingTopic, GoogleSettings, GapiAuthData, Preset, EnhancedHistoryItem, PromptOfTheDay, Subscriber, SubscriberList, EnhancedNewsletter, EnhancedAudienceSection, AudienceConfig, WriterPersona } from './types';
+import { AppProviders, useNewsletter, useTopics, useAudienceSelection, useTrendingContent, useNavigation, useError, useModals, useAuth, useSettings } from './contexts';
 import { Header } from './components/Header';
 import { NewsletterPreview } from './components/NewsletterPreview';
 import { ImageEditorModal } from './components/ImageEditorModal';
@@ -40,6 +41,7 @@ import type { SavedPrompt } from './services/promptClientService';
 import * as newsletterApi from './services/newsletterClientService';
 import * as subscriberApi from './services/subscriberClientService';
 import * as enhancedNewsletterService from './services/enhancedNewsletterService';
+import * as audienceApi from './services/audienceClientService';
 import { isEnhancedNewsletter, convertEnhancedToLegacy } from './utils/newsletterFormatUtils';
 import { AudienceConfigEditor } from './components/AudienceConfigEditor';
 
@@ -114,40 +116,113 @@ type ErrorState = {
     onRetry?: () => void;
 };
 
-const App: React.FC = () => {
+/**
+ * AppContent - Main application content
+ *
+ * Phase 6a: Renamed from App to prepare for context architecture.
+ * State will gradually migrate to contexts in Phases 6a-6e.
+ */
+const AppContent: React.FC = () => {
     // Setup wizard state - check if Supabase is configured
     const [isSetupComplete, setIsSetupComplete] = useState<boolean | null>(null);
 
-    const [activePage, setActivePage] = useState<ActivePage>('authentication'); // Initial page - authentication first
-    const [selectedTopics, setSelectedTopics] = useState<string[]>(['Latest AI tools for data visualization']);
-    const [customTopic, setCustomTopic] = useState<string>('');
-    const [newsletter, setNewsletter] = useState<Newsletter | null>(null);
-    const [loading, setLoading] = useState<string | null>(null);
-    const [progress, setProgress] = useState<number>(0);
-    const [error, setError] = useState<ErrorState | null>(null);
-    const [editingImage, setEditingImage] = useState<{ index: number; src: string; mimeType: string; prompt: string; } | null>(null);
+    // Navigation state from UIContext (Phase 6g.9 Batch 2)
+    const { activePage, setActivePage } = useNavigation();
 
-    const [suggestedTopics, setSuggestedTopics] = useState<string[]>([]);
-    const [trendingContent, setTrendingContent] = useState<TrendingTopic[] | null>(null);
-    const [compellingContent, setCompellingContent] = useState<any>(null); // New: structured actionable insights
-    const [trendingSources, setTrendingSources] = useState<TrendingSource[]>([]);
-    const [isGeneratingTopics, setIsGeneratingTopics] = useState<boolean>(false);
-    const [isFetchingTrending, setIsFetchingTrending] = useState<boolean>(false);
+    // Error state from UIContext (Phase 6g.9 Batch 2)
+    const { error, setError } = useError();
 
-    const [selectedAudience, setSelectedAudience] = useState<Record<string, boolean>>({
-        academics: true,
-        business: true,
-        analysts: true,
-    });
-    
-    const [selectedTone, setSelectedTone] = useState<string>('professional');
-    const [selectedFlavors, setSelectedFlavors] = useState<Record<string, boolean>>({});
-    const [selectedImageStyle, setSelectedImageStyle] = useState<string>('photorealistic');
+    // Modal states from UIContext (Phase 6g.9 Batch 5)
+    const {
+        editingImage,
+        openImageEditor,
+        closeImageEditor,
+        isAudienceEditorOpen,
+        openAudienceEditor,
+        closeAudienceEditor,
+        isPersonaEditorOpen,
+        editingPersona,
+        openPersonaEditor,
+        closePersonaEditor,
+    } = useModals();
 
-    const [googleSettings, setGoogleSettings] = useState<GoogleSettings | null>(null);
-    const [authData, setAuthData] = useState<GapiAuthData | null>(null);
+    // Auth state from AuthContext (Phase 6g.9 Batch 3)
+    const { authData, setAuthData, isGoogleApiInitialized, setIsGoogleApiInitialized } = useAuth();
+
+    // Settings state from SettingsContext (Phase 6g.9 Batch 3)
+    const { googleSettings, saveSettings: setGoogleSettings } = useSettings();
+
+    // Topics state from TopicsContext (Phase 6g.9 Batch 1 - migrated from local state)
+    const {
+        selectedTopics,
+        setSelectedTopics,
+        customTopic,
+        setCustomTopic,
+        suggestedTopics,
+        setSuggestedTopics,
+        addTopic,
+        removeTopic,
+        selectSuggestedTopic,
+        addTrendingTopic,
+        isGeneratingTopics,
+        setIsGeneratingTopics,
+    } = useTopics();
+
+    // Audience selection from TopicsContext (Phase 6g.9 Batch 1)
+    const {
+        selectedAudience,
+        setSelectedAudience,
+        handleAudienceChange,
+        getAudienceKeys,
+    } = useAudienceSelection();
+
+    // Trending content from TopicsContext (Phase 6g.9 Batch 1 - combined with Batch 4)
+    const {
+        trendingContent,
+        setTrendingContent,
+        compellingContent,
+        setCompellingContent,
+        trendingSources,
+        setTrendingSources,
+        isFetchingTrending,
+        setIsFetchingTrending,
+    } = useTrendingContent();
+    // Newsletter state from context (Phase 6g.8 fix - must use context for GenerateNewsletterPage to work)
+    const {
+        newsletter,
+        setNewsletter,
+        enhancedNewsletter,
+        setEnhancedNewsletter,
+        useEnhancedFormat,
+        setUseEnhancedFormat,
+        promptOfTheDay,
+        setPromptOfTheDay,
+        loading,
+        setLoading,
+        progress,
+        setProgress,
+        customAudiences,
+        setCustomAudiences,
+        defaultAudiences,
+        // Tone, flavor, image style - Phase 6g.8.2 fix: use context instead of local state
+        selectedTone,
+        setSelectedTone,
+        selectedFlavors,
+        setSelectedFlavors,
+        selectedImageStyle,
+        setSelectedImageStyle,
+    } = useNewsletter();
+
+    // NOTE: error, setError, editingImage, setEditingImage moved to UIContext (Phase 6g.9 Batch 2+5)
+    // They are now imported from useError() and useModals() above
+    // NOTE: Topics, audience, and trending states moved to TopicsContext (Phase 6g.9 Batch 1)
+    // They are now imported from useTopics(), useAudienceSelection(), useTrendingContent() above
+    // NOTE: selectedTone, selectedFlavors, selectedImageStyle moved to NewsletterContext (Phase 6g.8.2)
+    // They are now imported from useNewsletter() above
+    // NOTE: authData, setAuthData, isGoogleApiInitialized moved to AuthContext (Phase 6g.9 Batch 3)
+    // NOTE: googleSettings moved to SettingsContext (Phase 6g.9 Batch 3)
+
     const [workflowStatus, setWorkflowStatus] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
-    const [isGoogleApiInitialized, setIsGoogleApiInitialized] = useState(false);
     const [workflowActions, setWorkflowActions] = useState<{ savedToDrive: boolean; sentEmail: boolean }>({ savedToDrive: false, sentEmail: false });
 
     const [isSettingsOpen, setIsSettingsOpen] = useState(false); // This will now control the modal for initial sign-in/out feedback
@@ -203,26 +278,23 @@ const App: React.FC = () => {
     // Template selection state
     const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
 
-    // Persona editor modal state
-    const [isPersonaEditorOpen, setIsPersonaEditorOpen] = useState(false);
-    const [editingPersona, setEditingPersona] = useState<WriterPersona | null>(null);
+    // NOTE: Persona editor modal state moved to UIContext (Phase 6g.9 Batch 5)
+    // isPersonaEditorOpen, editingPersona are now imported from useModals() above
 
     // Calendar entry linking state
     const [pendingCalendarEntryId, setPendingCalendarEntryId] = useState<string | null>(null);
+    const [pendingCalendarEntryTitle, setPendingCalendarEntryTitle] = useState<string | null>(null);
 
-    const [promptOfTheDay, setPromptOfTheDay] = useState<PromptOfTheDay | null>(null);
+    // promptOfTheDay now comes from useNewsletter context (removed duplicate useState)
 
     // Subscriber management state
     const [subscribers, setSubscribers] = useState<Subscriber[]>([]);
     const [subscriberLists, setSubscriberLists] = useState<SubscriberList[]>([]);
     const [selectedEmailLists, setSelectedEmailLists] = useState<string[]>([]);
 
-    // Enhanced newsletter v2 format state
-    const [useEnhancedFormat, setUseEnhancedFormat] = useState<boolean>(true); // Default to v2
-    const [enhancedNewsletter, setEnhancedNewsletter] = useState<EnhancedNewsletter | null>(null);
-    const [customAudiences, setCustomAudiences] = useState<AudienceConfig[]>([]);
-    const [defaultAudiences, setDefaultAudiences] = useState<AudienceConfig[]>([]);
-    const [isAudienceEditorOpen, setIsAudienceEditorOpen] = useState<boolean>(false);
+    // Enhanced newsletter v2 format state (useEnhancedFormat, enhancedNewsletter, customAudiences, defaultAudiences now from context)
+    // NOTE: isAudienceEditorOpen moved to UIContext (Phase 6g.9 Batch 5)
+    // It is now imported from useModals() above
 
     const handleSaveSettings = (settings: GoogleSettings) => {
         setGoogleSettings(settings);
@@ -240,6 +312,7 @@ const App: React.FC = () => {
                 selectedFlavors,
                 selectedImageStyle,
                 selectedTopics,
+                personaId: activePersona?.id, // Phase 12.0: Save persona with preset
             },
         };
         const updatedPresets = presets.filter(p => p.name !== name);
@@ -254,6 +327,10 @@ const App: React.FC = () => {
         setSelectedFlavors(preset.settings.selectedFlavors);
         setSelectedImageStyle(preset.settings.selectedImageStyle);
         setSelectedTopics(preset.settings.selectedTopics || []);
+        // Phase 12.0: Restore persona if saved in preset
+        if (preset.settings.personaId) {
+            setActivePersona(preset.settings.personaId);
+        }
         setActivePage('generateNewsletter'); // Navigate to generate page after loading preset
     };
 
@@ -378,6 +455,7 @@ const App: React.FC = () => {
                     await calendarApi.linkNewsletter(pendingCalendarEntryId, generatedNewsletter.id);
                     console.log(`[App] Linked newsletter to calendar entry: ${pendingCalendarEntryId}`);
                     setPendingCalendarEntryId(null); // Clear after linking
+                    setPendingCalendarEntryTitle(null); // Clear title indicator
                 } catch (linkErr) {
                     console.warn('[App] Failed to link newsletter to calendar:', linkErr);
                     // Non-critical - don't block the user
@@ -427,6 +505,7 @@ const App: React.FC = () => {
     // Handle starting generation from calendar entry (pre-populates settings)
     const handleStartFromCalendarEntry = useCallback((entry: CalendarEntry) => {
         setPendingCalendarEntryId(entry.id);
+        setPendingCalendarEntryTitle(entry.title);  // Store title for display in Generate page
         setSelectedTopics(entry.topics);
 
         // Apply saved settings if available
@@ -509,7 +588,8 @@ const App: React.FC = () => {
         });
     };
 
-    const getAudienceKeys = useCallback(() => Object.keys(selectedAudience).filter(key => selectedAudience[key]), [selectedAudience]);
+    // NOTE: getAudienceKeys moved to TopicsContext (Phase 6g.9 Batch 1)
+    // It is now imported from useAudienceSelection() above
     const getFlavorKeys = useCallback(() => Object.keys(selectedFlavors).filter(key => selectedFlavors[key]), [selectedFlavors]);
 
     // Refresh subscriber lists from SQLite
@@ -635,36 +715,15 @@ const App: React.FC = () => {
         console.log('[Archive] Content loaded successfully');
     }, [selectedAudience]);
 
-    const handleAudienceChange = (key: string) => {
-        setSelectedAudience(prev => ({ ...prev, [key]: !prev[key] }));
-    };
+    // NOTE: handleAudienceChange moved to TopicsContext (Phase 6g.9 Batch 1)
+    // It is now imported from useAudienceSelection() above
 
     const handleFlavorChange = (key: string) => {
         setSelectedFlavors(prev => ({ ...prev, [key]: !prev[key] }));
     };
-    
-    const handleAddTopic = () => {
-        if (customTopic.trim() && !selectedTopics.includes(customTopic.trim())) {
-            setSelectedTopics(prev => [...prev, customTopic.trim()]);
-            setCustomTopic('');
-        }
-    };
 
-    const handleRemoveTopic = (indexToRemove: number) => {
-        setSelectedTopics(prev => prev.filter((_, index) => index !== indexToRemove));
-    };
-
-    const handleSelectSuggestedTopic = (suggestion: string) => {
-        if (!selectedTopics.includes(suggestion)) {
-            setSelectedTopics(prev => [...prev, suggestion]);
-        }
-    };
-
-    const handleAddTrendingTopic = (topic: string) => {
-        if (topic.trim() && !selectedTopics.includes(topic.trim())) {
-            setSelectedTopics(prev => [...prev, topic.trim()]);
-        }
-    };
+    // NOTE: Topic handlers moved to TopicsContext (Phase 6g.9 Batch 1)
+    // addTopic, removeTopic, selectSuggestedTopic, addTrendingTopic are now imported from useTopics() above
 
     const handleGenerateSuggestions = useCallback(async () => {
         const audience = getAudienceKeys();
@@ -702,7 +761,8 @@ const App: React.FC = () => {
             console.log("Cleaned Topic Suggestions JSON string for parsing:", cleanedJsonString);
 
             const topics = JSON.parse(cleanedJsonString);
-            setSuggestedTopics(prev => [...new Set([...prev, ...topics])]);
+            // Merge with existing suggestions, removing duplicates
+            setSuggestedTopics([...new Set([...suggestedTopics, ...topics])]);
         } catch (e) {
             console.error("Failed to generate topic suggestions:", e);
             const errorMessage = e instanceof SyntaxError
@@ -712,7 +772,7 @@ const App: React.FC = () => {
         } finally {
             setIsGeneratingTopics(false);
         }
-    }, [getAudienceKeys, trendingSources]);
+    }, [getAudienceKeys, trendingSources, suggestedTopics, setSuggestedTopics, setIsGeneratingTopics, setTrendingSources]);
 
     const handleGenerateNewsletter = useCallback(async () => {
         const audience = getAudienceKeys();
@@ -735,7 +795,7 @@ const App: React.FC = () => {
         setWorkflowActions({ savedToDrive: false, sentEmail: false });
 
         try {
-            const result = await generateNewsletterContent(selectedTopics, audience, selectedTone, flavors, selectedImageStyle);
+            const result = await generateNewsletterContent(selectedTopics, audience, selectedTone, flavors, selectedImageStyle, activePersona?.id);
 
             const rawJsonString = result.text;
             console.log("Raw Newsletter Content JSON response:", rawJsonString);
@@ -882,6 +942,7 @@ const App: React.FC = () => {
                 audiences: selectedAudienceConfigs,
                 imageStyle: selectedImageStyle,
                 promptOfTheDay: promptOfTheDay, // Include user-supplied prompt if set
+                personaId: activePersona?.id,
             });
 
             setProgress(70);
@@ -1009,8 +1070,8 @@ const App: React.FC = () => {
             setNewsletter({ ...newsletter, sections: updatedSections });
         }
 
-        setEditingImage(null);
-    }, [editingImage, newsletter, useEnhancedFormat, enhancedNewsletter]);
+        closeImageEditor();
+    }, [editingImage, newsletter, useEnhancedFormat, enhancedNewsletter, closeImageEditor]);
 
 
     const handleReorderSections = (newSections: NewsletterSection[]) => {
@@ -1063,18 +1124,43 @@ const App: React.FC = () => {
     };
 
     // Handlers for custom audience management
-    const handleAddCustomAudience = (audience: AudienceConfig) => {
+    // Phase 12.0: Save to both localStorage (cache) and SQLite (persistence)
+    const handleAddCustomAudience = async (audience: AudienceConfig) => {
         const newAudiences = [...customAudiences, audience];
         setCustomAudiences(newAudiences);
         localStorage.setItem('customAudiences', JSON.stringify(newAudiences));
         console.log('[App] Added custom audience:', audience.name);
+
+        // Persist to SQLite
+        try {
+            await audienceApi.saveAudience({
+                id: audience.id,
+                name: audience.name,
+                description: audience.description || '',
+                generated: audience.generated,
+                isCustom: true,
+            });
+            console.log('[App] Saved custom audience to SQLite:', audience.name);
+        } catch (err) {
+            console.error('[App] Failed to save audience to SQLite:', err);
+            // Continue - localStorage will keep it cached
+        }
     };
 
-    const handleRemoveCustomAudience = (audienceId: string) => {
+    const handleRemoveCustomAudience = async (audienceId: string) => {
         const newAudiences = customAudiences.filter(a => a.id !== audienceId);
         setCustomAudiences(newAudiences);
         localStorage.setItem('customAudiences', JSON.stringify(newAudiences));
         console.log('[App] Removed custom audience:', audienceId);
+
+        // Remove from SQLite
+        try {
+            await audienceApi.deleteAudience(audienceId);
+            console.log('[App] Deleted custom audience from SQLite:', audienceId);
+        } catch (err) {
+            console.error('[App] Failed to delete audience from SQLite:', err);
+            // Continue - localStorage already removed it
+        }
     };
 
     const handleImageUpload = async (sectionIndex: number, file: File) => {
@@ -1327,29 +1413,7 @@ const App: React.FC = () => {
         handleAuthAndDraftRecovery();
     }, [authData?.access_token, authData?.email]);
 
-    // Load default audiences for enhanced newsletter format
-    useEffect(() => {
-        const loadDefaultAudiences = async () => {
-            try {
-                const response = await enhancedNewsletterService.getDefaultAudiences();
-                setDefaultAudiences(response.audiences);
-                console.log('[App] Loaded default audiences:', response.audiences.length);
-            } catch (err) {
-                console.warn('[App] Could not load default audiences:', err);
-            }
-        };
-        loadDefaultAudiences();
-
-        // Load custom audiences from localStorage
-        const storedCustomAudiences = localStorage.getItem('customAudiences');
-        if (storedCustomAudiences) {
-            try {
-                setCustomAudiences(JSON.parse(storedCustomAudiences));
-            } catch (err) {
-                console.warn('[App] Could not parse stored custom audiences');
-            }
-        }
-    }, []);
+    // Default and custom audiences loading now handled by NewsletterContext
 
     // Auto-save calendar entry settings when editing from calendar
     useEffect(() => {
@@ -1506,6 +1570,17 @@ const App: React.FC = () => {
                     }
                     break;
             }
+
+            // After successful save/send, delete the draft (Issue 1 fix)
+            if (authData?.email) {
+                try {
+                    await draftApi.deleteDraft(authData.email);
+                    console.log(`[App] Draft cleared after successful ${action} action`);
+                } catch (draftErr) {
+                    console.warn(`[App] Failed to clear draft after ${action}:`, draftErr);
+                }
+            }
+
             setWorkflowStatus({ message: resultMessage, type: 'success' });
         } catch (error) {
             console.error(`Error during ${action} action:`, error);
@@ -1546,138 +1621,56 @@ const App: React.FC = () => {
                 <SideNavigation activePage={activePage} setActivePage={setActivePage} />
                 <main className="flex-grow max-w-screen-xl mx-auto px-6 lg:px-12 py-8 overflow-y-auto">
 
+                    {/* Phase 6g.6: DiscoverTopicsPage now uses contexts/hooks (22 props → 3) */}
                     {activePage === 'discoverTopics' && (
                         <DiscoverTopicsPage
-                            trendingContent={trendingContent}
-                            compellingContent={compellingContent}
-                            isFetchingTrending={isFetchingTrending}
-                            selectedTopics={selectedTopics}
-                            customTopic={customTopic}
-                            setCustomTopic={setCustomTopic}
-                            handleAddTopic={handleAddTopic}
-                            handleRemoveTopic={handleRemoveTopic}
-                            suggestedTopics={suggestedTopics}
-                            handleSelectSuggestedTopic={handleSelectSuggestedTopic}
                             handleGenerateSuggestions={handleGenerateSuggestions}
-                            isGeneratingTopics={isGeneratingTopics}
-                            handleAddTrendingTopic={handleAddTrendingTopic}
-                            hasSelectedAudience={hasSelectedAudience}
-                            loading={loading}
-                            error={error}
                             fetchTrendingContent={fetchTrendingContent}
-                            audienceOptions={audienceOptions}
-                            selectedAudience={selectedAudience}
-                            handleAudienceChange={handleAudienceChange}
-                            trendingSources={trendingSources}
                             onLoadFromArchive={handleLoadFromArchive}
                         />
                     )}
 
+                    {/* Phase 6g.4: ToneAndVisualsPage now uses contexts directly (21 props → 0) */}
                     {activePage === 'toneAndVisuals' && (
-                        <ToneAndVisualsPage
-                            selectedTone={selectedTone}
-                            setSelectedTone={setSelectedTone}
-                            toneOptions={toneOptions}
-                            selectedFlavors={selectedFlavors}
-                            handleFlavorChange={handleFlavorChange}
-                            flavorOptions={flavorOptions}
-                            selectedImageStyle={selectedImageStyle}
-                            setSelectedImageStyle={setSelectedImageStyle}
-                            imageStyleOptions={imageStyleOptions}
-                            // Persona props
-                            personas={personas}
-                            activePersona={activePersona}
-                            onSetActivePersona={setActivePersona}
-                            onToggleFavorite={toggleFavorite}
-                            onOpenPersonaEditor={() => {
-                                setEditingPersona(null);
-                                setIsPersonaEditorOpen(true);
-                            }}
-                            onEditPersona={(persona) => {
-                                setEditingPersona(persona);
-                                setIsPersonaEditorOpen(true);
-                            }}
-                            isPersonasLoading={isPersonasLoading}
-                            // Thumbnail props
-                            thumbnails={thumbnails}
-                            isThumbnailsLoading={isThumbnailsLoading}
-                            isGeneratingThumbnails={isGeneratingThumbnails}
-                            generatingStyles={generatingStyles}
-                            thumbnailProgress={thumbnailProgress}
-                        />
+                        <ToneAndVisualsPage />
                     )}
                     
+                    {/* Phase 6g.7: GenerateNewsletterPage now uses contexts/hooks (49 props → 17) */}
                     {activePage === 'generateNewsletter' && (
                         <GenerateNewsletterPage
-                            selectedTopics={selectedTopics}
-                            selectedAudience={selectedAudience}
-                            selectedTone={selectedTone}
-                            selectedFlavors={selectedFlavors}
-                            selectedImageStyle={selectedImageStyle}
-                            audienceOptions={audienceOptions}
-                            toneOptions={toneOptions}
-                            flavorOptions={flavorOptions}
-                            imageStyleOptions={imageStyleOptions}
-                            newsletter={newsletter}
-                            onEditImage={(index, src, prompt) => setEditingImage({ index, src, mimeType: 'image/png', prompt })}
+                            // Newsletter editing handlers
+                            onEditImage={(index, src, prompt) => openImageEditor(index, src, 'image/png', prompt)}
                             onImageUpload={handleImageUpload}
                             onReorderSections={handleReorderSections}
                             onUpdate={handleNewsletterUpdate}
-                            // Using the derived `isActionLoading` state
-                            isLoading={isActionLoading}
+                            onEnhancedUpdate={handleEnhancedNewsletterUpdate}
+                            // Generation and workflow
                             handleGenerateNewsletter={handleGenerate}
-                            loading={loading}
-                            progress={progress}
-                            error={error}
-                            hasSelectedAudience={hasSelectedAudience}
-                            presets={presets}
-                            onSavePreset={handleSavePreset}
-                            onLoadPreset={handleLoadPreset}
-                            onDeletePreset={handleDeletePreset}
-                            onSyncToCloud={handleSyncPresetsToCloud}
-                            onLoadFromCloud={handleLoadPresetsFromCloud}
-                            isAuthenticated={!!authData?.access_token}
-                            promptOfTheDay={promptOfTheDay}
-                            onSavePromptOfTheDay={setPromptOfTheDay}
-                            onSavePromptToLibrary={handleSavePromptToLibrary}
-                            // Workflow actions
                             onSaveToDrive={googleSettings && authData?.access_token ? () => handleWorkflowAction('drive') : undefined}
                             onSendViaGmail={authData?.access_token ? () => handleWorkflowAction('gmail') : undefined}
-                            workflowStatus={workflowActions}
-                            // Enhanced newsletter v2 props
-                            useEnhancedFormat={useEnhancedFormat}
-                            onToggleEnhancedFormat={setUseEnhancedFormat}
-                            enhancedNewsletter={enhancedNewsletter}
-                            onEnhancedUpdate={handleEnhancedNewsletterUpdate}
-                            onOpenAudienceEditor={() => setIsAudienceEditorOpen(true)}
                             onGenerateImage={handleGenerateSectionImage}
-                            // Persona display
-                            activePersona={activePersona}
+                            // Preset handlers
+                            onSavePreset={handleSavePreset}
+                            onLoadPreset={handleLoadPreset}
+                            onSyncToCloud={handleSyncPresetsToCloud}
+                            onLoadFromCloud={handleLoadPresetsFromCloud}
+                            // Prompt library
+                            onSavePromptToLibrary={handleSavePromptToLibrary}
                             // Templates
-                            templates={templates}
                             selectedTemplateId={selectedTemplateId}
                             onSelectTemplate={handleSelectTemplate}
                             onSaveAsTemplate={handleSaveAsTemplate}
-                            isTemplatesLoading={isTemplatesLoading}
+                            // Calendar entry tracking (Issue 2 fix)
+                            calendarEntryTitle={pendingCalendarEntryTitle}
                         />
                     )}
 
+                    {/* Phase 6g.5: HistoryContentPage now uses contexts/hooks (12 props → 4) */}
                     {activePage === 'history' && (
                         <HistoryContentPage
-                            history={history}
                             onLoad={handleLoadFromHistory}
                             onClear={handleClearHistory}
-                            onDelete={deleteFromHistory}
-                            // Saved prompts library
-                            savedPrompts={savedPrompts}
-                            isPromptsLoading={isPromptsLoading}
-                            onDeletePrompt={deletePromptFromLibrary}
                             onLoadPrompt={handleLoadSavedPrompt}
-                            // Import from Drive
-                            isAuthenticated={!!authData?.access_token}
-                            driveFolderName={googleSettings?.driveFolderName}
-                            accessToken={authData?.access_token}
-                            userEmail={authData?.email}
                             onImportFromDrive={handleLoadFromDrive}
                         />
                     )}
@@ -1703,7 +1696,7 @@ const App: React.FC = () => {
                 {editingImage && (
                     <ImageEditorModal
                         isOpen={!!editingImage}
-                        onClose={() => setEditingImage(null)}
+                        onClose={closeImageEditor}
                         imageSrc={editingImage.src}
                         imageMimeType={editingImage.mimeType}
                         originalPrompt={editingImage.prompt}
@@ -1740,7 +1733,7 @@ const App: React.FC = () => {
                 {/* Audience Config Editor modal */}
                 <AudienceConfigEditor
                     isOpen={isAudienceEditorOpen}
-                    onClose={() => setIsAudienceEditorOpen(false)}
+                    onClose={closeAudienceEditor}
                     defaultAudiences={defaultAudiences}
                     customAudiences={customAudiences}
                     onAddAudience={handleAddCustomAudience}
@@ -1750,10 +1743,7 @@ const App: React.FC = () => {
                 {/* Persona Editor modal */}
                 <PersonaEditor
                     isOpen={isPersonaEditorOpen}
-                    onClose={() => {
-                        setIsPersonaEditorOpen(false);
-                        setEditingPersona(null);
-                    }}
+                    onClose={closePersonaEditor}
                     onSave={async (data) => {
                         if (editingPersona) {
                             await updatePersona(editingPersona.id, data);
@@ -1767,5 +1757,17 @@ const App: React.FC = () => {
         </div>
     );
 };
+
+/**
+ * App - Root component with context providers
+ *
+ * Phase 6: Provider hierarchy wraps AppContent.
+ * Provider nesting order: UIProvider → AuthProvider → [future providers]
+ */
+const App: React.FC = () => (
+    <AppProviders>
+        <AppContent />
+    </AppProviders>
+);
 
 export default App;

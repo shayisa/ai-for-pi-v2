@@ -11,16 +11,27 @@
  * - Generate Newsletter Button (sticky footer)
  */
 
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import type { Preset, PromptOfTheDay, WriterPersona } from '../types';
+import type { Preset, PromptOfTheDay, WriterPersona, PromptImportResult, PromptImportTemplate } from '../types';
 import type { NewsletterTemplate } from '../services/templateClientService';
+import type { SavedPrompt } from '../services/promptClientService';
 import { PresetsManager } from './PresetsManager';
 import { PromptOfTheDayEditor } from './PromptOfTheDayEditor';
 import { GenerationProgress } from './GenerationProgress';
 import { ActionButton } from './ActionButton';
 import { SparklesIcon, RefreshIcon, SaveIcon, ChevronDownIcon } from './IconComponents';
 import { staggerContainer, staggerItem } from '../utils/animations';
+// Phase 10: Inline editing components
+import {
+  InlineConfigSection,
+  InlinePersonaSelector,
+  InlineAudienceEditor,
+  InlineTopicEditor,
+  InlineToneSelector,
+  InlineFlavorEditor,
+  InlineImageStyleSelector,
+} from './InlineEditors';
 
 interface ConfigurationPanelProps {
   // Configuration display
@@ -33,6 +44,19 @@ interface ConfigurationPanelProps {
   toneOptions: Record<string, { label: string; description: string }>;
   flavorOptions: Record<string, { label: string; description: string }>;
   imageStyleOptions: Record<string, { label: string; description: string }>;
+
+  // Phase 10: Inline editing setters (optional - backward compatible)
+  onAudienceChange?: (key: string) => void;
+  onTopicsChange?: {
+    add: (topic: string) => void;
+    remove: (index: number) => void;
+  };
+  onToneChange?: (tone: string) => void;
+  onFlavorChange?: (key: string) => void;
+  onImageStyleChange?: (style: string) => void;
+  personas?: WriterPersona[];
+  onPersonaChange?: (personaId: string) => void;
+  isPersonasLoading?: boolean;
 
   // Format toggle
   useEnhancedFormat: boolean;
@@ -55,6 +79,14 @@ interface ConfigurationPanelProps {
   promptOfTheDay: PromptOfTheDay | null;
   onSavePromptOfTheDay: (prompt: PromptOfTheDay | null) => void;
   onSavePromptToLibrary?: (prompt: PromptOfTheDay) => Promise<void>;
+  // Phase 9a: Load from library
+  savedPrompts?: SavedPrompt[];
+  // Phase 11: Import from URL/File
+  onImportFromUrl?: (url: string) => Promise<PromptImportResult>;
+  onImportFromFile?: (file: File) => Promise<PromptImportResult>;
+  isPromptImporting?: boolean;
+  promptImportError?: string | null;
+  importTemplates?: PromptImportTemplate[];
 
   // Templates
   templates?: NewsletterTemplate[];
@@ -83,6 +115,16 @@ export const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
   toneOptions,
   flavorOptions,
   imageStyleOptions,
+  // Phase 10: Inline editing setters
+  onAudienceChange,
+  onTopicsChange,
+  onToneChange,
+  onFlavorChange,
+  onImageStyleChange,
+  personas,
+  onPersonaChange,
+  isPersonasLoading,
+  // Format toggle
   useEnhancedFormat,
   onToggleEnhancedFormat,
   onOpenAudienceEditor,
@@ -97,6 +139,13 @@ export const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
   promptOfTheDay,
   onSavePromptOfTheDay,
   onSavePromptToLibrary,
+  savedPrompts,
+  // Phase 11: Import from URL/File
+  onImportFromUrl,
+  onImportFromFile,
+  isPromptImporting,
+  promptImportError,
+  importTemplates,
   templates = [],
   selectedTemplateId,
   onSelectTemplate,
@@ -115,6 +164,23 @@ export const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
   const [newTemplateName, setNewTemplateName] = useState('');
   const [newTemplateDescription, setNewTemplateDescription] = useState('');
   const [isSavingTemplate, setIsSavingTemplate] = useState(false);
+
+  // Phase 10: Inline editing expansion state
+  const [expandedSection, setExpandedSection] = useState<string | null>(null);
+  const toggleSection = (section: string) => {
+    setExpandedSection(prev => prev === section ? null : section);
+  };
+
+  // Phase 9a: Handle loading prompt from library (convert SavedPrompt to PromptOfTheDay)
+  const handleLoadFromLibrary = useCallback((savedPrompt: SavedPrompt) => {
+    onSavePromptOfTheDay({
+      title: savedPrompt.title,
+      summary: savedPrompt.summary,
+      examplePrompts: savedPrompt.examplePrompts,
+      promptCode: savedPrompt.promptCode,
+      savedPromptId: savedPrompt.id, // Track which saved prompt was used (Phase 9c)
+    });
+  }, [onSavePromptOfTheDay]);
 
   // Handle saving current newsletter as template
   const handleSaveAsTemplate = async () => {
@@ -147,49 +213,122 @@ export const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
       .join(', ');
   };
 
-  const configItems = [
-    { label: 'Persona', value: activePersona?.name || '', required: false },
-    { label: 'Audience', value: getSelectedLabels(audienceOptions, selectedAudience), required: true },
-    { label: 'Topics', value: selectedTopics.length > 0 ? selectedTopics.join(', ') : '', required: true },
-    { label: 'Tone', value: getSelectedLabels(toneOptions, selectedTone), required: true },
-    { label: 'Flavors', value: getSelectedLabels(flavorOptions, selectedFlavors), required: false },
-    { label: 'Image Style', value: getSelectedLabels(imageStyleOptions, selectedImageStyle), required: true },
-  ];
-
   const canGenerate = selectedTopics.length > 0 && hasSelectedAudience && !loading;
 
   return (
     <div className="h-full flex flex-col">
       {/* Scrollable Content */}
       <div className="flex-1 overflow-y-auto p-6 space-y-6">
-        {/* Configuration Summary - Compact */}
+        {/* Configuration Summary - Interactive (Phase 10) */}
         <section>
           <h2 className="font-display text-h4 text-ink mb-4">Configuration</h2>
-          <motion.dl
-            variants={staggerContainer}
-            initial="hidden"
-            animate="visible"
-            className="grid grid-cols-1 gap-3"
-          >
-            {configItems.map((item) => (
-              <motion.div
-                key={item.label}
-                variants={staggerItem}
-                className="flex items-baseline gap-2 border-l-2 border-border-subtle pl-3 py-1"
-              >
-                <dt className="text-caption text-slate uppercase tracking-wider font-sans min-w-[70px]">
-                  {item.label}
-                </dt>
-                <dd className="font-sans text-ui text-ink flex-1 truncate">
-                  {item.value || (
-                    <span className={item.required ? 'text-editorial-red' : 'text-silver'}>
-                      {item.required ? 'Required' : 'None'}
-                    </span>
-                  )}
-                </dd>
-              </motion.div>
-            ))}
-          </motion.dl>
+          <div className="space-y-1">
+            {/* Persona */}
+            <InlineConfigSection
+              label="Persona"
+              value={activePersona?.name || ''}
+              isRequired={false}
+              isEditable={!!onPersonaChange && !!personas && personas.length > 0}
+              isExpanded={expandedSection === 'persona'}
+              onToggle={() => toggleSection('persona')}
+            >
+              <InlinePersonaSelector
+                personas={personas || []}
+                activePersona={activePersona || null}
+                onSelect={(id) => {
+                  onPersonaChange?.(id);
+                  setExpandedSection(null);
+                }}
+                isLoading={isPersonasLoading}
+              />
+            </InlineConfigSection>
+
+            {/* Audience */}
+            <InlineConfigSection
+              label="Audience"
+              value={getSelectedLabels(audienceOptions, selectedAudience)}
+              isRequired={true}
+              isEditable={!!onAudienceChange}
+              isExpanded={expandedSection === 'audience'}
+              onToggle={() => toggleSection('audience')}
+            >
+              <InlineAudienceEditor
+                selectedAudience={selectedAudience}
+                audienceOptions={audienceOptions}
+                onChange={onAudienceChange!}
+              />
+            </InlineConfigSection>
+
+            {/* Topics */}
+            <InlineConfigSection
+              label="Topics"
+              value={selectedTopics.length > 0 ? selectedTopics.join(', ') : ''}
+              isRequired={true}
+              isEditable={!!onTopicsChange}
+              isExpanded={expandedSection === 'topics'}
+              onToggle={() => toggleSection('topics')}
+            >
+              <InlineTopicEditor
+                topics={selectedTopics}
+                onAdd={onTopicsChange!.add}
+                onRemove={onTopicsChange!.remove}
+              />
+            </InlineConfigSection>
+
+            {/* Tone */}
+            <InlineConfigSection
+              label="Tone"
+              value={getSelectedLabels(toneOptions, selectedTone)}
+              isRequired={true}
+              isEditable={!!onToneChange}
+              isExpanded={expandedSection === 'tone'}
+              onToggle={() => toggleSection('tone')}
+            >
+              <InlineToneSelector
+                selectedTone={selectedTone}
+                toneOptions={toneOptions}
+                onChange={(tone) => {
+                  onToneChange?.(tone);
+                  setExpandedSection(null);
+                }}
+              />
+            </InlineConfigSection>
+
+            {/* Flavors */}
+            <InlineConfigSection
+              label="Flavors"
+              value={getSelectedLabels(flavorOptions, selectedFlavors)}
+              isRequired={false}
+              isEditable={!!onFlavorChange}
+              isExpanded={expandedSection === 'flavors'}
+              onToggle={() => toggleSection('flavors')}
+            >
+              <InlineFlavorEditor
+                selectedFlavors={selectedFlavors}
+                flavorOptions={flavorOptions}
+                onChange={onFlavorChange!}
+              />
+            </InlineConfigSection>
+
+            {/* Image Style */}
+            <InlineConfigSection
+              label="Image Style"
+              value={getSelectedLabels(imageStyleOptions, selectedImageStyle)}
+              isRequired={true}
+              isEditable={!!onImageStyleChange}
+              isExpanded={expandedSection === 'imageStyle'}
+              onToggle={() => toggleSection('imageStyle')}
+            >
+              <InlineImageStyleSelector
+                selectedImageStyle={selectedImageStyle}
+                imageStyleOptions={imageStyleOptions}
+                onChange={(style) => {
+                  onImageStyleChange?.(style);
+                  setExpandedSection(null);
+                }}
+              />
+            </InlineConfigSection>
+          </div>
         </section>
 
         {/* Newsletter Format Toggle */}
@@ -361,6 +500,14 @@ export const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
             initialPrompt={promptOfTheDay}
             onSave={onSavePromptOfTheDay}
             onSaveToLibrary={onSavePromptToLibrary}
+            savedPrompts={savedPrompts}
+            onLoadFromLibrary={handleLoadFromLibrary}
+            // Phase 11: Import from URL/File
+            onImportFromUrl={onImportFromUrl}
+            onImportFromFile={onImportFromFile}
+            isImporting={isPromptImporting}
+            importError={promptImportError}
+            templates={importTemplates}
           />
         </section>
 

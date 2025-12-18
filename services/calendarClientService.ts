@@ -3,7 +3,7 @@
  * Frontend API client for content calendar management
  */
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+import { apiRequest } from './apiHelper.ts';
 
 // Types
 export type CalendarStatus = 'planned' | 'in_progress' | 'completed' | 'cancelled';
@@ -46,16 +46,9 @@ export const getEntries = async (
   if (endDate) params.append('endDate', endDate);
 
   const queryString = params.toString();
-  const url = `${API_BASE}/api/calendar${queryString ? `?${queryString}` : ''}`;
-
-  const response = await fetch(url);
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to fetch calendar entries');
-  }
-
-  return response.json();
+  return apiRequest<CalendarListResponse>(
+    `/api/calendar${queryString ? `?${queryString}` : ''}`
+  );
 };
 
 /**
@@ -65,42 +58,21 @@ export const getEntriesByMonth = async (
   year: number,
   month: number
 ): Promise<CalendarListResponse> => {
-  const response = await fetch(`${API_BASE}/api/calendar/month/${year}/${month}`);
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to fetch calendar entries');
-  }
-
-  return response.json();
+  return apiRequest<CalendarListResponse>(`/api/calendar/month/${year}/${month}`);
 };
 
 /**
  * Get upcoming entries
  */
 export const getUpcomingEntries = async (days = 7): Promise<CalendarListResponse> => {
-  const response = await fetch(`${API_BASE}/api/calendar/upcoming?days=${days}`);
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to fetch upcoming entries');
-  }
-
-  return response.json();
+  return apiRequest<CalendarListResponse>(`/api/calendar/upcoming?days=${days}`);
 };
 
 /**
  * Get entry by ID
  */
 export const getEntryById = async (id: string): Promise<CalendarEntry> => {
-  const response = await fetch(`${API_BASE}/api/calendar/${encodeURIComponent(id)}`);
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to fetch calendar entry');
-  }
-
-  return response.json();
+  return apiRequest<CalendarEntry>(`/api/calendar/${encodeURIComponent(id)}`);
 };
 
 /**
@@ -114,18 +86,10 @@ export const createEntry = async (
   status: CalendarStatus = 'planned',
   settings: CalendarEntrySettings | null = null
 ): Promise<CalendarEntry> => {
-  const response = await fetch(`${API_BASE}/api/calendar`, {
+  return apiRequest<CalendarEntry>('/api/calendar', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ title, scheduledDate, description, topics, status, settings }),
   });
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to create calendar entry');
-  }
-
-  return response.json();
 };
 
 /**
@@ -142,18 +106,10 @@ export const updateEntry = async (
     settings: CalendarEntrySettings | null;
   }>
 ): Promise<CalendarEntry> => {
-  const response = await fetch(`${API_BASE}/api/calendar/${encodeURIComponent(id)}`, {
+  return apiRequest<CalendarEntry>(`/api/calendar/${encodeURIComponent(id)}`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(updates),
   });
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to update calendar entry');
-  }
-
-  return response.json();
 };
 
 /**
@@ -163,40 +119,23 @@ export const linkNewsletter = async (
   entryId: string,
   newsletterId: string
 ): Promise<CalendarEntry> => {
-  const response = await fetch(
-    `${API_BASE}/api/calendar/${encodeURIComponent(entryId)}/link`,
+  return apiRequest<CalendarEntry>(
+    `/api/calendar/${encodeURIComponent(entryId)}/link`,
     {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ newsletterId }),
     }
   );
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to link newsletter');
-  }
-
-  return response.json();
 };
 
 /**
  * Unlink a newsletter from a calendar entry
  */
 export const unlinkNewsletter = async (entryId: string): Promise<CalendarEntry> => {
-  const response = await fetch(
-    `${API_BASE}/api/calendar/${encodeURIComponent(entryId)}/unlink`,
-    {
-      method: 'POST',
-    }
+  return apiRequest<CalendarEntry>(
+    `/api/calendar/${encodeURIComponent(entryId)}/unlink`,
+    { method: 'POST' }
   );
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to unlink newsletter');
-  }
-
-  return response.json();
 };
 
 /**
@@ -205,14 +144,8 @@ export const unlinkNewsletter = async (entryId: string): Promise<CalendarEntry> 
 export const deleteEntry = async (
   id: string
 ): Promise<{ success: boolean; message: string }> => {
-  const response = await fetch(`${API_BASE}/api/calendar/${encodeURIComponent(id)}`, {
-    method: 'DELETE',
-  });
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to delete calendar entry');
-  }
-
-  return response.json();
+  return apiRequest<{ success: boolean; message: string }>(
+    `/api/calendar/${encodeURIComponent(id)}`,
+    { method: 'DELETE' }
+  );
 };

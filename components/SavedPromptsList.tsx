@@ -6,11 +6,13 @@
  * - Load prompt into editor
  * - Delete prompt with confirmation
  * - Empty state
+ * - Phase 9c: Usage count showing which newsletters used each prompt
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { SavedPrompt } from '../services/promptClientService';
+import { getNewslettersBySavedPromptId } from '../services/newsletterClientService';
 import { TrashIcon, CodeIcon } from './IconComponents';
 import { ConfirmationDialog } from './ConfirmationDialog';
 import { staggerContainer, staggerItem } from '../utils/animations';
@@ -30,6 +32,40 @@ export const SavedPromptsList: React.FC<SavedPromptsListProps> = ({
 }) => {
   const [promptToDelete, setPromptToDelete] = useState<SavedPrompt | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  // Phase 9c: Track usage counts for each prompt
+  const [usageCounts, setUsageCounts] = useState<Record<string, number>>({});
+  const [isLoadingUsage, setIsLoadingUsage] = useState(false);
+
+  // Phase 9c: Fetch usage counts when prompts change
+  useEffect(() => {
+    const fetchUsageCounts = async () => {
+      if (prompts.length === 0) return;
+
+      setIsLoadingUsage(true);
+      const counts: Record<string, number> = {};
+
+      // Fetch usage counts in parallel (max 5 concurrent)
+      const batchSize = 5;
+      for (let i = 0; i < prompts.length; i += batchSize) {
+        const batch = prompts.slice(i, i + batchSize);
+        await Promise.all(
+          batch.map(async (prompt) => {
+            try {
+              const result = await getNewslettersBySavedPromptId(prompt.id);
+              counts[prompt.id] = result.count;
+            } catch {
+              counts[prompt.id] = 0;
+            }
+          })
+        );
+      }
+
+      setUsageCounts(counts);
+      setIsLoadingUsage(false);
+    };
+
+    fetchUsageCounts();
+  }, [prompts]);
 
   const handleConfirmDelete = async () => {
     if (!promptToDelete) return;
@@ -113,6 +149,15 @@ export const SavedPromptsList: React.FC<SavedPromptsListProps> = ({
                     )}
                     <p className="font-sans text-caption text-silver mt-1 ml-6">
                       {new Date(prompt.createdAt).toLocaleDateString()}
+                      {/* Phase 9c: Show usage count */}
+                      {usageCounts[prompt.id] !== undefined && usageCounts[prompt.id] > 0 && (
+                        <span className="ml-2 text-editorial-navy">
+                          • Used in {usageCounts[prompt.id]} newsletter{usageCounts[prompt.id] !== 1 ? 's' : ''}
+                        </span>
+                      )}
+                      {isLoadingUsage && usageCounts[prompt.id] === undefined && (
+                        <span className="ml-2 text-silver">• Loading...</span>
+                      )}
                     </p>
                   </button>
 

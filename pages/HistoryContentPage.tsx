@@ -1,46 +1,64 @@
+/**
+ * HistoryContentPage
+ *
+ * Phase 6g.5: Migrated from props to contexts/hooks
+ *
+ * State sources:
+ * - History: useHistory hook
+ * - Prompts: usePrompts hook
+ * - Auth: AuthContext (useAuth)
+ * - Settings: SettingsContext (useSettings)
+ *
+ * Remaining props (multi-state handlers):
+ * - onLoad: Modifies 5 states (selectedTopics, newsletter, activePage, useEnhancedFormat, promptOfTheDay)
+ * - onClear: App-level history clear handler
+ * - onLoadPrompt: Modifies promptOfTheDay + navigates
+ * - onImportFromDrive: Mirrors onLoad behavior
+ */
+
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { HistoryPanel } from '../components/HistoryPanel';
 import { LoadFromDriveModal } from '../components/LoadFromDriveModal';
 import { SavedPromptsList } from '../components/SavedPromptsList';
-import type { EnhancedHistoryItem, Newsletter, EnhancedNewsletter, PromptOfTheDay } from '../types';
+import type { EnhancedHistoryItem, Newsletter, EnhancedNewsletter } from '../types';
 import type { SavedPrompt } from '../services/promptClientService';
 import { DriveIcon } from '../components/IconComponents';
 import { fadeInUp } from '../utils/animations';
+import { useHistory } from '../hooks/useHistory';
+import { usePrompts } from '../hooks/usePrompts';
+import { useAuth } from '../contexts';
+import { useSettings } from '../contexts';
 
 interface HistoryContentPageProps {
-    history: EnhancedHistoryItem[];
+    // Multi-state handlers that must remain as props
     onLoad: (item: EnhancedHistoryItem) => void;
     onClear: () => void;
-    onDelete?: (id: string) => Promise<void>;
-    // Saved prompts library props
-    savedPrompts: SavedPrompt[];
-    isPromptsLoading: boolean;
-    onDeletePrompt: (id: string) => Promise<void>;
     onLoadPrompt: (prompt: SavedPrompt) => void;
-    // Import from Drive props
-    isAuthenticated?: boolean;
-    driveFolderName?: string;
-    accessToken?: string;
-    userEmail?: string;
     onImportFromDrive?: (newsletter: Newsletter | EnhancedNewsletter, topics: string[], formatVersion: 'v1' | 'v2') => void;
 }
 
 export const HistoryContentPage: React.FC<HistoryContentPageProps> = ({
-    history,
     onLoad,
     onClear,
-    onDelete,
-    savedPrompts,
-    isPromptsLoading,
-    onDeletePrompt,
     onLoadPrompt,
-    isAuthenticated,
-    driveFolderName,
-    accessToken,
-    userEmail,
     onImportFromDrive,
 }) => {
+    // History state from useHistory hook
+    const { history, deleteFromHistory } = useHistory();
+
+    // Prompts state from usePrompts hook
+    const { prompts: savedPrompts, isLoading: isPromptsLoading, deletePrompt: onDeletePrompt } = usePrompts();
+
+    // Auth state from AuthContext
+    const { authData } = useAuth();
+    const isAuthenticated = !!authData?.access_token;
+    const accessToken = authData?.access_token;
+    const userEmail = authData?.email;
+
+    // Settings state from SettingsContext
+    const { googleSettings } = useSettings();
+    const driveFolderName = googleSettings?.driveFolderName;
     const [isImportModalOpen, setIsImportModalOpen] = useState(false);
 
     const handleImport = (newsletter: Newsletter | EnhancedNewsletter, topics: string[], formatVersion: 'v1' | 'v2') => {
@@ -87,7 +105,7 @@ export const HistoryContentPage: React.FC<HistoryContentPageProps> = ({
                 history={history}
                 onLoad={onLoad}
                 onClear={onClear}
-                onDelete={onDelete}
+                onDelete={deleteFromHistory}
             />
 
             {/* Saved Prompts Library */}

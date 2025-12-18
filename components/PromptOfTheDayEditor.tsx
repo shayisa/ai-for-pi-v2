@@ -1,16 +1,38 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import type { PromptOfTheDay } from '../types';
-import { CodeIcon, SaveIcon, XIcon, CheckIcon, BookOpenIcon } from './IconComponents';
+import type { PromptOfTheDay, PromptImportResult, PromptImportTemplate } from '../types';
+import type { SavedPrompt } from '../services/promptClientService';
+import { CodeIcon, SaveIcon, XIcon, CheckIcon, BookOpenIcon, ChevronDownIcon, LinkIcon } from './IconComponents';
+import { FileDropZone } from './FileDropZone';
 
 interface PromptOfTheDayEditorProps {
     initialPrompt: PromptOfTheDay | null;
     onSave: (prompt: PromptOfTheDay | null) => void;
     onSaveToLibrary?: (prompt: PromptOfTheDay) => Promise<void>;
+    // Phase 9a: Load from library support
+    savedPrompts?: SavedPrompt[];
+    onLoadFromLibrary?: (prompt: SavedPrompt) => void;
+    // Phase 11: Import from URL/File support
+    onImportFromUrl?: (url: string) => Promise<PromptImportResult>;
+    onImportFromFile?: (file: File) => Promise<PromptImportResult>;
+    isImporting?: boolean;
+    importError?: string | null;
+    templates?: PromptImportTemplate[];
 }
 
-export const PromptOfTheDayEditor: React.FC<PromptOfTheDayEditorProps> = ({ initialPrompt, onSave, onSaveToLibrary }) => {
+export const PromptOfTheDayEditor: React.FC<PromptOfTheDayEditorProps> = ({
+    initialPrompt,
+    onSave,
+    onSaveToLibrary,
+    savedPrompts,
+    onLoadFromLibrary,
+    onImportFromUrl,
+    onImportFromFile,
+    isImporting = false,
+    importError = null,
+    templates = [],
+}) => {
     const [fullPromptText, setFullPromptText] = useState('');
     const [title, setTitle] = useState('');
     const [summary, setSummary] = useState('');
@@ -18,6 +40,10 @@ export const PromptOfTheDayEditor: React.FC<PromptOfTheDayEditorProps> = ({ init
     const [promptCode, setPromptCode] = useState('');
     const [parseStatus, setParseStatus] = useState<'idle' | 'success'>('idle');
     const [libraryStatus, setLibraryStatus] = useState<'idle' | 'saving' | 'success'>('idle');
+    // Phase 11: Import state
+    const [importUrl, setImportUrl] = useState('');
+    const [importStatus, setImportStatus] = useState<'idle' | 'success' | 'error'>('idle');
+    const [localImportError, setLocalImportError] = useState<string | null>(null);
 
     useEffect(() => {
         if (initialPrompt) {
@@ -200,7 +226,86 @@ export const PromptOfTheDayEditor: React.FC<PromptOfTheDayEditorProps> = ({ init
         }
     };
 
+    // Phase 11: Import handlers
+    const applyImportResult = (result: PromptImportResult) => {
+        if (result.fields) {
+            setTitle(result.fields.title);
+            setSummary(result.fields.summary);
+            const examples = result.fields.examplePrompts;
+            // Ensure at least 3 fields
+            setExamplePrompts([...examples, ...Array(Math.max(0, 3 - examples.length)).fill('')].slice(0, Math.max(3, examples.length)));
+            setPromptCode(result.fields.promptCode);
+
+            // Save to newsletter context
+            const cleanedExamplePrompts = examples.filter(p => p.trim() !== '');
+            if (result.fields.title.trim() || result.fields.promptCode.trim()) {
+                onSave({
+                    title: result.fields.title.trim(),
+                    summary: result.fields.summary.trim(),
+                    examplePrompts: cleanedExamplePrompts,
+                    promptCode: result.fields.promptCode.trim(),
+                });
+            }
+        }
+    };
+
+    const handleImportFromUrl = async () => {
+        if (!onImportFromUrl || !importUrl.trim()) return;
+
+        setLocalImportError(null);
+        setImportStatus('idle');
+
+        try {
+            const result = await onImportFromUrl(importUrl.trim());
+            if (result.success) {
+                applyImportResult(result);
+                setImportUrl('');
+                setImportStatus('success');
+                setTimeout(() => setImportStatus('idle'), 2000);
+            } else {
+                setLocalImportError(result.error || 'Import failed');
+                setImportStatus('error');
+                // Still apply partial results if available
+                if (result.fields?.title || result.fields?.promptCode) {
+                    applyImportResult(result);
+                }
+            }
+        } catch (error) {
+            const msg = error instanceof Error ? error.message : 'Import failed';
+            setLocalImportError(msg);
+            setImportStatus('error');
+        }
+    };
+
+    const handleImportFromFile = async (file: File) => {
+        if (!onImportFromFile) return;
+
+        setLocalImportError(null);
+        setImportStatus('idle');
+
+        try {
+            const result = await onImportFromFile(file);
+            if (result.success) {
+                applyImportResult(result);
+                setImportStatus('success');
+                setTimeout(() => setImportStatus('idle'), 2000);
+            } else {
+                setLocalImportError(result.error || 'Import failed');
+                setImportStatus('error');
+                // Still apply partial results if available
+                if (result.fields?.title || result.fields?.promptCode) {
+                    applyImportResult(result);
+                }
+            }
+        } catch (error) {
+            const msg = error instanceof Error ? error.message : 'Import failed';
+            setLocalImportError(msg);
+            setImportStatus('error');
+        }
+    };
+
     const hasContent = title.trim() || summary.trim() || examplePrompts.some(p => p.trim() !== '') || promptCode.trim();
+    const displayImportError = importError || localImportError;
 
     return (
         <div className="bg-paper border border-border-subtle">
@@ -212,6 +317,130 @@ export const PromptOfTheDayEditor: React.FC<PromptOfTheDayEditorProps> = ({ init
                 </h2>
             </div>
             <p className="font-serif text-body text-charcoal mb-6">Include a curated prompt for your audience in the newsletter.</p>
+
+            {/* Phase 9a: Load from Library Section */}
+            {savedPrompts && savedPrompts.length > 0 && onLoadFromLibrary && (
+                <div className="mb-6 border-b border-border-subtle pb-6">
+                    <h3 className="font-sans text-ui font-medium text-ink mb-2">Load from Library</h3>
+                    <p className="font-sans text-caption text-slate mb-3">
+                        Select a saved prompt to load into the editor.
+                    </p>
+                    <div className="relative">
+                        <select
+                            onChange={(e) => {
+                                const selected = savedPrompts.find(p => p.id === e.target.value);
+                                if (selected && onLoadFromLibrary) {
+                                    onLoadFromLibrary(selected);
+                                }
+                                // Reset the select to show placeholder again
+                                e.target.value = '';
+                            }}
+                            className="w-full bg-pearl border border-border-subtle px-3 py-2 font-sans text-ui text-ink appearance-none cursor-pointer hover:border-slate transition-colors focus:outline-none focus:border-ink"
+                            defaultValue=""
+                        >
+                            <option value="" disabled>Select a saved prompt...</option>
+                            {savedPrompts.map((prompt) => (
+                                <option key={prompt.id} value={prompt.id}>
+                                    {prompt.title}
+                                </option>
+                            ))}
+                        </select>
+                        <ChevronDownIcon className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate pointer-events-none" />
+                    </div>
+                </div>
+            )}
+
+            {/* Phase 11: Import from URL/File Section */}
+            {(onImportFromUrl || onImportFromFile) && (
+                <div className="mb-6 border-b border-border-subtle pb-6">
+                    <h3 className="font-sans text-ui font-medium text-ink mb-2">Import from URL or File</h3>
+                    <p className="font-sans text-caption text-slate mb-4">
+                        Import a prompt from a web page or document. Supports PDF, Word, PowerPoint, Excel, and text files.
+                    </p>
+
+                    {/* URL Import */}
+                    {onImportFromUrl && (
+                        <div className="mb-4">
+                            <div className="flex gap-2">
+                                <div className="flex-1 relative">
+                                    <LinkIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate" />
+                                    <input
+                                        type="url"
+                                        value={importUrl}
+                                        onChange={(e) => setImportUrl(e.target.value)}
+                                        placeholder="https://example.com/prompt"
+                                        disabled={isImporting}
+                                        className="w-full bg-pearl border border-border-subtle pl-9 pr-3 py-2 font-sans text-ui text-ink focus:outline-none focus:border-ink transition-colors disabled:opacity-50"
+                                    />
+                                </div>
+                                <button
+                                    onClick={handleImportFromUrl}
+                                    disabled={isImporting || !importUrl.trim()}
+                                    className={`flex items-center justify-center gap-2 font-sans text-ui py-2 px-4 transition-all duration-200 min-w-[100px] ${
+                                        importStatus === 'success'
+                                            ? 'bg-green-600 text-paper'
+                                            : 'bg-ink text-paper hover:bg-charcoal disabled:bg-silver disabled:text-slate disabled:cursor-not-allowed'
+                                    }`}
+                                >
+                                    <AnimatePresence mode="wait">
+                                        <motion.span
+                                            key={isImporting ? 'loading' : importStatus}
+                                            initial={{ opacity: 0, y: 5 }}
+                                            animate={{ opacity: 1, y: 0 }}
+                                            exit={{ opacity: 0, y: -5 }}
+                                            transition={{ duration: 0.15 }}
+                                            className="flex items-center gap-2"
+                                        >
+                                            {isImporting ? (
+                                                'Importing...'
+                                            ) : importStatus === 'success' ? (
+                                                <>
+                                                    <CheckIcon className="h-4 w-4" />
+                                                    <span>Imported!</span>
+                                                </>
+                                            ) : (
+                                                'Import'
+                                            )}
+                                        </motion.span>
+                                    </AnimatePresence>
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* File Import */}
+                    {onImportFromFile && (
+                        <FileDropZone
+                            onFileSelect={handleImportFromFile}
+                            isLoading={isImporting}
+                            disabled={isImporting}
+                            compact
+                        />
+                    )}
+
+                    {/* Import Error Display */}
+                    {displayImportError && (
+                        <motion.p
+                            initial={{ opacity: 0, y: -4 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            className="font-sans text-caption text-coral mt-3"
+                        >
+                            {displayImportError}
+                        </motion.p>
+                    )}
+
+                    {/* Import Success with partial warning */}
+                    {importStatus === 'success' && (
+                        <motion.p
+                            initial={{ opacity: 0, y: -4 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            className="font-sans text-caption text-green-600 mt-3"
+                        >
+                            Prompt imported successfully. Review the fields below.
+                        </motion.p>
+                    )}
+                </div>
+            )}
 
             <div className="mb-6 border-b border-border-subtle pb-6">
                 <h3 className="font-sans text-ui font-medium text-ink mb-2">Paste Full Prompt</h3>

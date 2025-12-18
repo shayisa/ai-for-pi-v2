@@ -7,14 +7,16 @@
  * - Workflow Actions (Save to Drive, Send via Gmail)
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import type { Newsletter, NewsletterSection, EnhancedNewsletter } from '../types';
 import { NewsletterPreview } from './NewsletterPreview';
 import { EnhancedNewsletterPreview } from './EnhancedNewsletterPreview';
+import { BulkImageRegeneration } from './BulkImageRegeneration';
 import { ActionButton } from './ActionButton';
-import { DriveIcon, SendIcon, SparklesIcon } from './IconComponents';
+import { DriveIcon, SendIcon, SparklesIcon, ImageIcon } from './IconComponents';
 import { fadeInUp } from '../utils/animations';
+import { useNewsletterSettings } from '../contexts';
 
 interface PreviewPanelProps {
   // Newsletter content
@@ -31,6 +33,9 @@ interface PreviewPanelProps {
   onEnhancedUpdate?: (field: string, value: string, sectionIndex?: number) => void;
   onGenerateImage?: (sectionIndex: number, imagePrompt: string) => Promise<void>;
   isLoading: boolean;
+
+  // Phase 12.0: Bulk image regeneration
+  onBulkUpdateSections?: (sections: NewsletterSection[]) => void;
 
   // Workflow actions
   onSaveToDrive?: () => Promise<void>;
@@ -51,12 +56,35 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
   onEnhancedUpdate,
   onGenerateImage,
   isLoading,
+  onBulkUpdateSections,
   onSaveToDrive,
   onSendViaGmail,
   isAuthenticated,
   workflowStatus,
 }) => {
   const hasNewsletter = useEnhancedFormat ? !!enhancedNewsletter : !!newsletter;
+
+  // Phase 12.0: Get imageStyle from context for bulk regeneration
+  const { selectedImageStyle } = useNewsletterSettings();
+
+  // Phase 12.0: Bulk image regeneration modal state
+  const [showBulkRegenModal, setShowBulkRegenModal] = useState(false);
+
+  // Get sections for bulk regeneration (v1 format only for now)
+  const sections = newsletter?.sections || [];
+
+  // Handle bulk regeneration complete
+  const handleBulkRegenComplete = (updatedSections: Array<{ title: string; imagePrompt?: string; imageUrl?: string }>) => {
+    if (onBulkUpdateSections && newsletter) {
+      // Map back to NewsletterSection format
+      const newSections = sections.map((section, index) => ({
+        ...section,
+        imageUrl: updatedSections[index]?.imageUrl || section.imageUrl,
+      }));
+      onBulkUpdateSections(newSections);
+    }
+    setShowBulkRegenModal(false);
+  };
 
   return (
     <div className="h-full flex flex-col">
@@ -116,6 +144,18 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
               Actions
             </p>
 
+            {/* Phase 12.0: Bulk Image Regeneration - only for v1 format */}
+            {!useEnhancedFormat && sections.length > 0 && onBulkUpdateSections && (
+              <button
+                onClick={() => setShowBulkRegenModal(true)}
+                disabled={isLoading}
+                className="flex items-center gap-2 px-4 py-2 border border-editorial-navy text-editorial-navy font-sans text-sm hover:bg-editorial-navy hover:text-paper transition-colors disabled:opacity-50"
+              >
+                <ImageIcon className="h-4 w-4" />
+                Regenerate Images
+              </button>
+            )}
+
             {/* Save to Drive */}
             {onSaveToDrive && (
               <ActionButton
@@ -144,6 +184,15 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
           </div>
         </div>
       )}
+
+      {/* Phase 12.0: Bulk Image Regeneration Modal */}
+      <BulkImageRegeneration
+        sections={sections}
+        imageStyle={selectedImageStyle}
+        isOpen={showBulkRegenModal}
+        onClose={() => setShowBulkRegenModal(false)}
+        onComplete={handleBulkRegenComplete}
+      />
     </div>
   );
 };

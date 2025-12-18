@@ -162,7 +162,14 @@ export const PresetsManager: React.FC<PresetsManagerProps> = ({
                             variants={staggerItem}
                             className="flex items-center justify-between gap-3 py-3 px-4 bg-pearl border border-border-subtle group hover:border-ink transition-colors"
                         >
-                            <span className="font-sans text-ui font-medium text-ink">{preset.name}</span>
+                            <div className="flex flex-col gap-1">
+                                <span className="font-sans text-ui font-medium text-ink">{preset.name}</span>
+                                {preset.settings.personaId && (
+                                    <span className="font-sans text-caption text-slate">
+                                        with persona
+                                    </span>
+                                )}
+                            </div>
                             <div className="flex items-center gap-4">
                                 <button
                                     onClick={() => onLoad(preset)}

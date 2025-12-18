@@ -10,6 +10,7 @@ export interface PromptOfTheDay {
   summary: string;
   examplePrompts: string[];
   promptCode: string; // The full prompt code including XML-like tags
+  savedPromptId?: string; // Reference to saved_prompts.id if loaded from library (Phase 9c)
 }
 
 export interface Newsletter {
@@ -75,6 +76,7 @@ export interface Preset {
     selectedFlavors: Record<string, boolean>;
     selectedImageStyle: string;
     selectedTopics: string[];
+    personaId?: string; // Phase 12.0: Optional persona for backward compatibility
   };
 }
 
@@ -314,4 +316,71 @@ export interface ThumbnailStatus {
   total: number;
   generated: number;
   missing: string[];
+}
+
+// ============================================================================
+// Prompt Import Types (Phase 11)
+// ============================================================================
+
+export type ImportSourceType = 'url' | 'file' | 'paste';
+export type ParsingMethod = 'regex' | 'ai' | 'template';
+
+export interface ImportedPromptFields {
+  title: string;
+  summary: string;
+  examplePrompts: string[];
+  promptCode: string;
+}
+
+export interface PromptImportResult {
+  success: boolean;
+  fields?: ImportedPromptFields;
+  parsingMethod: ParsingMethod;
+  templateId?: string;
+  confidence?: number;
+  error?: string;
+  processingTimeMs: number;
+}
+
+export interface PromptImportTemplate {
+  id: string;
+  name: string;
+  sourceType: ImportSourceType;
+  sourcePattern: string;
+  parsingInstructions: string;
+  fieldPatterns: FieldPatterns;
+  successCount: number;
+  failureCount: number;
+  isDefault: boolean;
+  createdAt: string;
+  updatedAt: string;
+  createdBy?: string;
+}
+
+export interface FieldPatterns {
+  title?: RegexPattern;
+  summary?: RegexPattern;
+  examplePrompts?: RegexPattern;
+  promptCode?: RegexPattern;
+}
+
+export interface RegexPattern {
+  pattern: string;
+  flags?: string;
+  groupIndex?: number;
+}
+
+export interface PromptImportLog {
+  id: number;
+  importId: string;
+  sourceType: ImportSourceType;
+  sourceIdentifier: string;
+  templateId?: string;
+  parsingMethod: ParsingMethod;
+  success: boolean;
+  errorMessage?: string;
+  parsedFields?: ImportedPromptFields;
+  rawContentLength: number;
+  processingTimeMs: number;
+  createdAt: string;
 }

@@ -225,6 +225,18 @@ const EntryModal: React.FC<EntryModalProps> = ({ isOpen, onClose, onSave, onStar
               </select>
             </div>
 
+            {/* Linked Newsletter Status (Issue 2 fix) */}
+            {initialData?.newsletterId && (
+              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-md">
+                <span className="text-sm text-emerald-700 flex items-center gap-2">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                  Newsletter generated and linked to this entry
+                </span>
+              </div>
+            )}
+
             {/* Actions */}
             <div className="flex justify-between items-center pt-4">
               {/* Start Generation button (shown when editing any non-completed entry) */}
@@ -330,13 +342,16 @@ const DayCell: React.FC<DayCellProps> = ({ date, isCurrentMonth, isToday, entrie
               key={entry.id}
               onClick={() => onEditEntry(entry)}
               className={`
-                w-full text-left px-1.5 py-0.5 text-caption truncate
+                w-full text-left px-1.5 py-0.5 text-caption truncate flex items-center gap-1
                 ${config.bg} ${config.color}
                 hover:ring-1 hover:ring-current transition-all
               `}
-              title={entry.title}
+              title={entry.newsletterId ? `${entry.title} (Newsletter linked)` : entry.title}
             >
-              {entry.title}
+              <span className="truncate">{entry.title}</span>
+              {entry.newsletterId && (
+                <span className="flex-shrink-0 text-emerald-600" title="Newsletter linked">✓</span>
+              )}
             </button>
           );
         })}

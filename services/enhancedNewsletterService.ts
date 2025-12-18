@@ -5,14 +5,14 @@
  */
 
 import type { EnhancedNewsletter, AudienceConfig, PromptOfTheDay } from '../types';
-
-const API_BASE = '/api';
+import { apiRequest } from './apiHelper';
 
 export interface GenerateEnhancedNewsletterRequest {
   topics: string[];
   audiences: AudienceConfig[];
   imageStyle?: string;
   promptOfTheDay?: PromptOfTheDay | null;
+  personaId?: string;
 }
 
 export interface GenerateEnhancedNewsletterResponse {
@@ -33,24 +33,28 @@ export interface GenerateAudienceConfigResponse {
   tokensUsed?: number;
 }
 
+export interface FetchMultiSourcesResponse {
+  articles: Array<{
+    title: string;
+    url: string;
+    source: string;
+    date?: string;
+    snippet?: string;
+  }>;
+  totalCount: number;
+  fetchTimeMs: number;
+}
+
 /**
  * Generate an enhanced newsletter
  */
 export async function generateEnhancedNewsletter(
   request: GenerateEnhancedNewsletterRequest
 ): Promise<GenerateEnhancedNewsletterResponse> {
-  const response = await fetch(`${API_BASE}/generateEnhancedNewsletter`, {
+  return apiRequest<GenerateEnhancedNewsletterResponse>('/api/generateEnhancedNewsletter', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(request),
   });
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to generate enhanced newsletter');
-  }
-
-  return response.json();
 }
 
 /**
@@ -60,31 +64,17 @@ export async function generateAudienceConfig(
   name: string,
   description: string
 ): Promise<GenerateAudienceConfigResponse> {
-  const response = await fetch(`${API_BASE}/generateAudienceConfig`, {
+  return apiRequest<GenerateAudienceConfigResponse>('/api/generateAudienceConfig', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, description }),
   });
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to generate audience config');
-  }
-
-  return response.json();
 }
 
 /**
  * Get default audiences with their pre-configured settings
  */
 export async function getDefaultAudiences(): Promise<{ audiences: AudienceConfig[] }> {
-  const response = await fetch(`${API_BASE}/defaultAudiences`);
-
-  if (!response.ok) {
-    throw new Error('Failed to fetch default audiences');
-  }
-
-  return response.json();
+  return apiRequest<{ audiences: AudienceConfig[] }>('/api/defaultAudiences');
 }
 
 /**
@@ -95,30 +85,14 @@ export async function fetchMultiSources(options: {
   subreddits?: string[];
   arxivCategories?: string[];
   limit?: number;
-}): Promise<{
-  articles: Array<{
-    title: string;
-    url: string;
-    source: string;
-    date?: string;
-    snippet?: string;
-  }>;
-  totalCount: number;
-  fetchTimeMs: number;
-}> {
+}): Promise<FetchMultiSourcesResponse> {
   const params = new URLSearchParams();
   if (options.keywords) params.set('keywords', options.keywords.join(','));
   if (options.subreddits) params.set('subreddits', options.subreddits.join(','));
   if (options.arxivCategories) params.set('arxiv', options.arxivCategories.join(','));
   if (options.limit) params.set('limit', String(options.limit));
 
-  const response = await fetch(`${API_BASE}/fetchMultiSources?${params}`);
-
-  if (!response.ok) {
-    throw new Error('Failed to fetch sources');
-  }
-
-  return response.json();
+  return apiRequest<FetchMultiSourcesResponse>(`/api/fetchMultiSources?${params}`);
 }
 
 export default {

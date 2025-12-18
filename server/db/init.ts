@@ -298,9 +298,104 @@ db.exec(`
     last_updated TEXT NOT NULL DEFAULT (datetime('now')),
     FOREIGN KEY (newsletter_id) REFERENCES newsletters(id)
   );
+
+  -- System Logs table (Control Plane logs persisted)
+  CREATE TABLE IF NOT EXISTS system_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    correlation_id TEXT NOT NULL,
+    timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+    level TEXT NOT NULL,
+    module TEXT NOT NULL,
+    action TEXT NOT NULL,
+    message TEXT NOT NULL,
+    duration_ms INTEGER,
+    user_id TEXT,
+    metadata TEXT,
+    error_name TEXT,
+    error_message TEXT,
+    error_stack TEXT,
+    error_code TEXT
+  );
+
+  -- Indexes for system_logs (critical for query performance)
+  CREATE INDEX IF NOT EXISTS idx_system_logs_timestamp
+    ON system_logs(timestamp DESC);
+  CREATE INDEX IF NOT EXISTS idx_system_logs_correlation
+    ON system_logs(correlation_id);
+  CREATE INDEX IF NOT EXISTS idx_system_logs_module
+    ON system_logs(module);
+  CREATE INDEX IF NOT EXISTS idx_system_logs_level
+    ON system_logs(level);
+  CREATE INDEX IF NOT EXISTS idx_system_logs_module_action
+    ON system_logs(module, action);
+  CREATE INDEX IF NOT EXISTS idx_system_logs_user
+    ON system_logs(user_id);
+
+  -- User Settings table (for preferences like log retention)
+  CREATE TABLE IF NOT EXISTS user_settings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_email TEXT UNIQUE NOT NULL,
+    log_retention_days INTEGER DEFAULT 90,
+    log_query_limit INTEGER DEFAULT 500000,
+    log_min_level TEXT DEFAULT 'info',
+    settings_json TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_user_settings_email
+    ON user_settings(user_email);
+
+  -- ============================================================================
+  -- Prompt Import Tables (Phase 11)
+  -- ============================================================================
+
+  -- Prompt Import Templates table (remembers successful parsing patterns)
+  CREATE TABLE IF NOT EXISTS prompt_import_templates (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    source_type TEXT NOT NULL CHECK (source_type IN ('url', 'file')),
+    source_pattern TEXT NOT NULL,
+    parsing_instructions TEXT NOT NULL,
+    field_patterns TEXT NOT NULL,
+    success_count INTEGER DEFAULT 0,
+    failure_count INTEGER DEFAULT 0,
+    is_default INTEGER DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    created_by TEXT,
+    UNIQUE(source_type, source_pattern)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_import_templates_source_type
+    ON prompt_import_templates(source_type);
+  CREATE INDEX IF NOT EXISTS idx_import_templates_pattern
+    ON prompt_import_templates(source_pattern);
+
+  -- Prompt Import Logs table (audit trail for imports)
+  CREATE TABLE IF NOT EXISTS prompt_import_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    import_id TEXT NOT NULL,
+    source_type TEXT NOT NULL CHECK (source_type IN ('url', 'file', 'paste')),
+    source_identifier TEXT NOT NULL,
+    template_id TEXT,
+    parsing_method TEXT NOT NULL CHECK (parsing_method IN ('regex', 'ai', 'template')),
+    success INTEGER NOT NULL,
+    error_message TEXT,
+    parsed_fields TEXT,
+    raw_content_length INTEGER,
+    processing_time_ms INTEGER,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (template_id) REFERENCES prompt_import_templates(id)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_import_logs_import_id
+    ON prompt_import_logs(import_id);
+  CREATE INDEX IF NOT EXISTS idx_import_logs_created
+    ON prompt_import_logs(created_at DESC);
 `);
 
-console.log('[SQLite] Tables initialized (archives, newsletters, newsletter_logs, subscribers, subscriber_lists, api_keys, api_key_audit_log, oauth_tokens, saved_prompts, image_style_thumbnails, writer_personas, custom_audiences, newsletter_templates, newsletter_drafts, calendar_entries, scheduled_sends, email_tracking, email_stats)');
+console.log('[SQLite] Tables initialized (archives, newsletters, newsletter_logs, subscribers, subscriber_lists, api_keys, api_key_audit_log, oauth_tokens, saved_prompts, image_style_thumbnails, writer_personas, custom_audiences, newsletter_templates, newsletter_drafts, calendar_entries, scheduled_sends, email_tracking, email_stats, system_logs, user_settings, prompt_import_templates, prompt_import_logs)');
 
 // ============================================================================
 // Migration: Enhanced Newsletter Format (v2)

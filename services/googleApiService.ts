@@ -15,6 +15,7 @@
 
 import type { Newsletter, EnhancedNewsletter, GapiAuthData } from '../types';
 import { generateEmailHtml } from '../utils/emailGenerator';
+import { unwrapResponse, extractErrorMessage } from './apiHelper';
 
 const API_BASE = 'http://localhost:3001';
 
@@ -38,7 +39,8 @@ export const checkGoogleAuthStatus = async (userEmail: string): Promise<GoogleAu
     if (!response.ok) {
       return { authenticated: false, userInfo: null };
     }
-    return await response.json();
+    const json = await response.json();
+    return unwrapResponse<GoogleAuthStatus>(json);
   } catch (error) {
     console.error('[GoogleAPI] Failed to check auth status:', error);
     return { authenticated: false, userInfo: null };
@@ -53,13 +55,19 @@ export const initiateGoogleAuth = async (userEmail: string): Promise<void> => {
   try {
     const response = await fetch(`${API_BASE}/api/oauth/google/url?userEmail=${encodeURIComponent(userEmail)}`);
     if (!response.ok) {
-      const data = await response.json();
-      throw new Error(data.error || 'Failed to get authorization URL');
+      const json = await response.json();
+      const errorMsg = json.error?.message || json.error || 'Failed to get authorization URL';
+      throw new Error(errorMsg);
     }
-    const { url } = await response.json();
+    const json = await response.json();
+    const data = unwrapResponse<{ url: string }>(json);
+
+    if (!data.url) {
+      throw new Error('No authorization URL returned');
+    }
 
     // Redirect to Google consent screen
-    window.location.href = url;
+    window.location.href = data.url;
   } catch (error) {
     console.error('[GoogleAPI] Failed to initiate auth:', error);
     throw error;
@@ -77,7 +85,9 @@ export const signOutFromGoogle = async (userEmail: string): Promise<void> => {
       body: JSON.stringify({ userEmail })
     });
     if (!response.ok) {
-      throw new Error('Failed to revoke tokens');
+      const json = await response.json();
+      const errorMsg = json.error?.message || json.error || 'Failed to revoke tokens';
+      throw new Error(errorMsg);
     }
   } catch (error) {
     console.error('[GoogleAPI] Failed to sign out:', error);
@@ -121,8 +131,9 @@ export const saveToDrive = async (
     });
 
     if (!response.ok) {
-      const data = await response.json();
-      throw new Error(data.error || 'Failed to save to Drive');
+      const json = await response.json();
+      const errorMsg = json.error?.message || json.error || 'Failed to save to Drive';
+      throw new Error(errorMsg);
     }
 
     return `Newsletter "${newsletter.subject}" saved to Google Drive.`;
@@ -145,12 +156,14 @@ export const listNewslettersFromDrive = async (
     );
 
     if (!response.ok) {
-      const data = await response.json();
-      throw new Error(data.error || 'Failed to list from Drive');
+      const json = await response.json();
+      const errorMsg = json.error?.message || json.error || 'Failed to list from Drive';
+      throw new Error(errorMsg);
     }
 
-    const data = await response.json();
-    return (data.files || []).map((f: any) => ({
+    const json = await response.json();
+    const data = unwrapResponse<{ files?: Array<{ id: string; name: string; modifiedTime: string }> }>(json);
+    return (data.files || []).map((f) => ({
       fileId: f.id,
       fileName: f.name,
       modifiedTime: f.modifiedTime,
@@ -179,11 +192,13 @@ export const loadNewsletterFromDrive = async (
     );
 
     if (!response.ok) {
-      const data = await response.json();
-      throw new Error(data.error || 'Failed to load from Drive');
+      const json = await response.json();
+      const errorMsg = json.error?.message || json.error || 'Failed to load from Drive';
+      throw new Error(errorMsg);
     }
 
-    const data = await response.json();
+    const json = await response.json();
+    const data = unwrapResponse<{ content: string }>(json);
     const htmlContent = data.content;
 
     // Extract JSON from the embedded script tag
@@ -254,11 +269,13 @@ export const sendEmail = async (
     });
 
     if (!response.ok) {
-      const data = await response.json();
-      throw new Error(data.error || 'Failed to send email');
+      const json = await response.json();
+      const errorMsg = json.error?.message || json.error || 'Failed to send email';
+      throw new Error(errorMsg);
     }
 
-    const result = await response.json();
+    const json = await response.json();
+    const result = unwrapResponse<{ totalSent: number }>(json);
     return {
       message: `Email sent successfully to ${result.totalSent} subscriber(s).`,
       sentCount: result.totalSent,
@@ -357,7 +374,8 @@ export const loadGoogleCredentialsFromBackend = async (userEmail: string): Promi
     const response = await fetch(`${API_BASE}/api/keys/google/credentials?userEmail=${encodeURIComponent(userEmail)}`);
     if (!response.ok) return false;
 
-    const data = await response.json();
+    const json = await response.json();
+    const data = unwrapResponse<{ configured?: boolean }>(json);
     return data.configured === true;
   } catch (error) {
     console.warn('[GoogleAPI] Error checking credentials:', error);

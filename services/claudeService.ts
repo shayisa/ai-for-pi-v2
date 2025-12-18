@@ -1,7 +1,5 @@
 import { withRetry } from "../utils/retry";
-
-// Backend API base URL
-const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
+import { apiRequest, unwrapResponse, extractErrorMessage, API_BASE } from "./apiHelper";
 
 // Helper functions (kept for consistency, used by UI only)
 const getAudienceDescription = (audience: string[]): string => {
@@ -51,6 +49,16 @@ const getFlavorInstructions = (flavors: string[]): string => {
     `;
 };
 
+// Response types
+interface TextResponse {
+  text: string;
+}
+
+interface ImageResponse {
+  image?: string;
+  error?: string;
+}
+
 // Main API functions that call the backend
 
 const generateNewsletterContentInternal = async (
@@ -58,29 +66,21 @@ const generateNewsletterContentInternal = async (
   audience: string[],
   tone: string,
   flavors: string[],
-  imageStyle: string
+  imageStyle: string,
+  personaId?: string
 ): Promise<{ text: string }> => {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/generateNewsletter`, {
+    return await apiRequest<TextResponse>('/api/generateNewsletter', {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
       body: JSON.stringify({
         topics,
         audience,
         tone,
         flavors,
         imageStyle,
+        personaId,
       }),
     });
-
-    if (!response.ok) {
-      throw new Error(`API error: ${response.statusText}`);
-    }
-
-    const data = await response.json() as { text: string };
-    return data;
   } catch (error) {
     console.error("Error generating newsletter content:", error);
     throw error;
@@ -92,23 +92,13 @@ const generateTopicSuggestionsInternal = async (
   sources?: string
 ): Promise<{ text: string }> => {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/generateTopicSuggestions`, {
+    return await apiRequest<TextResponse>('/api/generateTopicSuggestions', {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
       body: JSON.stringify({
         audience,
         sources,
       }),
     });
-
-    if (!response.ok) {
-      throw new Error(`API error: ${response.statusText}`);
-    }
-
-    const data = await response.json() as { text: string };
-    return data;
   } catch (error) {
     console.error("Error generating topic suggestions:", error);
     throw error;
@@ -119,22 +109,12 @@ const generateTrendingTopicsInternal = async (
   audience: string[]
 ): Promise<{ text: string }> => {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/generateTrendingTopics`, {
+    return await apiRequest<TextResponse>('/api/generateTrendingTopics', {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
       body: JSON.stringify({
         audience,
       }),
     });
-
-    if (!response.ok) {
-      throw new Error(`API error: ${response.statusText}`);
-    }
-
-    const data = await response.json() as { text: string };
-    return data;
   } catch (error) {
     console.error("Error generating trending topics:", error);
     throw error;
@@ -166,22 +146,14 @@ const generateTrendingTopicsWithSourcesInternal = async (
       `- "${s.title}" from ${s.publication} (${s.category}): ${s.url}`
     ).join('\n');
 
-    const response = await fetch(`${API_BASE_URL}/api/generateTrendingTopicsWithSources`, {
+    const data = await apiRequest<TextResponse>('/api/generateTrendingTopicsWithSources', {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
       body: JSON.stringify({
         audience,
         sources: sourceSummary,
       }),
     });
 
-    if (!response.ok) {
-      throw new Error(`API error: ${response.statusText}`);
-    }
-
-    const data = await response.json() as { text: string };
     return {
       text: data.text,
       sources: trendingSources,
@@ -192,16 +164,25 @@ const generateTrendingTopicsWithSourcesInternal = async (
   }
 };
 
-// Image Generation via Backend (which calls Stability AI)
+/**
+ * Image Generation via Backend (calls Stability AI)
+ *
+ * JUSTIFIED EXCEPTION for API Response Standardization (Phase 7b):
+ * This function intentionally uses raw fetch instead of apiRequest because:
+ * 1. Returns a placeholder image (1x1 transparent PNG) on ANY error
+ * 2. Provides detailed status-code-specific error messages (401, 403, 400, 429)
+ * 3. Already uses unwrapResponse() for response handling
+ *
+ * This prevents the app from crashing when Stability AI is unavailable or
+ * quota is exceeded. Callers expect a base64 string, not an exception.
+ */
 const generateImageInternal = async (prompt: string, imageStyle?: string): Promise<string> => {
   try {
-    const endpoint = `${API_BASE_URL}/api/generateImage`;
-
     console.log("Attempting image generation via backend...");
     console.log("Prompt:", prompt.substring(0, 100) + "...");
     console.log("Image Style:", imageStyle || "default (photorealistic)");
 
-    const response = await fetch(endpoint, {
+    const response = await fetch(`${API_BASE}/api/generateImage`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -212,7 +193,8 @@ const generateImageInternal = async (prompt: string, imageStyle?: string): Promi
     console.log("Backend Response Status:", response.status, response.statusText);
 
     if (!response.ok) {
-      const errorData = await response.json() as { error?: string; details?: string };
+      const errorJson = await response.json();
+      const errorData = unwrapResponse<{ error?: string; details?: string }>(errorJson);
       console.error("Backend Error Response:", errorData);
 
       if (response.status === 401 || response.status === 403) {
@@ -230,18 +212,16 @@ const generateImageInternal = async (prompt: string, imageStyle?: string): Promi
       throw new Error(`Image generation error: ${response.status} - ${errorData.error || response.statusText}`);
     }
 
-    const responseJson = await response.json() as {
-      image?: string,
-      error?: string
-    };
+    const responseJson = await response.json();
+    const data = unwrapResponse<ImageResponse>(responseJson);
 
-    if (responseJson.error) {
-      throw new Error(`Image generation failed: ${responseJson.error}`);
+    if (data.error) {
+      throw new Error(`Image generation failed: ${data.error}`);
     }
 
-    if (responseJson.image) {
+    if (data.image) {
       console.log("Image generated successfully");
-      return responseJson.image;
+      return data.image;
     }
 
     throw new Error("No image data in response");
@@ -274,27 +254,18 @@ export const generateTopicSuggestions = withRetry(
 export const generateTrendingTopics = withRetry(
   generateTrendingTopicsInternal
 );
+
 const generateCompellingTrendingContentInternal = async (
   audience: string[]
 ): Promise<{ text: string }> => {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/generateCompellingTrendingContent`, {
+    return await apiRequest<TextResponse>('/api/generateCompellingTrendingContent', {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
       body: JSON.stringify({
         audience,
         sources: "fetch_fresh", // Signal backend to fetch and score fresh sources
       }),
     });
-
-    if (!response.ok) {
-      throw new Error(`API error: ${response.statusText}`);
-    }
-
-    const data = await response.json() as { text: string };
-    return data;
   } catch (error) {
     console.error("Error generating compelling trending content:", error);
     throw error;
@@ -316,44 +287,31 @@ export const editImage = withRetry(editImageInternal);
 
 export const savePresetsToCloud = async (presets: any[], accessToken: string): Promise<{ message: string }> => {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/savePresets`, {
+    return await apiRequest<{ message: string }>('/api/savePresets', {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
       body: JSON.stringify({
         presets,
         accessToken,
       }),
     });
-
-    if (!response.ok) {
-      throw new Error(`API error: ${response.statusText}`);
-    }
-
-    const data = await response.json() as { message: string };
-    return data;
   } catch (error) {
     console.error("Error saving presets to cloud:", error);
     throw error;
   }
 };
 
+/**
+ * Load presets from Google Sheets via backend API
+ * Uses apiRequest with custom Authorization header
+ */
 export const loadPresetsFromCloud = async (accessToken: string): Promise<{ presets: any[] }> => {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/loadPresets`, {
-      method: "GET",
+    return await apiRequest<{ presets: any[] }>('/api/loadPresets', {
+      method: 'GET',
       headers: {
-        "Authorization": `Bearer ${accessToken}`,
+        'Authorization': `Bearer ${accessToken}`,
       },
     });
-
-    if (!response.ok) {
-      throw new Error(`API error: ${response.statusText}`);
-    }
-
-    const data = await response.json() as { presets: any[] };
-    return data;
   } catch (error) {
     console.error("Error loading presets from cloud:", error);
     throw error;

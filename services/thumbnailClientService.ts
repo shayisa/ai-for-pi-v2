@@ -4,35 +4,20 @@
  */
 
 import type { StyleThumbnail, ThumbnailStatus } from '../types';
-
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+import { apiRequest } from './apiHelper';
 
 /**
  * Get all stored thumbnails
  */
 export const getThumbnails = async (): Promise<{ thumbnails: StyleThumbnail[] }> => {
-  const response = await fetch(`${API_BASE}/api/thumbnails`);
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to fetch thumbnails');
-  }
-
-  return response.json();
+  return apiRequest<{ thumbnails: StyleThumbnail[] }>('/api/thumbnails');
 };
 
 /**
  * Get thumbnail generation status (which styles are missing)
  */
 export const getThumbnailStatus = async (): Promise<ThumbnailStatus> => {
-  const response = await fetch(`${API_BASE}/api/thumbnails/status`);
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to fetch thumbnail status');
-  }
-
-  return response.json();
+  return apiRequest<ThumbnailStatus>('/api/thumbnails/status');
 };
 
 /**
@@ -41,15 +26,10 @@ export const getThumbnailStatus = async (): Promise<ThumbnailStatus> => {
 export const generateThumbnail = async (
   styleName: string
 ): Promise<{ thumbnail: StyleThumbnail; cached: boolean }> => {
-  const response = await fetch(`${API_BASE}/api/thumbnails/${styleName}/generate`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' }
-  });
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || `Failed to generate thumbnail for ${styleName}`);
-  }
-
-  return response.json();
+  return apiRequest<{ thumbnail: StyleThumbnail; cached: boolean }>(
+    `/api/thumbnails/${encodeURIComponent(styleName)}/generate`,
+    {
+      method: 'POST',
+    }
+  );
 };

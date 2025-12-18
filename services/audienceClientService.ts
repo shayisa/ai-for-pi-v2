@@ -3,7 +3,7 @@
  * Frontend API client for managing custom audiences via SQLite backend
  */
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+import { apiRequest } from './apiHelper.ts';
 
 // Types
 export interface AudienceGenerated {
@@ -34,28 +34,14 @@ export interface AudienceListResponse {
  * Get all custom audiences (non-default)
  */
 export const getCustomAudiences = async (): Promise<AudienceListResponse> => {
-  const response = await fetch(`${API_BASE}/api/audiences`);
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to fetch audiences');
-  }
-
-  return response.json();
+  return apiRequest<AudienceListResponse>('/api/audiences');
 };
 
 /**
  * Get audience by ID
  */
 export const getAudienceById = async (id: string): Promise<CustomAudience> => {
-  const response = await fetch(`${API_BASE}/api/audiences/${encodeURIComponent(id)}`);
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to fetch audience');
-  }
-
-  return response.json();
+  return apiRequest<CustomAudience>(`/api/audiences/${encodeURIComponent(id)}`);
 };
 
 /**
@@ -66,18 +52,10 @@ export const createAudience = async (
   description: string,
   generated?: AudienceGenerated
 ): Promise<CustomAudience> => {
-  const response = await fetch(`${API_BASE}/api/audiences`, {
+  return apiRequest<CustomAudience>('/api/audiences', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, description, generated }),
   });
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to create audience');
-  }
-
-  return response.json();
 };
 
 /**
@@ -90,32 +68,18 @@ export const saveAudience = async (audience: {
   generated?: AudienceGenerated;
   isCustom?: boolean;
 }): Promise<CustomAudience> => {
-  const response = await fetch(`${API_BASE}/api/audiences/save`, {
+  return apiRequest<CustomAudience>('/api/audiences/save', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(audience),
   });
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to save audience');
-  }
-
-  return response.json();
 };
 
 /**
  * Delete a custom audience
  */
 export const deleteAudience = async (id: string): Promise<{ success: boolean; message: string }> => {
-  const response = await fetch(`${API_BASE}/api/audiences/${encodeURIComponent(id)}`, {
-    method: 'DELETE',
-  });
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to delete audience');
-  }
-
-  return response.json();
+  return apiRequest<{ success: boolean; message: string }>(
+    `/api/audiences/${encodeURIComponent(id)}`,
+    { method: 'DELETE' }
+  );
 };
