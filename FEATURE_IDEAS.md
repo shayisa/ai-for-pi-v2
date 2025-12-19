@@ -1,112 +1,103 @@
 # Feature Ideas for AI Newsletter Generator
 
-> Saved: December 2024
-> Status: Planning for future implementation
+> **Last Updated:** December 2024
+> **Status:** Phase 8+ Complete - All core features implemented
 
 ---
 
-## High-Value Additions
+## Completed Features (Phase 8+)
 
-### 1. Saved Prompt Templates
-Save and reuse "Prompt of the Day" templates. Infrastructure exists - needs `saved_prompts` table and UI to browse/select.
+All features from the original roadmap have been implemented:
 
-**Effort:** Low
-**Files:** `server/db/init.ts`, `server/services/promptDbService.ts`, new component
+### High-Value Features ✅
 
----
+| Feature | Status | Implementation |
+|---------|--------|----------------|
+| **Saved Prompt Templates** | ✅ Complete | `saved_prompts` table, `promptDbService.ts`, Library UI in editor |
+| **Persona + Tone Presets** | ✅ Complete | `PresetsContext.tsx`, `usePresets.ts` |
+| **Custom Audience Definitions** | ✅ Complete | `custom_audiences` table, `audienceDbService.ts`, `AudienceEditor.tsx` |
+| **A/B Persona Preview** | ✅ Complete | `PersonaABPreview.tsx` component |
+| **Newsletter Templates** | ✅ Complete | `newsletter_templates` table, `templateDbService.ts` |
 
-### 2. Persona + Tone Presets
-Let users save combinations (persona + tone + flavors) as named presets like "Weekly Tech Roundup" or "Executive Summary Style".
+### Quality-of-Life Improvements ✅
 
-**Effort:** Low (Preset type already supports this)
-**Files:** `hooks/usePresets.ts`, `PresetsManager.tsx`
+| Feature | Status | Implementation |
+|---------|--------|----------------|
+| **Tone Preview** | ✅ Complete | `ToneAndVisualsPage.tsx` |
+| **Persona Favorites** | ✅ Complete | `personaDbService.ts` with `is_favorite` field |
+| **Generation History per Persona** | ✅ Complete | `newsletter_logs` with persona tracking |
+| **Draft Auto-Save** | ✅ Complete | `newsletter_drafts` table, `draftDbService.ts`, auto-save hook |
+| **Image Style Thumbnails** | ✅ Complete | `image_style_thumbnails` table, preview images |
 
----
+### Advanced Features ✅
 
-### 3. Custom Audience Definitions
-Currently audiences are hardcoded (`academics`, `business`, `analysts`). Allow users to create custom audiences with their own descriptions, similar to personas.
-
-**Effort:** Medium
-**Files:** New `audiences` table, `audienceDbService.ts`, `AudienceEditor.tsx`, update `App.tsx`
-
----
-
-### 4. A/B Persona Preview
-Generate the same newsletter intro with 2-3 different personas side-by-side to help users pick the right voice.
-
-**Effort:** Medium
-**Files:** New `PersonaCompare.tsx` component, additional API call logic
-
----
-
-### 5. Newsletter Templates
-Save newsletter structures (number of sections, section types, image placement) as reusable templates separate from content.
-
-**Effort:** Medium
-**Files:** New `templates` table, `templateDbService.ts`, `TemplateEditor.tsx`
+| Feature | Status | Implementation |
+|---------|--------|----------------|
+| **Scheduled Publishing** | ✅ Complete | `scheduled_sends` table, `schedulerService.ts` |
+| **Email Analytics** | ✅ Complete | `email_tracking`, `email_stats` tables |
+| **Content Calendar** | ✅ Complete | `calendar_entries` table, `ContentCalendarPage.tsx` |
+| **Multi-Source Prompt Import** | ✅ Complete | `promptImport.routes.ts`, `fileExtractorService.ts` |
+| **System Logs** | ✅ Complete | `system_logs` table, `LogsPage.tsx` with search/export |
 
 ---
 
-## Quality-of-Life Improvements
+## Potential Future Enhancements
 
-| Feature | Benefit | Effort |
-|---------|---------|--------|
-| **Tone Preview** | Show sample output for each tone before generating | Low |
-| **Persona Favorites** | Pin frequently used personas to top | Low |
-| **Generation History per Persona** | See past newsletters by persona | Low |
-| **Bulk Image Regeneration** | Regenerate all images with a new style | Medium |
-| **Draft Auto-Save** | Save in-progress newsletters | Medium |
-
----
-
-## Advanced Features (More Effort)
-
-### Scheduled Publishing
-Auto-generate and send newsletters on a schedule.
-
-**Effort:** High
-**Requires:** Background job system (node-cron or similar), schedule management UI
-
----
+These features are not currently planned but could be added:
 
 ### Multi-language Output
 Generate newsletters in different languages.
 
 **Effort:** Medium
-**Requires:** Language selector, prompt modifications, possibly translation API
+**Would require:** Language selector, prompt modifications, possibly translation API
 
 ---
 
-### Email Analytics
-Track opens/clicks for sent newsletters.
-
-**Effort:** High
-**Requires:** Tracking pixel integration, click redirect system, analytics dashboard
-
----
-
-### Content Calendar
-Plan upcoming newsletter topics in advance.
+### Bulk Image Regeneration
+Regenerate all images in a newsletter with a new style.
 
 **Effort:** Medium
-**Requires:** Calendar UI component, `planned_newsletters` table
+**Would require:** Batch image generation endpoint, progress tracking
 
 ---
 
-## Recommended Starting Point
+### Browser Extension
+One-click import prompts from any web page.
 
-**Custom Audience Definitions** - Natural extension of the persona pattern already implemented. Similar architecture:
-- `audiences` SQLite table
-- `audienceDbService.ts` for CRUD
-- `audienceClientService.ts` for frontend
-- `useAudiences.ts` hook
-- `AudienceEditor.tsx` modal
-- Update `DiscoverTopicsPage.tsx` to use custom audiences
+**Effort:** High
+**Would require:** Chrome/Firefox extension, content script for extraction
 
 ---
 
-## Implementation Notes
+### OCR for Scanned PDFs
+Extract text from scanned PDF documents.
 
-- All features should follow the existing pattern: SQLite table → backend service → client service → hook → component
-- Maintain the layered prompt architecture: Persona → Tone → Flavors → Audience
-- Keep UI consistent with existing design system (Framer Motion animations, card layouts)
+**Effort:** High
+**Would require:** tesseract.js integration, image preprocessing
+
+---
+
+### Newsletter Analytics Dashboard
+Comprehensive dashboard showing engagement metrics over time.
+
+**Effort:** Medium
+**Would require:** Charts/graphs library, aggregated stats queries
+
+---
+
+## Architecture Patterns (Reference)
+
+All implemented features follow the established pattern:
+
+```
+SQLite Table → Backend Service → Client Service → Hook → Component
+     ↓              ↓                 ↓            ↓        ↓
+ 22 tables     28 services       21 services   17 hooks  37 components
+```
+
+The layered prompt architecture is maintained:
+```
+Writer Persona → Tone → Flavors → Audience → Topics
+```
+
+UI follows the editorial design system with Framer Motion animations.

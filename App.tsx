@@ -52,12 +52,16 @@ const audienceOptions: Record<string, { label: string; description: string }> = 
     analysts: { label: 'Data Analysts', description: 'Analysts extracting business intelligence.' },
 };
 
+// Phase 13.1: Research-backed 8-tone system (from 77+ award-winning newsletters)
 const toneOptions: Record<string, { label: string; description: string; sampleOutput: string }> = {
-    professional: { label: 'Professional', description: 'Formal, objective, and authoritative.', sampleOutput: 'Our comprehensive analysis indicates a significant positive trend in Q3 metrics, driven by strategic resource allocation.' },
-    casual: { label: 'Casual', description: 'Friendly, relaxed, and conversational.', sampleOutput: 'Hey team! Just wanted to share some awesome news about our latest project—it’s really coming together!' },
-    witty: { label: 'Witty', description: 'Clever, humorous, and engaging.', sampleOutput: 'Why did the AI break up with the calculator? Because it just couldn’t count on it anymore!' },
-    enthusiastic: { label: 'Enthusiastic', description: 'Excited, passionate, and energetic.', sampleOutput: 'Get ready to be absolutely blown away by the incredible breakthroughs in AI this week!' },
-    informative: { label: 'Informative', description: 'Direct, clear, and educational.', sampleOutput: 'The process involves three distinct phases: data acquisition, model training, and iterative validation.' },
+    warm: { label: 'Warm', description: 'Friendly, accepting, and celebratory. Perfect for community and support content.', sampleOutput: "Welcome! We're so glad you're here. Here's what helped me, and I think it'll help you too." },
+    confident: { label: 'Confident', description: 'Sure, direct, and authoritative. No hedging. Perfect for business and leadership.', sampleOutput: "This works. We've proven it with 50+ companies. Here's exactly what you need to do." },
+    witty: { label: 'Witty', description: 'Clever, humorous, and engaging. Insider jokes that reward knowledge.', sampleOutput: 'This tool is impossibly good. The algorithm finally learned to be useful (only took 10 years).' },
+    empathetic: { label: 'Empathetic', description: 'Understanding, validating, and supportive. Perfect for wellness and difficult topics.', sampleOutput: "I know this is hard. You're not alone in this—most people struggle with exactly what you're facing." },
+    analytical: { label: 'Analytical', description: 'Thoughtful, intellectual, and nuanced. Multiple perspectives examined.', sampleOutput: 'On the surface, this seems like a simple efficiency gain. But actually, the second-order effects reveal something unexpected...' },
+    urgent: { label: 'Urgent', description: 'Fast-paced, action-focused, FOMO-inducing. For breaking news and launches.', sampleOutput: "This changes everything. You need to know this now. Here's what's happening—and why it matters." },
+    introspective: { label: 'Introspective', description: 'Reflective, questioning, and contemplative. For essays and personal development.', sampleOutput: "I've been thinking about this all week. Why do we believe this? What if we're asking the wrong question entirely?" },
+    serious: { label: 'Serious', description: 'Formal, grave, and respectful. For crisis, investigative, or policy content.', sampleOutput: 'This matter demands your attention. The implications extend beyond the immediate situation, affecting how we understand...' },
 };
 
 const flavorOptions: Record<string, { label: string; description: string }> = {
@@ -937,12 +941,15 @@ const AppContent: React.FC = () => {
             setLoading("Fetching sources from GDELT, ArXiv, Reddit...");
             setProgress(20);
 
+            // Phase 14: Pass tone and flavors for quality fix
             const result = await enhancedNewsletterService.generateEnhancedNewsletter({
                 topics: selectedTopics,
                 audiences: selectedAudienceConfigs,
                 imageStyle: selectedImageStyle,
                 promptOfTheDay: promptOfTheDay, // Include user-supplied prompt if set
                 personaId: activePersona?.id,
+                tone: selectedTone,
+                flavors: getFlavorKeys(),
             });
 
             setProgress(70);

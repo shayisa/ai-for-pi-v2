@@ -13,6 +13,8 @@ export interface GenerateEnhancedNewsletterRequest {
   imageStyle?: string;
   promptOfTheDay?: PromptOfTheDay | null;
   personaId?: string;
+  tone?: string;      // Phase 14: User-selected tone
+  flavors?: string[]; // Phase 14: User-selected flavors
 }
 
 export interface GenerateEnhancedNewsletterResponse {

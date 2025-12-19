@@ -28,12 +28,25 @@ import * as audienceApi from '../services/audienceClientService';
 import { useAuth } from './AuthContext';
 
 /**
- * Tone option type (from App.tsx lines 54-60)
+ * Tone execution rules - research-backed guidance for AI generation
+ * Based on analysis of 77+ award-winning newsletters
+ */
+export interface ToneExecutionRules {
+  sentenceConstruction: string[];  // How to build sentences
+  wordsToUse: string[];           // Preferred language patterns
+  wordsToAvoid: string[];         // Language to avoid
+  punctuationStyle: string;       // Punctuation guidance
+}
+
+/**
+ * Tone option type - enhanced with execution rules
+ * Phase 13.1: Research-backed tone system
  */
 export interface ToneOption {
   label: string;
   description: string;
   sampleOutput: string;
+  executionRules: ToneExecutionRules;
 }
 
 /**
@@ -53,37 +66,133 @@ export interface ImageStyleOption {
 }
 
 /**
- * Default tone options (from App.tsx lines 54-60)
+ * Default tone options - Phase 13.1: Research-backed 8-tone system
+ * Based on analysis of 77+ award-winning newsletters including Morning Brew,
+ * Wait But Why, Lenny's Newsletter, Blackbird Spyplane, and more.
  */
 export const DEFAULT_TONE_OPTIONS: Record<string, ToneOption> = {
-  professional: {
-    label: 'Professional',
-    description: 'Formal, objective, and authoritative.',
-    sampleOutput:
-      'Our comprehensive analysis indicates a significant positive trend in Q3 metrics, driven by strategic resource allocation.',
+  warm: {
+    label: 'Warm',
+    description: 'Friendly, accepting, and celebratory. Perfect for community and support content.',
+    sampleOutput: "Welcome! We're so glad you're here. Here's what helped me, and I think it'll help you too.",
+    executionRules: {
+      sentenceConstruction: [
+        'Use positive framing: "Here\'s what helped" not "Don\'t do this"',
+        'Include gratitude: "Thanks for being here"',
+        'Celebrate wins and progress',
+      ],
+      wordsToUse: ['welcome', 'glad', 'excited', 'appreciate', 'together'],
+      wordsToAvoid: ['unfortunately', 'problem', 'issue', 'failed'],
+      punctuationStyle: 'Occasional exclamation points (use carefully), warm ellipses',
+    },
   },
-  casual: {
-    label: 'Casual',
-    description: 'Friendly, relaxed, and conversational.',
-    sampleOutput:
-      "Hey team! Just wanted to share some awesome news about our latest project—it's really coming together!",
+  confident: {
+    label: 'Confident',
+    description: 'Sure, direct, and authoritative. No hedging. Perfect for business and leadership.',
+    sampleOutput: "This works. We've proven it with 50+ companies. Here's exactly what you need to do.",
+    executionRules: {
+      sentenceConstruction: [
+        'Short, declarative sentences',
+        'Active voice only',
+        'Imperative mood: "Do this" not "You might consider"',
+      ],
+      wordsToUse: ['proven', 'works', 'results', 'exactly', "here's how"],
+      wordsToAvoid: ['seems', 'might', 'perhaps', 'appears', 'arguably', 'I think'],
+      punctuationStyle: 'Periods. Short sentences. Direct.',
+    },
   },
   witty: {
     label: 'Witty',
-    description: 'Clever, humorous, and engaging.',
-    sampleOutput:
-      "Why did the AI break up with the calculator? Because it just couldn't count on it anymore!",
+    description: 'Clever, humorous, and engaging. Insider jokes that reward knowledge.',
+    sampleOutput: 'This tool is impossibly good. The algorithm finally learned to be useful (only took 10 years).',
+    executionRules: {
+      sentenceConstruction: [
+        'Unexpected word choices and wordplay',
+        'Timing through sentence length variation',
+        'Deadpan delivery followed by punchline',
+      ],
+      wordsToUse: ['impossibly', 'finally', 'actually', 'somehow'],
+      wordsToAvoid: ['LOL', 'hilarious', 'funny thing is', 'haha'],
+      punctuationStyle: 'Parentheticals for asides, em dashes for timing',
+    },
   },
-  enthusiastic: {
-    label: 'Enthusiastic',
-    description: 'Excited, passionate, and energetic.',
-    sampleOutput: 'Get ready to be absolutely blown away by the incredible breakthroughs in AI this week!',
+  empathetic: {
+    label: 'Empathetic',
+    description: 'Understanding, validating, and supportive. Perfect for wellness and difficult topics.',
+    sampleOutput: "I know this is hard. You're not alone in this—most people struggle with exactly what you're facing.",
+    executionRules: {
+      sentenceConstruction: [
+        'Acknowledge feelings first, then information',
+        'Use second person: "You" and "your"',
+        'Validate before advising',
+      ],
+      wordsToUse: ['understand', 'feel', 'struggle', 'not alone', 'valid'],
+      wordsToAvoid: ['just', 'simply', 'obviously', 'easy', 'should have'],
+      punctuationStyle: 'Gentle pauses with em dashes, ellipses for reflection',
+    },
   },
-  informative: {
-    label: 'Informative',
-    description: 'Direct, clear, and educational.',
+  analytical: {
+    label: 'Analytical',
+    description: 'Thoughtful, intellectual, and nuanced. Multiple perspectives examined.',
     sampleOutput:
-      'The process involves three distinct phases: data acquisition, model training, and iterative validation.',
+      'On the surface, this seems like a simple efficiency gain. But actually, the second-order effects reveal something unexpected...',
+    executionRules: {
+      sentenceConstruction: [
+        'Complex sentence structures with clear logic',
+        'Transitional language: "However," "Conversely," "Moreover"',
+        '"On the surface... but actually..." pattern',
+      ],
+      wordsToUse: ['however', 'conversely', 'notably', 'interestingly', 'reveals'],
+      wordsToAvoid: ['obviously', 'clearly', 'everyone knows'],
+      punctuationStyle: 'Colons for explanations, semicolons for related ideas',
+    },
+  },
+  urgent: {
+    label: 'Urgent',
+    description: 'Fast-paced, action-focused, FOMO-inducing. For breaking news and launches.',
+    sampleOutput: "This changes everything. You need to know this now. Here's what's happening—and why it matters.",
+    executionRules: {
+      sentenceConstruction: [
+        'Short sentences. Very short.',
+        'Time-specific framing',
+        'Direct calls to action',
+      ],
+      wordsToUse: ['now', 'immediately', 'breaking', 'just announced', 'this changes'],
+      wordsToAvoid: ['eventually', 'sometime', 'might want to consider'],
+      punctuationStyle: 'Periods for punch. Em dashes for speed. Exclamation points (sparingly).',
+    },
+  },
+  introspective: {
+    label: 'Introspective',
+    description: 'Reflective, questioning, and contemplative. For essays and personal development.',
+    sampleOutput:
+      "I've been thinking about this all week. Why do we believe this? What if we're asking the wrong question entirely?",
+    executionRules: {
+      sentenceConstruction: [
+        'Questions without immediate answers',
+        'First person reflection: "I\'ve been thinking..."',
+        'Exploration over conclusions',
+      ],
+      wordsToUse: ['wondering', 'perhaps', 'what if', "I've noticed", 'makes me think'],
+      wordsToAvoid: ['definitely', 'certainly', 'the answer is', 'everyone should'],
+      punctuationStyle: 'Question marks for genuine inquiry, ellipses for trailing thoughts...',
+    },
+  },
+  serious: {
+    label: 'Serious',
+    description: 'Formal, grave, and respectful. For crisis, investigative, or policy content.',
+    sampleOutput:
+      'This matter demands your attention. The implications extend beyond the immediate situation, affecting how we understand...',
+    executionRules: {
+      sentenceConstruction: [
+        'Formal without being cold',
+        'Acknowledge stakes clearly',
+        'Measured, deliberate pacing',
+      ],
+      wordsToUse: ['significant', 'implications', 'important to understand', 'deserves attention'],
+      wordsToAvoid: ['joke', 'fun', 'exciting', 'cool', 'awesome'],
+      punctuationStyle: 'Conservative punctuation, no exclamation points, formal structure',
+    },
   },
 };
 
@@ -273,7 +382,8 @@ export const NewsletterProvider: React.FC<NewsletterProviderProps> = ({ children
   const [lastDraftSaveTime, setLastDraftSaveTime] = useState<Date | null>(null);
 
   // Tone, flavor, and image style settings (Phase 6g.0 - from App.tsx lines 150-152)
-  const [selectedTone, setSelectedTone] = useState<string>('professional');
+  // Phase 13.1: Default to 'confident' (research-backed replacement for 'professional')
+  const [selectedTone, setSelectedTone] = useState<string>('confident');
   const [selectedFlavors, setSelectedFlavors] = useState<Record<string, boolean>>({});
   const [selectedImageStyle, setSelectedImageStyle] = useState<string>('photorealistic');
 

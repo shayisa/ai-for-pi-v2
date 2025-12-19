@@ -17,6 +17,7 @@ import { getAnthropicClient, webSearchTool, searchGuidance } from '../../../exte
 import { processToolCall } from '../../../external/brave';
 import { getAudienceDescription } from '../helpers/audienceHelpers';
 import { getFlavorInstructions } from '../helpers/flavorHelpers';
+import { getToneInstructions } from '../helpers/toneHelpers';
 import { getDateRangeDescription } from '../helpers/dateHelpers';
 import { sanitizeNewsletter } from '../helpers/sanitizers';
 import * as newsletterDbService from '../../../services/newsletterDbService';
@@ -112,6 +113,7 @@ function buildPersonaInstructions(persona: WriterPersona | null): string {
  * Build user message - EXACT copy from server.ts lines 824-899
  * DO NOT MODIFY any text in this function
  * Phase 12.0: Added personaInstructions parameter (appended after flavorInstructions)
+ * Phase 13.1: Added toneInstructions parameter for research-backed tone execution rules
  */
 function buildUserMessage(
   topics: string[],
@@ -120,7 +122,8 @@ function buildUserMessage(
   flavorInstructions: string,
   dateRange: { startDate: string; endDate: string; range: string },
   styleDescription: string,
-  personaInstructions?: string
+  personaInstructions?: string,
+  toneInstructions?: string
 ): string {
   return `
     You are an award-winning professional newsletter writer with a background in technology journalism and expert storytelling. Your task is to research and write compelling, human-centric newsletter content about: "${topics.join(
@@ -153,6 +156,7 @@ function buildUserMessage(
     You MUST tailor the content, examples, and language to be relevant and valuable to this specific audience. Think like a newsletter editor writing for people you know.
 
     The primary tone MUST be ${tone}. Reflect this authentically throughout the subject, introduction, sections, and conclusion—not as an overlay but as the natural voice.
+    ${toneInstructions || ''}
     ${flavorInstructions}
     ${personaInstructions || ''}
 
@@ -222,6 +226,7 @@ export async function generateNewsletter(
 
     const audienceDescription = getAudienceDescription(audience);
     const flavorInstructions = getFlavorInstructions(flavors);
+    const toneInstructions = getToneInstructions(tone);  // Phase 13.1: Research-backed tone execution rules
     const dateRange = getDateRangeDescription();
     const styleDescription = imageStyleMap[imageStyle] || "photorealistic";
     const personaInstructions = buildPersonaInstructions(persona);
@@ -233,7 +238,8 @@ export async function generateNewsletter(
       flavorInstructions,
       dateRange,
       styleDescription,
-      personaInstructions
+      personaInstructions,
+      toneInstructions
     );
 
     let messages: Anthropic.Messages.MessageParam[] = [

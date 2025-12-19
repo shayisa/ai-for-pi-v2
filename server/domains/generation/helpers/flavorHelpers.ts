@@ -72,3 +72,83 @@ export const getFlavorInstructions = (flavors: string[]): string => {
     ${instructions.join("\n")}
     `;
 };
+
+/**
+ * Flavor formatting rules for content structure
+ *
+ * Phase 14: Research-backed formatting rules based on Newsletter Type Guide analysis.
+ * Different flavors require different content structures and presentation.
+ *
+ * @param flavors - Array of flavor keys
+ * @returns Formatting rules string for system prompt
+ */
+const flavorFormattingRulesMap: Record<string, string> = {
+  citeData: `DATA-DRIVEN FORMATTING:
+- Highlight numbers and percentages prominently (e.g., "73% of users reported...")
+- Use comparisons to show scale ("up from X to Y", "3x faster than", "50% reduction")
+- Include specific sources for every statistic cited
+- Use bullet points for lists of data points
+- Create mini-tables or structured lists for comparing metrics`,
+
+  includeHumor: `CONVERSATIONAL FORMATTING:
+- Use contractions naturally ("you're", "it's", "don't")
+- Direct address to engage readers ("You know that feeling when...")
+- Vary sentence length for rhythm - mix short punchy lines with longer explanations
+- Add parenthetical asides for personality (like this one)
+- End sections with memorable, quotable lines`,
+
+  useSlang: `MODERN VOICE FORMATTING:
+- Keep paragraphs short (3-4 sentences max)
+- Use casual transitions ("So here's the thing...", "Real talk:")
+- Break the fourth wall occasionally
+- Include pop culture references where relevant
+- Use bold for emphasis on key phrases`,
+
+  useJargon: `TECHNICAL FORMATTING:
+- Define acronyms on first use, then use freely
+- Use inline code formatting for technical terms
+- Include specification callouts (e.g., "API rate limit: 1000 req/hr")
+- Structure complex concepts with clear subheadings
+- Add "Prerequisites" or "Requirements" callouts`,
+
+  useAnalogies: `EXPLANATORY FORMATTING:
+- Lead technical explanations with the analogy
+- Use "Think of it like..." or "Imagine..." as openers
+- Follow analogies with concrete applications
+- Use visual language that creates mental pictures
+- Connect abstract concepts to everyday experiences`,
+};
+
+/**
+ * Get flavor formatting rules for enhanced content structure
+ *
+ * These rules tell the LLM HOW to format content based on selected flavors,
+ * complementing the getFlavorInstructions which tell WHAT to include.
+ *
+ * @param flavors - Array of flavor keys
+ * @returns Formatted rules string for system prompt
+ */
+export const getFlavorFormattingRules = (flavors: string[]): string => {
+  if (flavors.length === 0) {
+    return `DEFAULT FORMATTING:
+- Use clear, professional formatting throughout
+- Balance short and medium-length paragraphs
+- Include subheadings for scannability
+- Bold key terms and concepts`;
+  }
+
+  const rules = flavors
+    .map((key) => flavorFormattingRulesMap[key])
+    .filter(Boolean);
+
+  if (rules.length === 0) {
+    return `DEFAULT FORMATTING:
+- Use clear, professional formatting throughout
+- Balance short and medium-length paragraphs
+- Include subheadings for scannability
+- Bold key terms and concepts`;
+  }
+
+  return `FLAVOR-SPECIFIC FORMATTING RULES:
+${rules.join('\n\n')}`;
+};

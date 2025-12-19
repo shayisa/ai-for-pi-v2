@@ -2,27 +2,43 @@
 
 > **Comprehensive technical documentation** for understanding, maintaining, and extending the AI Newsletter Generator application.
 
-**Last Updated:** December 2024 (Phase 7 Complete)
-**Version:** 3.0 (Control Plane Architecture)
-**Status:** Production-ready MVP
+**Last Updated:** December 2024 (Phase 8+ Complete)
+**Version:** 3.1 (Full Feature Implementation)
+**Status:** Production-ready with full feature set
 
-## What's New in v3 (Control Plane Architecture)
+## What's New in v3.1 (Phase 8+ Complete)
 
-| Improvement | Before (v2) | After (v3) |
-|-------------|-------------|------------|
-| **Backend** | Monolithic server.ts (3,828 lines) | Modular Control Plane (255 lines entry) |
-| **Database** | Supabase (cloud) | SQLite (local, self-contained) |
-| **Routes** | Inline in server.ts | 16 modular route files (98 endpoints) |
-| **Services** | Mixed in server.ts | Domain services in `/server/domains/` |
-| **State Mgmt** | Props drilling (68 useState) | 6 React Contexts + hooks |
-| **API Format** | Inconsistent | Standardized `{ success, data }` wrapper |
+| Improvement | Before (v3.0) | After (v3.1) |
+|-------------|---------------|--------------|
+| **Database** | 7 tables | 22 tables (full feature set) |
+| **Routes** | 16 route files | 18 route files (120+ endpoints) |
+| **Backend Services** | 12 services | 28 services |
+| **Frontend Services** | 8 services | 21 services |
+| **Components** | 25 components | 37 components |
+| **Pages** | 7 pages | 11 pages |
 
-### Previous v2 Improvements (retained)
+### Phase 8 Features Added
+| Feature | Description |
+|---------|-------------|
+| **Writer Personas** | Custom AI writing personas with favorites |
+| **Custom Audiences** | User-defined audience configurations |
+| **Newsletter Templates** | Reusable newsletter structures |
+| **Content Calendar** | Plan upcoming newsletter topics |
+| **Scheduled Sending** | Auto-send newsletters on schedule |
+| **Email Analytics** | Track opens/clicks for sent newsletters |
+| **Multi-Source Prompt Import** | Import prompts from URLs, DOCX, PDF, PPTX |
+| **System Logs** | Unified activity logging with search/export |
+| **Draft Auto-Save** | Automatic saving of in-progress work |
+| **Image Style Thumbnails** | Preview images for style selection |
+
+### Previous Improvements (retained)
 | Improvement | Before | After |
 |-------------|--------|-------|
 | **Token Cost** | ~12,000 tokens/newsletter | <5,000 tokens (65% reduction) |
 | **Testing** | None | 24 unit tests with Vitest |
 | **Error Handling** | Ad-hoc | Error boundaries + typed errors |
+| **Backend** | Monolithic server.ts | Modular Control Plane (255 lines entry) |
+| **State Mgmt** | Props drilling (68 useState) | 6 React Contexts + hooks |
 
 ---
 
@@ -70,15 +86,15 @@
 ├─────────────────────────────────────────────────────────────────────────────┤
 │  server.ts (255 lines - entry point only)                                   │
 │      │                                                                       │
-│      └── /api/* ──► server/routes/ (16 route files, 98 endpoints)           │
+│      └── /api/* ──► server/routes/ (18 route files, 120+ endpoints)         │
 │                         │                                                    │
-│                         ├── generation.routes.ts (11) ──► domains/generation│
-│                         ├── newsletter.routes.ts (8)  ──► services/*DbSvc   │
-│                         ├── subscriber.routes.ts (14) ──► services/*DbSvc   │
-│                         ├── calendar.routes.ts (9)    ──► services/*DbSvc   │
-│                         ├── persona.routes.ts (9)     ──► services/*DbSvc   │
-│                         ├── template.routes.ts (7)    ──► services/*DbSvc   │
-│                         └── (10 more route files...)                        │
+│                         ├── generation.routes.ts ──► domains/generation     │
+│                         ├── newsletter.routes.ts ──► services/*DbSvc        │
+│                         ├── subscriber.routes.ts ──► services/*DbSvc        │
+│                         ├── calendar.routes.ts   ──► services/*DbSvc        │
+│                         ├── persona.routes.ts    ──► services/*DbSvc        │
+│                         ├── promptImport.routes.ts ──► services/*DbSvc      │
+│                         └── (12 more route files...)                        │
 │                                                                              │
 │  server/control-plane/                                                       │
 │      ├── invocation/contextManager.ts (correlation IDs)                     │
@@ -91,13 +107,18 @@
 │        EXTERNAL APIs              │   │         SQLite DATABASE             │
 ├───────────────────────────────────┤   │        (Local, self-contained)      │
 │  • Anthropic Claude API           │   ├─────────────────────────────────────┤
-│  • Stability AI API               │   │  Tables (7):                        │
+│  • Stability AI API               │   │  Tables (22):                       │
 │  • Brave Search API               │   │    • newsletters, archives          │
-│  • Google Workspace APIs          │   │    • subscribers, lists             │
-│    - Drive, Sheets, Gmail         │   │    • api_keys, newsletter_logs      │
-│  • Trending Sources (free):       │   │    • newsletter_drafts              │
-│    - HackerNews, ArXiv, GitHub    │   │                                     │
-│    - Reddit, Dev.to               │   │  Features: WAL mode, proper indexes │
+│  • Google Workspace APIs          │   │    • subscribers, subscriber_lists  │
+│    - Drive, Sheets, Gmail         │   │    • api_keys, api_key_audit_log    │
+│  • Trending Sources (free):       │   │    • writer_personas, custom_aud.   │
+│    - HackerNews, ArXiv, GitHub    │   │    • newsletter_templates, drafts   │
+│    - Reddit, Dev.to               │   │    • calendar, scheduled_sends      │
+│                                   │   │    • email_tracking, email_stats    │
+│                                   │   │    • system_logs, saved_prompts     │
+│                                   │   │    • prompt_import_templates/logs   │
+│                                   │   │    • image_style_thumbnails, etc.   │
+│                                   │   │  Features: WAL mode, proper indexes │
 └───────────────────────────────────┘   └─────────────────────────────────────┘
 ```
 
@@ -148,49 +169,84 @@ The AI Newsletter Generator automates the creation and distribution of AI-powere
 │   ├── SettingsContext.tsx          # App settings
 │   └── AppProviders.tsx             # Provider composition
 │
-├── hooks/                           # Custom React hooks
+├── hooks/                           # Custom React hooks (17 files)
 │   ├── useNewsletterGeneration.ts   # Newsletter generation logic
 │   ├── useSystemLogs.ts             # Log viewer state
 │   ├── usePersonas.ts               # Writer personas
 │   ├── useTemplates.ts              # Newsletter templates
+│   ├── useAudiences.ts              # Custom audiences
+│   ├── useCalendar.ts               # Content calendar
+│   ├── usePrompts.ts                # Saved prompts
+│   ├── usePromptImport.ts           # Multi-source prompt import
+│   ├── useDrafts.ts                 # Draft auto-save
+│   ├── useThumbnails.ts             # Image style thumbnails
 │   └── __tests__/                   # Hook unit tests
 │
-├── pages/                           # Page components (10 files)
+├── pages/                           # Page components (11 files)
 │   ├── GenerateNewsletterPage.tsx   # Main generation workflow
 │   ├── DiscoverTopicsPage.tsx       # Topic selection & trending
 │   ├── ToneAndVisualsPage.tsx       # Tone, flavor, image style
 │   ├── HistoryContentPage.tsx       # History & archives
 │   ├── SubscriberManagementPage.tsx # Subscribers & lists
-│   ├── ContentCalendarPage.tsx      # Content calendar (v3 NEW)
-│   └── LogsPage.tsx                 # System logs (v3 NEW)
+│   ├── ContentCalendarPage.tsx      # Content calendar
+│   ├── LogsPage.tsx                 # System logs
+│   ├── ImageStylePage.tsx           # Image style selection
+│   ├── SettingsAndIntegrationsPage.tsx # Settings & integrations
+│   ├── DefineTonePage.tsx           # Tone definition
+│   └── AuthenticationPage.tsx       # OAuth authentication
 │
-├── services/                        # Frontend API clients (v3 refactored)
+├── services/                        # Frontend API clients (21 files)
 │   ├── apiHelper.ts                 # Canonical API request helper
 │   ├── claudeService.ts             # Generation API client
 │   ├── googleApiService.ts          # Google Workspace
-│   ├── *ClientService.ts            # 12 modular client services
+│   ├── personaClientService.ts      # Writer personas
+│   ├── audienceClientService.ts     # Custom audiences
+│   ├── templateClientService.ts     # Newsletter templates
+│   ├── calendarClientService.ts     # Content calendar
+│   ├── promptClientService.ts       # Saved prompts
+│   ├── promptImportClientService.ts # Multi-source prompt import
+│   ├── draftClientService.ts        # Draft auto-save
+│   ├── thumbnailClientService.ts    # Image style thumbnails
+│   ├── logClientService.ts          # System logs
 │   └── trendingDataService.ts       # External trending sources
 │
-├── server/                          # Backend (v3 Control Plane NEW)
-│   ├── routes/                      # 16 route files (98 endpoints)
+├── server/                          # Backend (Control Plane)
+│   ├── routes/                      # 18 route files (120+ endpoints)
 │   │   ├── index.ts                 # Route aggregator
-│   │   ├── generation.routes.ts     # 11 AI generation endpoints
-│   │   ├── newsletter.routes.ts     # 8 newsletter CRUD
-│   │   ├── subscriber.routes.ts     # 14 subscriber management
-│   │   ├── calendar.routes.ts       # 9 content calendar
-│   │   ├── persona.routes.ts        # 9 writer personas
-│   │   ├── template.routes.ts       # 7 newsletter templates
-│   │   └── (9 more route files...)
+│   │   ├── generation.routes.ts     # AI generation endpoints
+│   │   ├── newsletter.routes.ts     # Newsletter CRUD
+│   │   ├── subscriber.routes.ts     # Subscriber management
+│   │   ├── calendar.routes.ts       # Content calendar
+│   │   ├── persona.routes.ts        # Writer personas
+│   │   ├── template.routes.ts       # Newsletter templates
+│   │   ├── promptImport.routes.ts   # Multi-source import (URLs, files)
+│   │   ├── log.routes.ts            # System logs
+│   │   ├── thumbnail.routes.ts      # Image style thumbnails
+│   │   ├── draft.routes.ts          # Draft auto-save
+│   │   └── (7 more route files...)
 │   │
 │   ├── domains/                     # Domain services
 │   │   └── generation/
 │   │       ├── services/            # 5 generation services
-│   │       ├── helpers/             # Audience, flavor, sanitizers
+│   │       ├── helpers/             # Audience, flavor, tone, sanitizers
 │   │       └── sources/             # 5 trending source fetchers
 │   │
-│   ├── services/                    # Database services
-│   │   ├── *DbService.ts            # 12 SQLite service modules
-│   │   └── logCleanupService.ts     # Auto-cleanup scheduler
+│   ├── services/                    # Database services (28 files)
+│   │   ├── newsletterDbService.ts   # Newsletter CRUD
+│   │   ├── personaDbService.ts      # Writer personas
+│   │   ├── audienceDbService.ts     # Custom audiences
+│   │   ├── templateDbService.ts     # Newsletter templates
+│   │   ├── calendarDbService.ts     # Content calendar
+│   │   ├── schedulerDbService.ts    # Scheduled sending
+│   │   ├── promptDbService.ts       # Saved prompts
+│   │   ├── promptImportDbService.ts # Prompt import templates/logs
+│   │   ├── promptParserService.ts   # AI prompt parsing
+│   │   ├── fileExtractorService.ts  # DOCX/PDF/PPTX extraction
+│   │   ├── draftDbService.ts        # Draft auto-save
+│   │   ├── thumbnailDbService.ts    # Image style thumbnails
+│   │   ├── systemLogDbService.ts    # System activity logs
+│   │   ├── logCleanupService.ts     # Auto-cleanup scheduler
+│   │   └── (14 more service files...)
 │   │
 │   ├── external/                    # External API clients
 │   │   ├── claude/client.ts         # Anthropic Claude

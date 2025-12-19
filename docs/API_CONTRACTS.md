@@ -1,6 +1,9 @@
 # API Contracts
 
 > **Purpose**: Define request/response schemas for all API endpoints to prevent breaking changes
+>
+> **Last Updated**: December 2024 (Phase 8+ Complete)
+> **Total Endpoints**: 120+ across 18 route files
 
 ## Standardized Response Format
 
@@ -674,6 +677,178 @@ interface GetApiKeyStatusesResponse {
   }[];
 }
 ```
+
+---
+
+## Phase 8+ Endpoints (New)
+
+### Writer Personas
+
+#### GET /api/personas
+Lists all writer personas.
+
+**Response:**
+```typescript
+interface PersonasResponse {
+  personas: WriterPersona[];
+}
+```
+
+#### POST /api/personas
+Creates a new writer persona.
+
+#### PUT /api/personas/:id
+Updates an existing persona.
+
+#### DELETE /api/personas/:id
+Deletes a persona.
+
+---
+
+### Custom Audiences
+
+#### GET /api/audiences
+Lists all custom audiences.
+
+#### POST /api/audiences
+Creates a new audience.
+
+#### PUT /api/audiences/:id
+Updates an existing audience.
+
+#### DELETE /api/audiences/:id
+Deletes an audience.
+
+---
+
+### Content Calendar
+
+#### GET /api/calendar
+Lists calendar entries with optional date range filtering.
+
+**Query Params:**
+- `startDate`: ISO date string (optional)
+- `endDate`: ISO date string (optional)
+
+#### POST /api/calendar
+Creates a new calendar entry.
+
+#### PUT /api/calendar/:id
+Updates a calendar entry.
+
+#### DELETE /api/calendar/:id
+Deletes a calendar entry.
+
+---
+
+### Multi-Source Prompt Import
+
+#### POST /api/prompts/import/url
+Imports a prompt from a URL.
+
+**Request:**
+```typescript
+interface ImportFromUrlRequest {
+  url: string;
+  forceAiParse?: boolean;
+  saveTemplate?: boolean;
+  templateName?: string;
+}
+```
+
+**Response:**
+```typescript
+interface ImportResult {
+  success: boolean;
+  prompt?: PromptOfTheDay;
+  templateUsed?: string;
+  newTemplateCreated?: boolean;
+  error?: string;
+}
+```
+
+#### POST /api/prompts/import/file
+Imports a prompt from an uploaded file (DOCX, PDF, PPTX, TXT, MD).
+
+**Request:** `multipart/form-data` with file upload
+
+#### GET /api/prompts/import/templates
+Lists all parsing templates.
+
+#### POST /api/prompts/import/templates
+Creates a new parsing template.
+
+---
+
+### System Logs
+
+#### GET /api/logs
+Lists system logs with filtering and pagination.
+
+**Query Params:**
+- `type`: Log type filter
+- `level`: Log level filter
+- `search`: Search term
+- `limit`: Max results
+- `offset`: Pagination offset
+
+#### GET /api/logs/export
+Exports logs as CSV.
+
+---
+
+### Scheduled Sends
+
+#### GET /api/scheduled
+Lists scheduled newsletter sends.
+
+#### POST /api/scheduled
+Schedules a newsletter for future sending.
+
+#### DELETE /api/scheduled/:id
+Cancels a scheduled send.
+
+---
+
+### Newsletter Templates
+
+#### GET /api/templates
+Lists newsletter templates.
+
+#### POST /api/templates
+Creates a new template.
+
+#### PUT /api/templates/:id
+Updates a template.
+
+#### DELETE /api/templates/:id
+Deletes a template.
+
+---
+
+### Drafts
+
+#### GET /api/drafts
+Lists saved drafts.
+
+#### POST /api/drafts
+Saves a draft.
+
+#### PUT /api/drafts/:id
+Updates a draft.
+
+#### DELETE /api/drafts/:id
+Deletes a draft.
+
+---
+
+### Image Style Thumbnails
+
+#### GET /api/thumbnails
+Lists image style thumbnails.
+
+#### POST /api/thumbnails/generate
+Generates a new thumbnail for a style.
 
 ---
 

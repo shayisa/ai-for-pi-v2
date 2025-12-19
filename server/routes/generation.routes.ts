@@ -173,7 +173,8 @@ router.post('/generateEnhancedNewsletter', async (req: Request, res: Response) =
   const correlationId = getCorrelationId();
 
   try {
-    const { topics, audiences, imageStyle, promptOfTheDay, personaId } = req.body as {
+    // Phase 14: Extract tone and flavors for quality fix
+    const { topics, audiences, imageStyle, promptOfTheDay, personaId, tone, flavors } = req.body as {
       topics: string[];
       audiences: AudienceConfig[];
       imageStyle?: string;
@@ -184,9 +185,11 @@ router.post('/generateEnhancedNewsletter', async (req: Request, res: Response) =
         promptCode: string;
       } | null;
       personaId?: string;
+      tone?: string;
+      flavors?: string[];
     };
 
-    const result = await generateEnhancedNewsletter({ topics, audiences, imageStyle, promptOfTheDay, personaId });
+    const result = await generateEnhancedNewsletter({ topics, audiences, imageStyle, promptOfTheDay, personaId, tone, flavors });
 
     if (!result.success) {
       return sendError(res, result.error || 'Failed to generate enhanced newsletter', ErrorCodes.EXTERNAL_SERVICE_ERROR, correlationId);

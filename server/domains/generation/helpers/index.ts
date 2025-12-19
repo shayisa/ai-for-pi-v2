@@ -6,7 +6,8 @@
  * @module domains/generation/helpers
  */
 export { getAudienceDescription } from './audienceHelpers';
-export { getFlavorInstructions } from './flavorHelpers';
+export { getFlavorInstructions, getFlavorFormattingRules } from './flavorHelpers';
+export { getToneInstructions, getAvailableTones, getToneDefinition } from './toneHelpers';
 export { removeEmojis, sanitizeNewsletter } from './sanitizers';
 export { getDateRangeDescription } from './dateHelpers';
 export type { DateRangeResult } from './dateHelpers';

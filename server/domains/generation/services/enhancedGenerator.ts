@@ -21,8 +21,13 @@ import * as newsletterDbService from '../../../services/newsletterDbService';
 import * as personaDbService from '../../../services/personaDbService';
 import type { AudienceConfig, EnhancedNewsletter, PromptOfTheDay, WriterPersona } from '../../../../types';
 
+// Phase 14: Import helpers for tone and flavor processing
+import { getToneInstructions } from '../helpers/toneHelpers';
+import { getFlavorInstructions, getFlavorFormattingRules } from '../helpers/flavorHelpers';
+
 /**
  * Enhanced newsletter generation request parameters
+ * Phase 14: Added tone and flavors for quality fix
  */
 export interface GenerateEnhancedNewsletterParams {
   topics: string[];
@@ -30,6 +35,8 @@ export interface GenerateEnhancedNewsletterParams {
   imageStyle?: string;
   promptOfTheDay?: PromptOfTheDay | null;
   personaId?: string;
+  tone?: string;      // Phase 14: User-selected tone
+  flavors?: string[]; // Phase 14: User-selected flavors
 }
 
 /**
@@ -78,85 +85,203 @@ function buildPersonaInstructions(persona: WriterPersona | null): string {
 }
 
 /**
- * EXACT System Prompt from server.ts lines 1134-1176
- * DO NOT MODIFY
+ * Build dynamic system prompt for enhanced newsletter
+ *
+ * Phase 14: Replaces static ENHANCED_SYSTEM_PROMPT with dynamic version that
+ * includes tone instructions, flavor formatting rules, and content depth requirements.
+ *
+ * @param tone - Selected tone (e.g., 'confident', 'warm', 'witty')
+ * @param toneInstructions - Research-backed tone execution rules
+ * @param flavorInstructions - Style instructions (humor, jargon, etc.)
+ * @param flavorFormattingRules - How to format content based on flavors
+ * @returns Complete system prompt string
  */
-const ENHANCED_SYSTEM_PROMPT = `You are an expert newsletter writer for "AI for PI" - a newsletter helping professionals leverage AI tools in their work.
+function buildEnhancedSystemPrompt(
+  tone: string,
+  toneInstructions: string,
+  flavorInstructions: string,
+  flavorFormattingRules: string
+): string {
+  return `You are an expert newsletter writer for "AI for PI" - a newsletter helping professionals leverage AI tools in their work.
 
 Your task is to generate a newsletter in the ENHANCED FORMAT with:
-1. Editor's Note - Personal, conversational opening that sets the tone (2-3 sentences)
+1. Editor's Note - Personal, conversational opening that sets the tone (3-4 sentences minimum)
 2. Tool of the Day - One standout tool featured prominently from the sources
-3. Audience Sections - ONE section per audience with specific relevance
+3. Audience Sections - ONE section per audience with SUBSTANTIVE content
 4. Practical Prompts - Ready-to-use AI prompts for each section
 5. CTAs - Clear calls to action
 6. Source Citations - Every claim cites its source URL
 7. Prompt of the Day - A featured prompt technique with title, summary, example variations, and full structured promptCode with XML-like tags
 
+TONE REQUIREMENTS - CRITICAL:
+The primary tone for this newsletter is "${tone}". Your writing MUST authentically reflect this tone.
+${toneInstructions}
+${flavorInstructions}
+
+CONTENT LENGTH REQUIREMENTS - STRICTLY ENFORCED:
+
+CRITICAL: 250 words is approximately 4-5 substantial paragraphs. A single paragraph of 3-4 sentences is only ~50-80 words. You MUST write MUCH more content than you think.
+
+For reference, THIS calibration text is exactly 50 words: "The quick brown fox jumps over the lazy dog. This sentence demonstrates typical paragraph length. Professional newsletters require substantive depth that goes beyond surface-level summaries. Each section must provide real analysis, concrete examples, practical applications, and actionable takeaways for the reader."
+
+SECTION CONTENT REQUIREMENTS (each audienceSection.content field):
+- MINIMUM 250 words (approximately 4-5 full paragraphs)
+- Structure: Introduction paragraph + 2-3 body paragraphs with details + conclusion/application paragraph
+- Include: What it is, why it matters NOW, how it works, specific use cases, practical next steps
+- A single short paragraph is UNACCEPTABLE - you must write multiple substantive paragraphs
+- Count your paragraphs: if you only have 1-2 paragraphs, you have NOT met the requirement
+
+OTHER LENGTH REQUIREMENTS:
+- Editor's Note: Minimum 60 words (about 4-5 sentences)
+- Why It Matters: Minimum 3 full sentences explaining SPECIFIC relevance to that audience's daily work
+- Tool of the Day whyNow: Minimum 3 full sentences on timeliness
+- Conclusion: Minimum 60 words with memorable takeaway
+
+FAILURE TO MEET THESE MINIMUMS WILL RESULT IN REJECTION. When in doubt, write MORE.
+
+${flavorFormattingRules}
+
+SUBJECT LINE REQUIREMENTS - CRITICAL:
+The subject line MUST be UNIQUE and reflect THIS newsletter's specific topics.
+
+HOW TO CREATE A GOOD SUBJECT LINE:
+1. Look at the TOPICS provided - identify a UNIFYING THEME across them
+2. Express that theme in a way that appeals to ALL audiences
+3. Be CREATIVE and SPECIFIC to this issue - never generic
+
+BAD (too narrow - only one field):
+- "Video Generation for 3D Reconstruction" ❌
+- "Forensic Authentication Tools" ❌
+
+BAD (too generic - could be any newsletter):
+- "AI Tools This Week" ❌
+- "Professional Workflows Update" ❌
+
+GOOD (thematic + universal):
+If topics are about detection, automation, and analysis → "Detection, Automation, Analysis: AI's Triple Threat"
+If topics are about archaeology, forensics, and business → "Where Science Meets Business: AI Bridges the Gap"
+If topics involve new model releases → "Claude, Gemini, and Beyond: This Week's AI Powerhouses"
+
+RULES:
+- Find the UNIFYING THEME of the selected topics
+- Create a UNIQUE subject that could ONLY describe THIS newsletter
+- Appeal to ALL audiences equally
+- NO emojis, under 60 characters
+
 RULES:
 - Every factual claim MUST cite its source URL from the provided sources
 - Each audience section MUST have a "Why It Matters" explanation specific to that audience
-- Practical prompts should be immediately usable - copy-paste ready
-- Keep the tone authoritative but accessible
+- Practical prompts should be immediately usable - copy-paste ready with [VARIABLE] placeholders
 - NO hallucinated tools or statistics - use ONLY what's in the provided sources
 - Do NOT use emojis in titles or section headers
+- Each section must provide REAL VALUE - not just surface-level descriptions
+
+AUDIENCE-SECTION MAPPING - CRITICAL:
+You will receive a list of AUDIENCES in the user message. You MUST create EXACTLY ONE section in audienceSections for EACH audience provided. If 4 audiences are listed, you MUST generate 4 audienceSections. If 3 audiences, then 3 sections. NO exceptions.
+
+Each audienceSection MUST:
+- Use the EXACT audienceId and audienceName from the provided audience list
+- Cover the selected TOPICS in a way that is specifically relevant to THAT audience
+- Have completely different content tailored to that specific audience's needs
 
 Return ONLY valid JSON matching this exact schema (no markdown, no explanation):
 {
-  "editorsNote": { "message": "string" },
-  "toolOfTheDay": { "name": "string", "url": "string", "whyNow": "string", "quickStart": "string" },
-  "audienceSections": [{
-    "audienceId": "string",
-    "audienceName": "string",
-    "title": "string",
-    "whyItMatters": "string",
-    "content": "string (can include <a href='url'>text</a> links)",
-    "practicalPrompt": { "scenario": "string", "prompt": "string", "isToolSpecific": boolean },
-    "cta": { "text": "string", "action": "copy_prompt" },
-    "sources": [{ "url": "string", "title": "string" }],
-    "imagePrompt": "string - A descriptive prompt for AI image generation showing this concept visually"
-  }],
+  "editorsNote": { "message": "string - minimum 60 words" },
+  "toolOfTheDay": { "name": "string", "url": "string", "whyNow": "string - minimum 3 sentences", "quickStart": "string - step-by-step instructions" },
+  "audienceSections": [
+    {
+      "audienceId": "MUST match an audience ID from the provided list",
+      "audienceName": "MUST match the audience name from the provided list",
+      "title": "string - compelling title specific to this audience's perspective",
+      "whyItMatters": "string - minimum 3 sentences explaining relevance to THIS SPECIFIC audience's daily work",
+      "content": "string - MINIMUM 250 WORDS (4-5 paragraphs) with substantive analysis tailored to THIS audience (can include <a href='url'>text</a> links)",
+      "practicalPrompt": { "scenario": "string - use case specific to this audience", "prompt": "string - copy-paste ready with [VARIABLE] placeholders", "isToolSpecific": boolean },
+      "cta": { "text": "string", "action": "copy_prompt" },
+      "sources": [{ "url": "string", "title": "string" }],
+      "imagePrompt": "string - A descriptive prompt for AI image generation showing this concept for this audience"
+    }
+    // REPEAT for EACH audience - if 4 audiences provided, this array MUST have 4 objects
+  ],
   "promptOfTheDay": {
     "title": "string - A catchy title for the featured prompt technique",
     "summary": "string - 2-3 sentences explaining what this prompt technique does and why it's valuable",
     "examplePrompts": ["string - 3 example variations of how to use this prompt technique"],
     "promptCode": "string - The full structured prompt with XML-like tags (e.g., <role>...</role><context>...</context><task>...</task>)"
   },
-  "conclusion": "string",
-  "subject": "string - A compelling email subject line that appeals to ALL audiences, not biased toward any single field. NO emojis or symbols."
-}`;
+  "conclusion": "string - minimum 60 words with memorable takeaway",
+  "subject": "string - UNIVERSAL subject line (e.g., 'AI Tools Reshaping Professional Workflows'). Do NOT mention specific topics like '3D reconstruction' or 'forensics'. Must appeal to ALL audiences equally."
+}`
+}
 
 /**
- * Build user message - EXACT copy from server.ts lines 1178-1196
- * DO NOT MODIFY any text in this function
- * Phase 12.0: Added personaInstructions parameter (appended after main instructions)
+ * Build user message for enhanced newsletter generation
+ *
+ * Phase 14: Updated with explicit audience-section mapping, topic coverage, and content depth.
+ * Phase 12.0: Added personaInstructions parameter
  */
 function buildUserMessage(
-  audienceDescriptions: string,
+  audiences: AudienceConfig[],
   topics: string[],
   sourceContext: string,
-  audienceCount: number,
   personaInstructions?: string
 ): string {
-  return `Generate an enhanced newsletter for these audiences:
+  // Number topics for explicit coverage tracking
+  const numberedTopics = topics.map((t, i) => `${i + 1}. ${t}`).join('\n');
 
-AUDIENCES:
-${audienceDescriptions}
+  // Build explicit audience list with IDs
+  const audienceList = audiences.map((a, i) => {
+    const persona = a.generated?.persona || a.description;
+    return `${i + 1}. ID: "${a.id}" | Name: "${a.name}" | Description: ${persona}`;
+  }).join('\n');
 
-TOPICS TO COVER:
-${topics.join(', ')}
+  return `Generate an enhanced newsletter for these ${audiences.length} audiences:
+
+AUDIENCES (you MUST create exactly ${audiences.length} audienceSections - one for EACH audience below):
+${audienceList}
+
+TOPICS TO COVER (ALL ${topics.length} topics MUST be addressed across the sections):
+${numberedTopics}
+
+CRITICAL: You MUST create EXACTLY ${audiences.length} audienceSections in your response. Each section MUST use the exact audienceId and audienceName from the list above.
 
 SOURCE CONTENT (use these for citations):
 ${sourceContext}
 ${personaInstructions || ''}
 
-Generate the newsletter JSON now. Remember:
-- ONE section per audience (${audienceCount} sections total)
-- Cite sources with URLs from the SOURCE CONTENT above
-- Include practical, ready-to-use prompts that readers can copy directly
-- Make "Why It Matters" specific and compelling for each audience
-- Include an imagePrompt for each section - a descriptive prompt for AI image generation
-- Include a compelling subject line for the email
-- Include promptOfTheDay with a useful prompt technique - include title, summary, 3 examplePrompts variations, and full promptCode with XML-style tags like <role>, <context>, <task>, etc.`;
+Generate the newsletter JSON now. REQUIREMENTS:
+
+AUDIENCE-SECTION REQUIREMENT (MANDATORY):
+- You MUST generate EXACTLY ${audiences.length} objects in the audienceSections array
+- Each object MUST have audienceId matching one of: ${audiences.map(a => `"${a.id}"`).join(', ')}
+- Each object MUST have audienceName matching one of: ${audiences.map(a => `"${a.name}"`).join(', ')}
+- EVERY audience above MUST have its own section - do NOT skip any audience
+
+CONTENT LENGTH REQUIREMENT (MANDATORY):
+- Each section content field MUST be 250+ words (4-5 full paragraphs)
+- Structure: Intro paragraph → 2-3 body paragraphs → Application paragraph
+- A single paragraph is ~50-80 words - you need 4-5 paragraphs per section
+
+TOPIC COVERAGE REQUIREMENT (MANDATORY):
+- ALL ${topics.length} topics must be covered across the ${audiences.length} sections
+- Each audience section should address topics relevant to that audience
+- Do NOT focus on just one topic - distribute across all
+
+SUBJECT LINE REQUIREMENT (MANDATORY):
+- Must be UNIQUE to THIS newsletter - reflect the UNIFYING THEME of these specific topics
+- Appeal to ALL ${audiences.length} audiences equally
+- Do NOT be generic (avoid "AI Tools This Week" or "Professional Updates")
+- Do NOT be narrow (avoid mentioning just one topic or field)
+- Find the COMMON THREAD between these topics: ${topics.join(', ')}
+- Create a subject that could ONLY describe this specific newsletter
+
+OTHER:
+- Why It Matters: MINIMUM 3 sentences specific to that audience
+- Editor's Note: MINIMUM 60 words
+- Conclusion: MINIMUM 60 words
+- Cite sources with URLs from SOURCE CONTENT
+- Include promptOfTheDay with title, summary, 3 examplePrompts, and promptCode
+
+REMEMBER: Write MUCH MORE than you think you need. 250 words is 4-5 paragraphs, not 1.`;
 }
 
 /**
@@ -169,9 +294,19 @@ export async function generateEnhancedNewsletter(
   params: GenerateEnhancedNewsletterParams
 ): Promise<GenerateEnhancedNewsletterResult> {
   try {
-    const { topics, audiences, imageStyle, promptOfTheDay: userPromptOfTheDay, personaId } = params;
+    // Phase 14: Extract tone and flavors with defaults
+    const {
+      topics,
+      audiences,
+      imageStyle,
+      promptOfTheDay: userPromptOfTheDay,
+      personaId,
+      tone = 'confident',  // Default tone
+      flavors = []         // Default empty flavors
+    } = params;
 
     console.log('[EnhancedNewsletter] Starting generation for audiences:', audiences.map(a => a.name));
+    console.log(`[EnhancedNewsletter] Tone: ${tone}, Flavors: ${flavors.join(', ') || 'none'}`);
     if (userPromptOfTheDay) {
       console.log('[EnhancedNewsletter] User-supplied promptOfTheDay:', userPromptOfTheDay.title);
     }
@@ -182,6 +317,11 @@ export async function generateEnhancedNewsletter(
       persona = personaDbService.getPersonaById(personaId);
       console.log(`[EnhancedNewsletter] Using persona: ${persona?.name || 'not found (id: ' + personaId + ')'}`);
     }
+
+    // Phase 14: Generate tone and flavor instructions
+    const toneInstructions = getToneInstructions(tone);
+    const flavorInstructions = getFlavorInstructions(flavors);
+    const flavorFormattingRules = getFlavorFormattingRules(flavors);
 
     // Step 1: Collect keywords and config from all audiences - EXACT logic from server.ts
     const allKeywords: string[] = [];
@@ -228,27 +368,34 @@ export async function generateEnhancedNewsletter(
       { maxTotalLength: 25000, maxPerArticle: 2000 }
     );
 
-    // Step 5: Build audience descriptions
-    const audienceDescriptions = audienceGenerationService.getAudiencePromptDescription(audiences);
-
-    // Step 5.5: Build persona instructions (Phase 12.0)
+    // Step 5: Build persona instructions (Phase 12.0)
     const personaInstructions = buildPersonaInstructions(persona);
 
     // Step 6: Generate enhanced newsletter with Claude
     console.log('[EnhancedNewsletter] Generating newsletter with Claude...');
+    console.log(`[EnhancedNewsletter] Audiences (${audiences.length}):`, audiences.map(a => a.name));
+    console.log(`[EnhancedNewsletter] Topics (${topics.length}):`, topics);
 
+    // Phase 14: Pass full audiences array for explicit ID/name mapping
     const userMessage = buildUserMessage(
-      audienceDescriptions,
+      audiences,
       topics,
       sourceContext,
-      audiences.length,
       personaInstructions
+    );
+
+    // Phase 14: Build dynamic system prompt with tone/flavor integration
+    const systemPrompt = buildEnhancedSystemPrompt(
+      tone,
+      toneInstructions,
+      flavorInstructions,
+      flavorFormattingRules
     );
 
     const response = await (await getAnthropicClient()).messages.create({
       model: "claude-sonnet-4-20250514",
-      max_tokens: 4096,
-      system: ENHANCED_SYSTEM_PROMPT,
+      max_tokens: 8192,  // Phase 14: Increased for longer, more substantive content
+      system: systemPrompt,
       messages: [{ role: "user", content: userMessage }],
     });
 
@@ -275,9 +422,14 @@ export async function generateEnhancedNewsletter(
       console.log('[EnhancedNewsletter] Using user-supplied promptOfTheDay:', userPromptOfTheDay.title);
     }
 
-    // Generate a subject from the content - EXACT fallback logic from server.ts lines 1227-1229
-    newsletter.subject = newsletter.audienceSections[0]?.title ||
-      `AI Tools Update: ${newsletter.toolOfTheDay?.name || 'This Week'}`;
+    // Phase 14: Only use fallback if subject is missing - respect LLM-generated subject
+    // The prompt now emphasizes balanced subject lines for ALL audiences
+    if (!newsletter.subject || newsletter.subject.trim() === '') {
+      // Fallback includes all audience names for balance
+      const audienceNames = audiences.map(a => a.name).join(' & ');
+      newsletter.subject = `AI Tools for ${audienceNames}: ${newsletter.toolOfTheDay?.name || 'This Week\'s Highlights'}`;
+      console.log('[EnhancedNewsletter] Using fallback subject line');
+    }
 
     // Auto-save to SQLite - EXACT pattern from server.ts lines 1231-1243
     const newsletterId = `enl_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
