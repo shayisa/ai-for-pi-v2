@@ -8,9 +8,18 @@
  * ## Original Location
  * - server.ts lines 1063-1253
  *
- * ## PRESERVATION NOTE - CRITICAL
- * ALL prompts, configurations, and logic in this file are EXACT copies from server.ts.
- * Do NOT modify any prompt text, model configurations, or data flow logic.
+ * ## Phase 15: Anti-Hallucination Update
+ * Added pre-generation validation and topic-source matching to prevent
+ * content hallucination. Topics are validated via web search, and the
+ * prompt includes explicit topic-source mappings.
+ *
+ * ## Preserved Functionality
+ * - Multi-source fetching (6 APIs)
+ * - Article extraction
+ * - Phase 12.0 persona support
+ * - Phase 14 tone/flavor integration
+ * - 250+ word requirements
+ * - Auto-save to SQLite
  */
 import Anthropic from '@anthropic-ai/sdk';
 import { getAnthropicClient } from '../../../external/claude';
@@ -24,6 +33,10 @@ import type { AudienceConfig, EnhancedNewsletter, PromptOfTheDay, WriterPersona 
 // Phase 14: Import helpers for tone and flavor processing
 import { getToneInstructions } from '../helpers/toneHelpers';
 import { getFlavorInstructions, getFlavorFormattingRules } from '../helpers/flavorHelpers';
+
+// Phase 15: Import pre-generation pipeline for anti-hallucination
+import { runPreGenerationChecks } from './preGenerationPipeline';
+import type { TopicValidationResult } from '../../../services/topicValidationService';
 
 /**
  * Enhanced newsletter generation request parameters
@@ -41,12 +54,19 @@ export interface GenerateEnhancedNewsletterParams {
 
 /**
  * Enhanced newsletter generation result
+ * Phase 15: Added validation fields for anti-hallucination feedback
  */
 export interface GenerateEnhancedNewsletterResult {
   success: boolean;
   newsletter?: EnhancedNewsletter;
   sources?: sourceFetchingService.FetchSourcesResult['sources'];
   error?: string;
+  /** Phase 15: Topic validation results (when generation blocked) */
+  validationResults?: TopicValidationResult[];
+  /** Phase 15: Topics that failed validation or have no sources */
+  invalidTopics?: string[];
+  /** Phase 15: Suggested alternative topics */
+  suggestions?: string[];
 }
 
 /**
@@ -168,11 +188,31 @@ RULES:
 - Appeal to ALL audiences equally
 - NO emojis, under 60 characters
 
+SOURCE GROUNDING - CRITICAL:
+You have been provided VALIDATED topic-source mappings in the user message.
+- Each topic lists ONLY its relevant, verified sources
+- Use ONLY those sources for information about that topic
+- Do NOT add information not found in the sources
+- If sources don't cover an aspect of a topic, acknowledge the gap
+- For topics marked "NO SOURCES FOUND", note "No current information available"
+
+SOURCE DIVERSITY - CRITICAL (Phase 15.1):
+If "SOURCE ALLOCATION PER AUDIENCE" is provided in the user message:
+- You MUST use ONLY the sources explicitly assigned to each audience
+- DO NOT cite sources from the general source context unless assigned
+- Each audience section MUST cite at least one of its assigned sources
+- This is MANDATORY for verification - unauthorized sources will be flagged
+
+When multiple sources are available for a topic:
+- Each audience section MUST cite DIFFERENT sources when possible
+- Do NOT use the same source URL for all audience sections
+- Distribute sources across audiences to show different perspectives
+- If only one source matches, you may cite it, but frame the content differently for each audience
+
 RULES:
 - Every factual claim MUST cite its source URL from the provided sources
 - Each audience section MUST have a "Why It Matters" explanation specific to that audience
 - Practical prompts should be immediately usable - copy-paste ready with [VARIABLE] placeholders
-- NO hallucinated tools or statistics - use ONLY what's in the provided sources
 - Do NOT use emojis in titles or section headers
 - Each section must provide REAL VALUE - not just surface-level descriptions
 
@@ -183,6 +223,7 @@ Each audienceSection MUST:
 - Use the EXACT audienceId and audienceName from the provided audience list
 - Cover the selected TOPICS in a way that is specifically relevant to THAT audience
 - Have completely different content tailored to that specific audience's needs
+- Cite DIFFERENT sources than other audience sections when multiple sources are available
 
 Return ONLY valid JSON matching this exact schema (no markdown, no explanation):
 {
@@ -218,12 +259,16 @@ Return ONLY valid JSON matching this exact schema (no markdown, no explanation):
  *
  * Phase 14: Updated with explicit audience-section mapping, topic coverage, and content depth.
  * Phase 12.0: Added personaInstructions parameter
+ * Phase 15: Added topicSourceContext for anti-hallucination
+ * Phase 15.1: Added allocationContext for source diversity enforcement
  */
 function buildUserMessage(
   audiences: AudienceConfig[],
   topics: string[],
   sourceContext: string,
-  personaInstructions?: string
+  topicSourceContext: string,
+  personaInstructions?: string,
+  allocationContext?: string
 ): string {
   // Number topics for explicit coverage tracking
   const numberedTopics = topics.map((t, i) => `${i + 1}. ${t}`).join('\n');
@@ -239,12 +284,19 @@ function buildUserMessage(
 AUDIENCES (you MUST create exactly ${audiences.length} audienceSections - one for EACH audience below):
 ${audienceList}
 
-TOPICS TO COVER (ALL ${topics.length} topics MUST be addressed across the sections):
+TOPICS TO COVER:
 ${numberedTopics}
 
 CRITICAL: You MUST create EXACTLY ${audiences.length} audienceSections in your response. Each section MUST use the exact audienceId and audienceName from the list above.
 
-SOURCE CONTENT (use these for citations):
+VALIDATED TOPIC-SOURCE MAPPINGS (Phase 15 Anti-Hallucination):
+The following shows which sources to use for each topic. ONLY write about topics using their matched sources.
+${topicSourceContext}
+${allocationContext ? `
+SOURCE ALLOCATION PER AUDIENCE (Phase 15.1 - SOURCE DIVERSITY ENFORCEMENT):
+${allocationContext}
+` : ''}
+ALL AVAILABLE SOURCE CONTENT (for reference and citations):
 ${sourceContext}
 ${personaInstructions || ''}
 
@@ -261,10 +313,11 @@ CONTENT LENGTH REQUIREMENT (MANDATORY):
 - Structure: Intro paragraph → 2-3 body paragraphs → Application paragraph
 - A single paragraph is ~50-80 words - you need 4-5 paragraphs per section
 
-TOPIC COVERAGE REQUIREMENT (MANDATORY):
-- ALL ${topics.length} topics must be covered across the ${audiences.length} sections
-- Each audience section should address topics relevant to that audience
-- Do NOT focus on just one topic - distribute across all
+TOPIC-SOURCE REQUIREMENT (MANDATORY - Phase 15):
+- For each topic, use ONLY the sources listed in VALIDATED TOPIC-SOURCE MAPPINGS above
+- If a topic shows "Status: NO SOURCES FOUND", note "No current information available for [topic]"
+- Do NOT make claims about a topic that aren't supported by its matched sources
+- Cite every fact with the source URL from the matched sources
 
 SUBJECT LINE REQUIREMENT (MANDATORY):
 - Must be UNIQUE to THIS newsletter - reflect the UNIFYING THEME of these specific topics
@@ -368,20 +421,74 @@ export async function generateEnhancedNewsletter(
       { maxTotalLength: 25000, maxPerArticle: 2000 }
     );
 
+    // Phase 15: Pre-generation validation and topic-source matching
+    console.log('[EnhancedNewsletter] Running pre-generation validation...');
+    const preGenResult = await runPreGenerationChecks({
+      topics,
+      audiences,
+      existingSources: sourceResult.articles,
+      skipValidation: false,
+      skipEnrichment: false,
+    });
+
+    if (!preGenResult.canProceed) {
+      console.log(`[EnhancedNewsletter] Pre-generation blocked: ${preGenResult.blockReason}`);
+      return {
+        success: false,
+        error: preGenResult.blockReason,
+        validationResults: preGenResult.validatedTopics,
+        invalidTopics: preGenResult.invalidTopics,
+        suggestions: preGenResult.suggestions,
+      };
+    }
+
+    console.log(`[EnhancedNewsletter] Pre-generation passed in ${preGenResult.pipelineTimeMs}ms`);
+    if (preGenResult.invalidTopics && preGenResult.invalidTopics.length > 0) {
+      console.log(`[EnhancedNewsletter] Warning: Some topics have no sources: ${preGenResult.invalidTopics.join(', ')}`);
+    }
+
     // Step 5: Build persona instructions (Phase 12.0)
     const personaInstructions = buildPersonaInstructions(persona);
+
+    // Phase 15: Filter out fictional/invalid topics before passing to Claude
+    // Only pass topics that were validated as real (isValid=true OR not confidence='none')
+    const validTopics = topics.filter((topic) => {
+      const validation = preGenResult.validatedTopics.find((v) => v.topic === topic);
+      // Keep topic if: no validation found (assume valid) OR isValid=true OR confidence is not 'none'
+      return !validation || validation.isValid || validation.confidence !== 'none';
+    });
+
+    if (validTopics.length === 0) {
+      // This shouldn't happen since we check in pre-gen, but safety check
+      return {
+        success: false,
+        error: 'No valid topics remaining after filtering fictional ones',
+        validationResults: preGenResult.validatedTopics,
+        invalidTopics: topics,
+      };
+    }
+
+    console.log(`[EnhancedNewsletter] Filtered topics: ${topics.length} -> ${validTopics.length} valid`);
+    if (validTopics.length < topics.length) {
+      const filteredOut = topics.filter((t) => !validTopics.includes(t));
+      console.log(`[EnhancedNewsletter] Removed fictional topics: ${filteredOut.join(', ')}`);
+    }
 
     // Step 6: Generate enhanced newsletter with Claude
     console.log('[EnhancedNewsletter] Generating newsletter with Claude...');
     console.log(`[EnhancedNewsletter] Audiences (${audiences.length}):`, audiences.map(a => a.name));
-    console.log(`[EnhancedNewsletter] Topics (${topics.length}):`, topics);
+    console.log(`[EnhancedNewsletter] Topics (${validTopics.length}):`, validTopics);
 
     // Phase 14: Pass full audiences array for explicit ID/name mapping
+    // Phase 15: Include topicSourceContext for anti-hallucination, use FILTERED topics
+    // Phase 15.1: Include allocationContext for source diversity enforcement
     const userMessage = buildUserMessage(
       audiences,
-      topics,
+      validTopics,  // Use filtered valid topics only
       sourceContext,
-      personaInstructions
+      preGenResult.topicSourceContext,
+      personaInstructions,
+      preGenResult.allocationContext  // Phase 15.1: Source diversity allocations
     );
 
     // Phase 14: Build dynamic system prompt with tone/flavor integration

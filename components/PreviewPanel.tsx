@@ -14,7 +14,7 @@ import { NewsletterPreview } from './NewsletterPreview';
 import { EnhancedNewsletterPreview } from './EnhancedNewsletterPreview';
 import { BulkImageRegeneration } from './BulkImageRegeneration';
 import { ActionButton } from './ActionButton';
-import { DriveIcon, SendIcon, SparklesIcon, ImageIcon } from './IconComponents';
+import { DriveIcon, SendIcon, SparklesIcon, ImageIcon, CalendarIcon } from './IconComponents';
 import { fadeInUp } from '../utils/animations';
 import { useNewsletterSettings } from '../contexts';
 
@@ -42,6 +42,11 @@ interface PreviewPanelProps {
   onSendViaGmail?: () => Promise<void>;
   isAuthenticated?: boolean;
   workflowStatus?: { savedToDrive: boolean; sentEmail: boolean };
+
+  // Phase 16: Calendar entry linking
+  calendarEntryId?: string | null;
+  calendarEntryTitle?: string | null;
+  onOpenCalendarPicker?: () => void;
 }
 
 export const PreviewPanel: React.FC<PreviewPanelProps> = ({
@@ -61,6 +66,10 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
   onSendViaGmail,
   isAuthenticated,
   workflowStatus,
+  // Phase 16: Calendar entry linking
+  calendarEntryId,
+  calendarEntryTitle,
+  onOpenCalendarPicker,
 }) => {
   const hasNewsletter = useEnhancedFormat ? !!enhancedNewsletter : !!newsletter;
 
@@ -155,6 +164,23 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
                 Regenerate Images
               </button>
             )}
+
+            {/* Phase 16: Save to Calendar Entry / Linked Status */}
+            {!calendarEntryId && onOpenCalendarPicker ? (
+              <button
+                onClick={onOpenCalendarPicker}
+                disabled={isLoading}
+                className="flex items-center gap-2 px-4 py-2 border border-editorial-navy text-editorial-navy font-sans text-sm hover:bg-editorial-navy hover:text-paper transition-colors disabled:opacity-50"
+              >
+                <CalendarIcon className="h-4 w-4" />
+                Save to Calendar
+              </button>
+            ) : calendarEntryId && calendarEntryTitle ? (
+              <div className="flex items-center gap-2 px-3 py-2 bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm rounded">
+                <CalendarIcon className="h-4 w-4" />
+                <span>Linked: {calendarEntryTitle}</span>
+              </div>
+            ) : null}
 
             {/* Save to Drive */}
             {onSaveToDrive && (

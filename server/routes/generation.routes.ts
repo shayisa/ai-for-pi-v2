@@ -52,6 +52,7 @@ import { trendingCache } from '../cache/trendingCache';
 import * as sourceFetchingService from '../services/sourceFetchingService';
 import * as audienceGenerationService from '../services/audienceGenerationService';
 import * as apiKeyDbService from '../services/apiKeyDbService';
+import * as personaDbService from '../services/personaDbService';
 
 import type { AudienceConfig } from '../../types';
 
@@ -64,38 +65,48 @@ const router = Router();
 /**
  * GET /api/fetchTrendingSources
  *
- * Fetch trending sources with caching (1 hour TTL).
- * Reduces external API calls from 67+ to 1 per hour.
+ * Fetch trending sources with audience-aware caching (1 hour TTL).
+ * Different audience selections get separate cached results.
+ *
+ * Query params:
+ * - audiences: comma-separated list of audience IDs (e.g., "business-administration,business-intelligence")
  */
-router.get('/fetchTrendingSources', async (_req: Request, res: Response) => {
+router.get('/fetchTrendingSources', async (req: Request, res: Response) => {
   const correlationId = getCorrelationId();
 
   try {
-    // Check cache first (reduces 67+ API calls to 1 per hour)
-    const cached = trendingCache.get();
+    // Parse audience IDs from query string
+    const audienceParam = req.query.audiences as string | undefined;
+    const audienceIds = audienceParam ? audienceParam.split(',').filter(Boolean) : [];
+
+    // Check audience-specific cache first (reduces 67+ API calls to 1 per hour per audience combo)
+    const cached = trendingCache.get(audienceIds);
     if (cached) {
-      const metadata = trendingCache.getMetadata();
+      const metadata = trendingCache.getMetadata(audienceIds);
       logger.info('generation', 'fetch_trending_cached', 'Returned cached trending sources', {
         correlationId,
         count: cached.length,
+        audienceKey: metadata?.audienceKey,
       });
       return sendSuccess(res, {
         sources: cached,
         cachedAt: metadata?.cachedAt,
         ttl: metadata?.ttl,
+        audienceKey: metadata?.audienceKey,
       }, correlationId);
     }
 
-    // Fetch fresh data
-    console.log('[TrendingSources] Cache miss, fetching fresh data...');
+    // Fetch fresh data (TODO: pass audienceIds to fetchAllTrendingSources for filtering)
+    console.log(`[TrendingSources] Cache miss for audiences: ${audienceIds.join(',') || '_all_'}, fetching fresh data...`);
     const sources = await fetchAllTrendingSources();
 
-    // Store in cache
-    trendingCache.set(sources);
+    // Store in audience-specific cache
+    trendingCache.set(audienceIds, sources);
 
     logger.info('generation', 'fetch_trending_fresh', 'Fetched fresh trending sources', {
       correlationId,
       count: sources.length,
+      audienceIds,
     });
     sendSuccess(res, { sources }, correlationId);
   } catch (error) {
@@ -149,7 +160,13 @@ router.post('/generateNewsletter', async (req: Request, res: Response) => {
     const result = await generateNewsletter({ topics, audience, tone, flavors, imageStyle, personaId });
 
     if (!result.success) {
-      return sendError(res, result.error || 'Failed to generate newsletter', ErrorCodes.EXTERNAL_SERVICE_ERROR, correlationId);
+      // Phase 15: Include validation results in error response
+      const errorCode = result.validationResults ? ErrorCodes.VALIDATION_ERROR : ErrorCodes.EXTERNAL_SERVICE_ERROR;
+      return sendError(res, result.error || 'Failed to generate newsletter', errorCode, correlationId, {
+        validationResults: result.validationResults,
+        invalidTopics: result.invalidTopics,
+        suggestions: result.suggestions,
+      });
     }
 
     logger.info('generation', 'newsletter_generated', 'Generated newsletter', {
@@ -192,7 +209,13 @@ router.post('/generateEnhancedNewsletter', async (req: Request, res: Response) =
     const result = await generateEnhancedNewsletter({ topics, audiences, imageStyle, promptOfTheDay, personaId, tone, flavors });
 
     if (!result.success) {
-      return sendError(res, result.error || 'Failed to generate enhanced newsletter', ErrorCodes.EXTERNAL_SERVICE_ERROR, correlationId);
+      // Phase 15: Include validation results in error response
+      const errorCode = result.validationResults ? ErrorCodes.VALIDATION_ERROR : ErrorCodes.EXTERNAL_SERVICE_ERROR;
+      return sendError(res, result.error || 'Failed to generate enhanced newsletter', errorCode, correlationId, {
+        validationResults: result.validationResults,
+        invalidTopics: result.invalidTopics,
+        suggestions: result.suggestions,
+      });
     }
 
     logger.info('generation', 'enhanced_newsletter_generated', 'Generated enhanced newsletter', {
@@ -334,6 +357,84 @@ router.post('/generateTopicSuggestions', async (req: Request, res: Response) => 
 });
 
 /**
+ * POST /api/generateTopicSuggestionsV2
+ *
+ * Phase 15.4: Parallel per-audience topic suggestion generation.
+ *
+ * Generates topic suggestions with equal representation per audience.
+ * Each suggestion includes its audienceId for display with audience badges.
+ *
+ * Request body:
+ * - audience: string[] - Array of audience IDs
+ * - topicsPerAudience?: number - Topics to generate per audience (default: 3)
+ * - customAudiences?: Array - Optional custom audience definitions
+ */
+router.post('/generateTopicSuggestionsV2', async (req: Request, res: Response) => {
+  const correlationId = getCorrelationId();
+
+  try {
+    const {
+      audience,
+      topicsPerAudience = 3,
+      customAudiences,
+    } = req.body as {
+      audience: string[];
+      topicsPerAudience?: number;
+      customAudiences?: Array<{
+        id: string;
+        name: string;
+        description: string;
+        domainExamples?: string;
+        topicTitles?: string[];
+      }>;
+    };
+
+    if (!audience || !Array.isArray(audience) || audience.length === 0) {
+      return sendError(res, 'Audience array is required', ErrorCodes.VALIDATION_ERROR, correlationId);
+    }
+
+    logger.info('generation', 'topics_v2_start', `Starting V2 topic suggestions for ${audience.length} audiences`, {
+      correlationId,
+      audiences: audience,
+      topicsPerAudience,
+    });
+
+    const result = await generateSuggestionsParallel(
+      audience,
+      { topicsPerAudience },
+      customAudiences
+    );
+
+    if (!result.success) {
+      return sendError(res, result.error || 'Failed to generate topic suggestions V2', ErrorCodes.EXTERNAL_SERVICE_ERROR, correlationId);
+    }
+
+    logger.info('generation', 'topics_v2_complete', 'Generated parallel topic suggestions', {
+      correlationId,
+      topicCount: result.topics?.length,
+      durationMs: result.totalDurationMs,
+    });
+
+    sendSuccess(res, {
+      success: true,
+      topics: result.topics,
+      perAudienceResults: result.perAudienceResults?.map(r => ({
+        audienceId: r.audienceId,
+        topicCount: r.topics.length,
+        success: r.success,
+        error: r.error,
+        durationMs: r.durationMs,
+      })),
+      totalDurationMs: result.totalDurationMs,
+    }, correlationId);
+  } catch (error) {
+    const err = error as Error;
+    logger.error('generation', 'topics_v2_error', `Failed to generate topic suggestions V2: ${err.message}`, err, { correlationId });
+    sendError(res, 'Failed to generate topic suggestions V2', ErrorCodes.EXTERNAL_SERVICE_ERROR, correlationId, { details: err.message });
+  }
+});
+
+/**
  * POST /api/generateTrendingTopics
  *
  * Identify 2-3 most actionable AI developments.
@@ -386,6 +487,161 @@ router.post('/generateTrendingTopicsWithSources', async (req: Request, res: Resp
 });
 
 // ============================================================================
+// Parallel Trending Topics (Phase 15.3)
+// ============================================================================
+
+import {
+  generateTrendingTopicsParallel,
+  executeConfirmedParallelGeneration,
+} from '../domains/generation/services/parallelTrendingOrchestrator';
+import type { ParallelGenerationConfig } from '../domains/generation/types/parallelGeneration';
+
+// Phase 15.4: Parallel topic suggestions
+import { generateSuggestionsParallel } from '../domains/generation/services/parallelSuggestionOrchestrator';
+
+/**
+ * POST /api/generateTrendingTopicsV2
+ *
+ * Phase 15.3: Parallel per-audience trending topic generation.
+ *
+ * Eliminates archaeology bias by generating topics for each audience
+ * in parallel, then merging with equal representation.
+ *
+ * Request body:
+ * - audience: string[] - Array of audience IDs
+ * - config?: Partial<ParallelGenerationConfig> - Optional generation config
+ * - customAudiences?: Array - Optional custom audience definitions
+ * - confirmed?: boolean - Whether user has confirmed after seeing trade-offs
+ *
+ * If config.showTradeoffs is true (default), first call returns trade-offs
+ * for user confirmation. Call again with confirmed=true to execute.
+ */
+router.post('/generateTrendingTopicsV2', async (req: Request, res: Response) => {
+  const correlationId = getCorrelationId();
+
+  try {
+    const {
+      audience,
+      config,
+      customAudiences,
+      confirmed = false,
+      clearCache = false,
+    } = req.body as {
+      audience: string[];
+      config?: Partial<ParallelGenerationConfig>;
+      customAudiences?: Array<{
+        id: string;
+        name: string;
+        description: string;
+        domainExamples: string;
+        topicTitles: string[];
+      }>;
+      confirmed?: boolean;
+      clearCache?: boolean;
+    };
+
+    if (!audience || !Array.isArray(audience) || audience.length === 0) {
+      return sendError(res, 'Audience array is required', ErrorCodes.VALIDATION_ERROR, correlationId);
+    }
+
+    // Clear cache if requested (for testing or force refresh)
+    if (clearCache) {
+      trendingCache.clearMergedTopics(audience);
+      trendingCache.clearPerAudienceTopics(); // Clear all per-audience to force regeneration
+      logger.info('generation', 'trending_v2_cache_cleared', 'Cache cleared for regeneration', { correlationId });
+    }
+
+    logger.info('generation', 'trending_v2_start', `Starting V2 trending generation for ${audience.length} audiences`, {
+      correlationId,
+      audiences: audience,
+      mode: config?.mode || 'per-category',
+      confirmed,
+    });
+
+    // Check cache first for confirmed requests (skip if cache was just cleared)
+    if (confirmed && !clearCache) {
+      const cached = trendingCache.getMergedTopics(audience);
+      if (cached && cached.success && cached.topics) {
+        logger.info('generation', 'trending_v2_cached', 'Returning cached parallel trending topics', {
+          correlationId,
+          topicCount: cached.topics.length,
+        });
+        return sendSuccess(res, {
+          success: true,
+          topics: cached.topics,
+          tradeoffs: cached.tradeoffs,
+          cached: true,
+          cacheKey: cached.cacheKey,
+        }, correlationId);
+      }
+    }
+
+    // Generate topics
+    // Phase 15.3: Ensure required config fields have defaults
+    const fullConfig = {
+      mode: config?.mode || 'per-category' as const,
+      topicsPerAgent: config?.topicsPerAgent || 4,
+      maxParallelAgents: config?.maxParallelAgents,
+      showTradeoffs: true,
+    };
+
+    const result = confirmed
+      ? await executeConfirmedParallelGeneration(audience, config, customAudiences)
+      : await generateTrendingTopicsParallel(audience, fullConfig, customAudiences, false);
+
+    // Handle trade-off confirmation flow
+    if (result.needsConfirmation) {
+      logger.info('generation', 'trending_v2_tradeoffs', 'Returning trade-offs for confirmation', {
+        correlationId,
+        agentCount: result.tradeoffs?.agentCount,
+        estimatedTime: result.tradeoffs?.estimatedTimeSeconds,
+      });
+      return sendSuccess(res, {
+        needsConfirmation: true,
+        tradeoffs: result.tradeoffs,
+      }, correlationId);
+    }
+
+    if (!result.success) {
+      return sendError(res, result.error || 'Failed to generate trending topics V2', ErrorCodes.EXTERNAL_SERVICE_ERROR, correlationId, {
+        tradeoffs: result.tradeoffs,
+      });
+    }
+
+    // Cache successful results
+    if (result.success && result.topics) {
+      trendingCache.setMergedTopics(audience, result);
+    }
+
+    logger.info('generation', 'trending_v2_complete', 'Generated parallel trending topics', {
+      correlationId,
+      topicCount: result.topics?.length,
+      durationMs: result.totalDurationMs,
+    });
+
+    sendSuccess(res, {
+      success: true,
+      topics: result.topics,
+      tradeoffs: result.tradeoffs,
+      perAudienceResults: result.perAudienceResults?.map(r => ({
+        batchId: r.batchId,
+        audienceIds: r.audienceIds,
+        topicCount: r.topics.length,
+        success: r.success,
+        error: r.error,
+        durationMs: r.durationMs,
+      })),
+      totalDurationMs: result.totalDurationMs,
+      cacheKey: result.cacheKey,
+    }, correlationId);
+  } catch (error) {
+    const err = error as Error;
+    logger.error('generation', 'trending_v2_error', `Failed to generate trending topics V2: ${err.message}`, err, { correlationId });
+    sendError(res, 'Failed to generate trending topics V2', ErrorCodes.EXTERNAL_SERVICE_ERROR, correlationId, { details: err.message });
+  }
+});
+
+// ============================================================================
 // Image Generation
 // ============================================================================
 
@@ -421,11 +677,124 @@ router.post('/generateImage', async (req: Request, res: Response) => {
 });
 
 // ============================================================================
+// Orchestrated Newsletter Generation (Phase 15.1)
+// ============================================================================
+
+import { orchestrateGeneration, orchestrateFull } from '../domains/generation/orchestrator/contentOrchestrator';
+
+/**
+ * POST /api/generateNewsletterV3
+ *
+ * Generate newsletter with full orchestration pipeline:
+ * - Pre-generation validation
+ * - Source diversity enforcement
+ * - Post-generation citation verification
+ *
+ * This endpoint provides better source diversity and verification
+ * compared to V2 (/api/generateEnhancedNewsletter).
+ */
+router.post('/generateNewsletterV3', async (req: Request, res: Response) => {
+  const correlationId = getCorrelationId();
+
+  try {
+    const {
+      topics,
+      audiences,
+      imageStyle,
+      promptOfTheDay,
+      personaId,
+      tone,
+      flavors,
+      skipValidation = false,
+      skipEnrichment = false,
+      enableVerification = true,
+    } = req.body as {
+      topics: string[];
+      audiences: AudienceConfig[];
+      imageStyle?: string;
+      promptOfTheDay?: {
+        title: string;
+        summary: string;
+        examplePrompts: string[];
+        promptCode: string;
+      } | null;
+      personaId?: string;
+      tone?: string;
+      flavors?: string[];
+      skipValidation?: boolean;
+      skipEnrichment?: boolean;
+      enableVerification?: boolean;
+    };
+
+    if (!topics || !topics.length) {
+      return sendError(res, 'Topics array is required', ErrorCodes.VALIDATION_ERROR, correlationId);
+    }
+
+    if (!audiences || !audiences.length) {
+      return sendError(res, 'Audiences array is required', ErrorCodes.VALIDATION_ERROR, correlationId);
+    }
+
+    logger.info('generation', 'v3_start', `Starting V3 generation for ${topics.length} topics, ${audiences.length} audiences`, { correlationId });
+
+    const result = await orchestrateGeneration(
+      {
+        topics,
+        audiences,
+        imageStyle,
+        promptOfTheDay,
+        personaId,
+        tone,
+        flavors,
+      },
+      {
+        skipTopicValidation: skipValidation,
+        skipEnrichment,
+        enableVerification,
+        enableSourceDiversity: true,
+        maxRetries: 1,
+      }
+    );
+
+    if (!result.success) {
+      const errorCode = result.validationResults ? ErrorCodes.VALIDATION_ERROR : ErrorCodes.EXTERNAL_SERVICE_ERROR;
+      return sendError(res, result.error || 'Failed to generate newsletter V3', errorCode, correlationId, {
+        validationResults: result.validationResults,
+        filteredTopics: result.filteredTopics,
+        suggestions: result.suggestions,
+        metrics: result.metrics,
+      });
+    }
+
+    logger.info('generation', 'v3_complete', 'Generated newsletter V3', {
+      correlationId,
+      id: result.newsletter?.id,
+      diversityScore: result.metrics.diversityScore,
+      totalTimeMs: result.metrics.totalTimeMs,
+    });
+
+    sendSuccess(res, {
+      newsletter: result.newsletter,
+      allocations: result.allocations,
+      verification: result.verification,
+      metrics: result.metrics,
+      preGeneration: {
+        validatedTopics: result.validationResults,
+        filteredTopics: result.filteredTopics,
+        pipelineTimeMs: result.preGenerationResult?.pipelineTimeMs,
+      },
+    }, correlationId);
+  } catch (error) {
+    const err = error as Error;
+    logger.error('generation', 'v3_error', `Failed to generate newsletter V3: ${err.message}`, err, { correlationId });
+    sendError(res, 'Failed to generate newsletter V3', ErrorCodes.EXTERNAL_SERVICE_ERROR, correlationId, { details: err.message });
+  }
+});
+
+// ============================================================================
 // Persona Preview (Phase 12.0)
 // ============================================================================
 
 import { generatePersonaPreview } from '../domains/generation/services/previewGenerator';
-import * as personaDbService from '../services/personaDbService';
 
 /**
  * POST /api/generatePersonaPreview

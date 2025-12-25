@@ -1,12 +1,21 @@
 /**
  * Audience Generation Service
  *
- * Uses Claude Haiku to generate audience configurations from a name and description.
- * Produces structured config with persona, keywords, subreddits, and search templates.
+ * Provides audience configuration management including:
+ * - Hierarchical audience categories and specializations (Phase 15.2)
+ * - Custom audience generation via Claude Haiku
+ * - Backward-compatible audience APIs
  */
 
 import Anthropic from '@anthropic-ai/sdk';
-import type { AudienceConfig } from '../../types';
+import type { AudienceConfig, AudienceCategory } from '../../types';
+import {
+  AUDIENCE_CATEGORIES,
+  SPECIALIZATIONS,
+  getAllSpecializations,
+  getAudienceCategories as getCategories,
+  resolveLegacyAudienceId,
+} from '../domains/generation/helpers/audienceHelpers';
 
 interface GeneratedAudienceConfig {
   persona: string;
@@ -120,25 +129,85 @@ Be specific to the audience. Include domain-specific terminology.`,
 }
 
 /**
- * Get the default hardcoded audiences with their generated configs
+ * Get the default audiences as AudienceConfig objects
+ *
+ * Returns the 4 specializations (forensic-anthropology, computational-archaeology,
+ * business-administration, business-intelligence) converted to AudienceConfig format
+ * for UI compatibility.
  */
 export function getDefaultAudiences(): AudienceConfig[] {
+  return getAllSpecializations().map((spec) => ({
+    id: spec.id,
+    name: spec.name,
+    description: spec.description,
+    isCustom: false,
+    generated: {
+      persona: spec.description,
+      relevance_keywords: extractKeywords(spec.domainExamples),
+      subreddits: getSubredditsForSpecialization(spec.id),
+      arxiv_categories: getArxivCategoriesForSpecialization(spec.id),
+      search_templates: getSearchTemplatesForSpecialization(spec.id),
+    },
+  }));
+}
+
+/**
+ * Get audience categories for hierarchical UI display
+ */
+export function getAudienceCategories(): AudienceCategory[] {
+  return getCategories();
+}
+
+/**
+ * Get audiences organized by category for grouped UI display
+ */
+export function getAudiencesByCategory(): {
+  category: AudienceCategory;
+  audiences: AudienceConfig[];
+}[] {
+  return AUDIENCE_CATEGORIES.map((category) => ({
+    category,
+    audiences: category.children.map((childId) => {
+      const spec = SPECIALIZATIONS[childId];
+      return {
+        id: spec.id,
+        name: spec.name,
+        description: spec.description,
+        isCustom: false,
+        generated: {
+          persona: spec.description,
+          relevance_keywords: extractKeywords(spec.domainExamples),
+          subreddits: getSubredditsForSpecialization(spec.id),
+          arxiv_categories: getArxivCategoriesForSpecialization(spec.id),
+          search_templates: getSearchTemplatesForSpecialization(spec.id),
+        },
+      };
+    }),
+  }));
+}
+
+/**
+ * Get legacy audiences for backward compatibility
+ * Maps old audience IDs to new specializations
+ */
+export function getLegacyAudiences(): AudienceConfig[] {
+  // Return legacy-style audiences that map to new specializations
   return [
     {
       id: 'academics',
       name: 'Academics',
-      description: 'Forensic anthropology & computational archeology professors.',
+      description: 'Forensic anthropology & computational archaeology researchers.',
       isCustom: false,
       generated: {
         persona:
-          'University researchers and professors specializing in forensic anthropology and computational archaeology. They analyze skeletal remains, use imaging technology for 3D reconstruction, and apply AI tools for pattern recognition in archaeological data.',
+          'University researchers specializing in forensic anthropology and computational archaeology.',
         relevance_keywords: [
           'skeletal analysis',
           '3D reconstruction',
           'forensic imaging',
           'bone morphometry',
           'archaeological AI',
-          'remote sensing',
+          'LiDAR',
           'photogrammetry',
           'GIS analysis',
         ],
@@ -148,63 +217,31 @@ export function getDefaultAudiences(): AudienceConfig[] {
           'AI {topic} forensic anthropology',
           '{topic} skeletal analysis machine learning',
           'computational archaeology {topic}',
-          '{topic} 3D reconstruction bone',
         ],
       },
     },
     {
       id: 'business',
-      name: 'Business Leaders',
-      description: 'Admins & leaders upskilling in AI.',
+      name: 'Business',
+      description: 'Business administrators and intelligence professionals.',
       isCustom: false,
       generated: {
         persona:
-          'Business administrators, office managers, and team leaders seeking to leverage AI for workflow automation and productivity. They focus on practical tools that can immediately improve daily operations without requiring deep technical expertise.',
+          'Business administrators, office managers, and analytics professionals seeking AI-powered tools.',
         relevance_keywords: [
           'workflow automation',
           'productivity tools',
-          'document processing',
-          'scheduling AI',
-          'task automation',
           'business intelligence',
+          'predictive analytics',
+          'dashboard automation',
           'process optimization',
-          'no-code AI',
         ],
-        subreddits: ['automation', 'productivity', 'Entrepreneur', 'smallbusiness'],
-        arxiv_categories: ['cs.AI', 'cs.HC'],
+        subreddits: ['automation', 'productivity', 'BusinessIntelligence', 'analytics'],
+        arxiv_categories: ['cs.AI', 'cs.HC', 'cs.LG'],
         search_templates: [
           'AI {topic} workflow automation',
           '{topic} business productivity tools',
           'automate {topic} for business',
-          '{topic} no-code AI solution',
-        ],
-      },
-    },
-    {
-      id: 'analysts',
-      name: 'Data Analysts',
-      description: 'Analysts extracting business intelligence.',
-      isCustom: false,
-      generated: {
-        persona:
-          'Business and data analysts who use analytics tools for extracting insights, forecasting, and decision support. They work with supply chain data, financial metrics, and operational KPIs to drive business outcomes.',
-        relevance_keywords: [
-          'predictive analytics',
-          'data visualization',
-          'supply chain optimization',
-          'demand forecasting',
-          'business intelligence',
-          'dashboard automation',
-          'anomaly detection',
-          'time series analysis',
-        ],
-        subreddits: ['datascience', 'BusinessIntelligence', 'analytics', 'supplychain'],
-        arxiv_categories: ['cs.LG', 'stat.ML', 'cs.AI'],
-        search_templates: [
-          'AI {topic} data analytics',
-          '{topic} predictive modeling business',
-          'supply chain {topic} AI',
-          '{topic} forecasting machine learning',
         ],
       },
     },
@@ -223,8 +260,76 @@ export function getAudiencePromptDescription(audiences: AudienceConfig[]): strin
     .join('\n');
 }
 
+// =============================================================================
+// Helper Functions for Generated Config
+// =============================================================================
+
+function extractKeywords(domainExamples: string): string[] {
+  // Extract key terms from domain examples
+  const terms = domainExamples
+    .replace(/[-•]/g, '')
+    .split(/[,:]/)
+    .map((t) => t.trim())
+    .filter((t) => t.length > 3 && t.length < 40);
+  return terms.slice(0, 8);
+}
+
+function getSubredditsForSpecialization(specId: string): string[] {
+  const subredditMap: Record<string, string[]> = {
+    'forensic-anthropology': ['forensics', 'Anthropology', 'AcademicBiology', 'ForensicScience'],
+    'computational-archaeology': ['archaeology', 'gis', 'AcademicHistory', 'DigitalHumanities'],
+    'business-administration': ['automation', 'productivity', 'Entrepreneur', 'smallbusiness'],
+    'business-intelligence': [
+      'datascience',
+      'BusinessIntelligence',
+      'analytics',
+      'supplychain',
+    ],
+  };
+  return subredditMap[specId] || ['technology', 'artificial'];
+}
+
+function getArxivCategoriesForSpecialization(specId: string): string[] {
+  const arxivMap: Record<string, string[]> = {
+    'forensic-anthropology': ['cs.CV', 'q-bio.QM', 'cs.AI'],
+    'computational-archaeology': ['cs.CV', 'cs.GR', 'cs.AI', 'eess.IV'],
+    'business-administration': ['cs.AI', 'cs.HC', 'cs.SE'],
+    'business-intelligence': ['cs.LG', 'stat.ML', 'cs.AI', 'cs.DB'],
+  };
+  return arxivMap[specId] || ['cs.AI'];
+}
+
+function getSearchTemplatesForSpecialization(specId: string): string[] {
+  const templateMap: Record<string, string[]> = {
+    'forensic-anthropology': [
+      'AI {topic} forensic anthropology',
+      '{topic} skeletal analysis machine learning',
+      '{topic} morphometric analysis automation',
+    ],
+    'computational-archaeology': [
+      'AI {topic} computational archaeology',
+      '{topic} LiDAR site discovery',
+      '{topic} photogrammetry 3D reconstruction',
+    ],
+    'business-administration': [
+      'AI {topic} workflow automation',
+      '{topic} business process automation',
+      'automate {topic} n8n zapier',
+    ],
+    'business-intelligence': [
+      'AI {topic} business analytics',
+      '{topic} predictive modeling',
+      '{topic} dashboard automation visualization',
+    ],
+  };
+  return templateMap[specId] || ['AI {topic}'];
+}
+
 export default {
   generateAudienceConfig,
   getDefaultAudiences,
+  getAudienceCategories,
+  getAudiencesByCategory,
+  getLegacyAudiences,
   getAudiencePromptDescription,
 };

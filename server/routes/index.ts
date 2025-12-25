@@ -27,6 +27,8 @@
  * | Gmail | Migrated | 3 |
  * | Generation | Migrated | 11 (AI content generation) |
  * | Prompt Import | Migrated | 8 (Phase 11 multi-source import) |
+ * | Topics | Migrated | 9 (saved topic library) |
+ * | Sources | Migrated | 11 (saved sources library) |
  *
  * ## Usage
  * ```typescript
@@ -54,6 +56,8 @@ import driveRoutes from './drive.routes.ts';
 import gmailRoutes from './gmail.routes.ts';
 import generationRoutes from './generation.routes.ts';
 import promptImportRoutes from './promptImport.routes.ts';
+import topicRoutes from './topic.routes.ts';
+import sourceRoutes from './source.routes.ts';
 
 const router = Router();
 
@@ -109,6 +113,12 @@ router.use('/drive', driveRoutes);
 
 // Gmail (migrated)
 router.use('/gmail', gmailRoutes);
+
+// Topics (saved topic library)
+router.use('/topics', topicRoutes);
+
+// Sources (saved inspiration sources library)
+router.use('/sources', sourceRoutes);
 
 // Generation (migrated - AI content generation endpoints)
 // Mounted at root level since endpoints use direct paths like /fetchTrendingSources

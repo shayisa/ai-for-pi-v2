@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { ExternalLinkIcon } from './IconComponents';
+import { ExternalLinkIcon, BookmarkIcon, BookmarkSolidIcon } from './IconComponents';
 import { staggerContainer, staggerItem, skeletonPulse } from '../utils/animations';
 
 export interface TrendingSource {
@@ -17,6 +17,8 @@ export interface TrendingSource {
 interface InspirationSourcesPanelProps {
     sources: TrendingSource[];
     isLoading?: boolean;
+    onSaveSource?: (source: TrendingSource) => void;
+    savedSourceUrls?: Set<string>;
 }
 
 const categoryStyles: Record<string, { label: string }> = {
@@ -30,6 +32,8 @@ const categoryStyles: Record<string, { label: string }> = {
 export const InspirationSourcesPanel: React.FC<InspirationSourcesPanelProps> = ({
     sources,
     isLoading = false,
+    onSaveSource,
+    savedSourceUrls,
 }) => {
     if (isLoading) {
         return (
@@ -87,14 +91,12 @@ export const InspirationSourcesPanel: React.FC<InspirationSourcesPanelProps> = (
             >
                 {sources.map((source) => {
                     const style = categoryStyles[source.category];
+                    const isSaved = savedSourceUrls?.has(source.url) || false;
                     return (
-                        <motion.a
+                        <motion.div
                             key={source.id}
                             variants={staggerItem}
-                            href={source.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="block py-4 group hover:bg-pearl transition-colors -mx-6 px-6"
+                            className="py-4 group hover:bg-pearl transition-colors -mx-6 px-6"
                         >
                             <div className="flex items-start gap-4">
                                 {/* Category Badge */}
@@ -104,9 +106,14 @@ export const InspirationSourcesPanel: React.FC<InspirationSourcesPanelProps> = (
 
                                 {/* Content */}
                                 <div className="flex-1 min-w-0">
-                                    <p className="font-sans text-ui font-medium text-ink group-hover:text-editorial-navy transition-colors line-clamp-2">
+                                    <a
+                                        href={source.url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="font-sans text-ui font-medium text-ink hover:text-editorial-navy transition-colors line-clamp-2 block"
+                                    >
                                         {source.title}
-                                    </p>
+                                    </a>
                                     <div className="flex items-center gap-2 mt-1">
                                         {source.author && (
                                             <span className="font-sans text-caption text-slate">{source.author}</span>
@@ -122,10 +129,46 @@ export const InspirationSourcesPanel: React.FC<InspirationSourcesPanelProps> = (
                                     )}
                                 </div>
 
-                                {/* External Link Icon */}
-                                <ExternalLinkIcon className="h-4 w-4 text-silver flex-shrink-0 group-hover:text-editorial-navy transition-colors" />
+                                {/* Actions */}
+                                <div className="flex items-center gap-2 flex-shrink-0">
+                                    {/* Save Button */}
+                                    {onSaveSource && (
+                                        <button
+                                            onClick={(e) => {
+                                                e.preventDefault();
+                                                e.stopPropagation();
+                                                if (!isSaved) {
+                                                    onSaveSource(source);
+                                                }
+                                            }}
+                                            className={`p-1 transition-colors ${
+                                                isSaved
+                                                    ? 'text-editorial-navy cursor-default'
+                                                    : 'text-slate hover:text-editorial-navy'
+                                            }`}
+                                            title={isSaved ? 'Saved to library' : 'Save to library'}
+                                            disabled={isSaved}
+                                        >
+                                            {isSaved ? (
+                                                <BookmarkSolidIcon className="h-4 w-4" />
+                                            ) : (
+                                                <BookmarkIcon className="h-4 w-4" />
+                                            )}
+                                        </button>
+                                    )}
+                                    {/* External Link Icon */}
+                                    <a
+                                        href={source.url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="p-1 text-silver hover:text-editorial-navy transition-colors"
+                                        title="Open in new tab"
+                                    >
+                                        <ExternalLinkIcon className="h-4 w-4" />
+                                    </a>
+                                </div>
                             </div>
-                        </motion.a>
+                        </motion.div>
                     );
                 })}
             </motion.div>

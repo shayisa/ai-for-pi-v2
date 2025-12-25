@@ -14,6 +14,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useCalendar } from '../hooks/useCalendar';
 import type { CalendarEntry, CalendarStatus } from '../services/calendarClientService';
+import * as newsletterApi from '../services/newsletterClientService';
 import {
   RefreshIcon,
   ChevronLeftIcon,
@@ -22,8 +23,10 @@ import {
   XIcon,
   EditIcon,
   TrashIcon,
+  LinkIcon,
 } from '../components/IconComponents';
 import { fadeInUp, staggerContainer, staggerItem } from '../utils/animations';
+import { NewsletterPickerModal } from '../components/NewsletterPickerModal';
 
 // Days of the week
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -84,16 +87,38 @@ interface EntryModalProps {
   onClose: () => void;
   onSave: (data: { title: string; scheduledDate: string; description: string; topics: string[]; status: CalendarStatus }) => void;
   onStartGeneration?: (entry: CalendarEntry) => void;
+  onViewNewsletter?: (newsletterId: string, entry: CalendarEntry) => void;
+  onGenerateNew?: (entry: CalendarEntry) => void;
+  onLinkNewsletter?: (entry: CalendarEntry, newsletterId: string, subject: string) => void;
+  onUnlinkNewsletter?: (entry: CalendarEntry) => void;
   initialData?: CalendarEntry | null;
   selectedDate?: string;
 }
 
-const EntryModal: React.FC<EntryModalProps> = ({ isOpen, onClose, onSave, onStartGeneration, initialData, selectedDate }) => {
+const EntryModal: React.FC<EntryModalProps> = ({
+  isOpen,
+  onClose,
+  onSave,
+  onStartGeneration,
+  onViewNewsletter,
+  onGenerateNew,
+  onLinkNewsletter,
+  onUnlinkNewsletter,
+  initialData,
+  selectedDate
+}) => {
   const [title, setTitle] = useState(initialData?.title || '');
   const [scheduledDate, setScheduledDate] = useState(initialData?.scheduledDate || selectedDate || formatDate(new Date()));
   const [description, setDescription] = useState(initialData?.description || '');
   const [topicsInput, setTopicsInput] = useState(initialData?.topics.join(', ') || '');
   const [status, setStatus] = useState<CalendarStatus>(initialData?.status || 'planned');
+
+  // Linked newsletter state (Phase 1: Show newsletter title in modal)
+  const [linkedNewsletter, setLinkedNewsletter] = useState<{ id: string; subject: string } | null>(null);
+  const [isLoadingNewsletter, setIsLoadingNewsletter] = useState(false);
+
+  // Phase 16: Newsletter picker modal state
+  const [showNewsletterPicker, setShowNewsletterPicker] = useState(false);
 
   // Reset form when modal opens or initialData changes
   useEffect(() => {
@@ -105,6 +130,19 @@ const EntryModal: React.FC<EntryModalProps> = ({ isOpen, onClose, onSave, onStar
       setStatus(initialData?.status || 'planned');
     }
   }, [isOpen, initialData, selectedDate]);
+
+  // Fetch linked newsletter when modal opens with newsletterId (Phase 1)
+  useEffect(() => {
+    if (isOpen && initialData?.newsletterId) {
+      setIsLoadingNewsletter(true);
+      newsletterApi.getNewsletterById(initialData.newsletterId)
+        .then(result => setLinkedNewsletter({ id: result.id, subject: result.subject }))
+        .catch(err => console.warn('Could not fetch linked newsletter:', err))
+        .finally(() => setIsLoadingNewsletter(false));
+    } else {
+      setLinkedNewsletter(null);
+    }
+  }, [isOpen, initialData?.newsletterId]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -123,14 +161,16 @@ const EntryModal: React.FC<EntryModalProps> = ({ isOpen, onClose, onSave, onStar
   if (!isOpen) return null;
 
   return (
-    <AnimatePresence>
-      <motion.div
-        className="fixed inset-0 bg-ink/50 flex items-center justify-center z-50"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        onClick={onClose}
-      >
+    <>
+      <AnimatePresence>
+        <motion.div
+          key="entry-modal-overlay"
+          className="fixed inset-0 bg-ink/50 flex items-center justify-center z-50"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          onClick={onClose}
+        >
         <motion.div
           className="bg-paper w-full max-w-lg mx-4 shadow-editorial"
           initial={{ opacity: 0, scale: 0.95, y: 20 }}
@@ -225,15 +265,78 @@ const EntryModal: React.FC<EntryModalProps> = ({ isOpen, onClose, onSave, onStar
               </select>
             </div>
 
-            {/* Linked Newsletter Status (Issue 2 fix) */}
-            {initialData?.newsletterId && (
-              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-md">
-                <span className="text-sm text-emerald-700 flex items-center gap-2">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
-                  Newsletter generated and linked to this entry
-                </span>
+            {/* Phase 16: Newsletter Actions Section - Link Existing or Generate New */}
+            {initialData && (
+              <div className="space-y-3">
+                {!initialData.newsletterId ? (
+                  // Empty state - show equal "Link Existing" and "Generate New" options
+                  <div className="p-4 bg-slate/5 border border-border-subtle rounded-md">
+                    <div className="flex items-center gap-2 mb-3">
+                      <LinkIcon className="w-4 h-4 text-slate" />
+                      <span className="text-sm text-slate">No newsletter linked</span>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setShowNewsletterPicker(true)}
+                        className="flex-1 px-3 py-1.5 text-sm border border-editorial-navy text-editorial-navy hover:bg-editorial-navy/5 transition-colors"
+                      >
+                        Link Existing
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onStartGeneration?.(initialData);
+                          onClose();
+                        }}
+                        className="flex-1 px-3 py-1.5 text-sm bg-editorial-gold text-ink hover:bg-editorial-gold/90 transition-colors"
+                      >
+                        Generate New
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  // Linked state - show newsletter info and View/Change/Unlink actions
+                  <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-md space-y-3">
+                    <div className="flex items-center gap-2">
+                      <svg className="w-4 h-4 text-emerald-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      <span className="text-sm font-medium text-emerald-700 truncate">
+                        {isLoadingNewsletter ? 'Loading...' : (linkedNewsletter?.subject || 'Newsletter linked')}
+                      </span>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onViewNewsletter?.(initialData.newsletterId!, initialData);
+                          onClose();
+                        }}
+                        className="flex-1 px-3 py-1.5 text-sm bg-emerald-600 text-white hover:bg-emerald-700 transition-colors"
+                      >
+                        View
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowNewsletterPicker(true)}
+                        className="flex-1 px-3 py-1.5 text-sm border border-emerald-600 text-emerald-600 hover:bg-emerald-50 transition-colors"
+                      >
+                        Change Link
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onUnlinkNewsletter?.(initialData);
+                          setLinkedNewsletter(null);
+                        }}
+                        className="px-3 py-1.5 text-sm border border-red-300 text-red-600 hover:bg-red-50 transition-colors"
+                      >
+                        Unlink
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -288,7 +391,22 @@ const EntryModal: React.FC<EntryModalProps> = ({ isOpen, onClose, onSave, onStar
           </form>
         </motion.div>
       </motion.div>
-    </AnimatePresence>
+      </AnimatePresence>
+
+      {/* Phase 16: Newsletter Picker Modal - Outside AnimatePresence to avoid key conflicts */}
+      <NewsletterPickerModal
+        isOpen={showNewsletterPicker}
+        onClose={() => setShowNewsletterPicker(false)}
+        onSelect={(newsletterId, subject) => {
+          if (initialData) {
+            onLinkNewsletter?.(initialData, newsletterId, subject);
+            setLinkedNewsletter({ id: newsletterId, subject });
+            setShowNewsletterPicker(false);
+          }
+        }}
+        currentLinkedId={initialData?.newsletterId}
+      />
+    </>
   );
 };
 
@@ -368,10 +486,12 @@ const DayCell: React.FC<DayCellProps> = ({ date, isCurrentMonth, isToday, entrie
 // Main Component Props
 interface ContentCalendarPageProps {
   onStartGeneration?: (entry: CalendarEntry) => void;
+  onViewNewsletter?: (newsletterId: string, entry: CalendarEntry) => void;
+  onGenerateNew?: (entry: CalendarEntry) => void;
 }
 
 // Main Component
-export const ContentCalendarPage: React.FC<ContentCalendarPageProps> = ({ onStartGeneration }) => {
+export const ContentCalendarPage: React.FC<ContentCalendarPageProps> = ({ onStartGeneration, onViewNewsletter, onGenerateNew }) => {
   const {
     entries,
     isLoading,
@@ -381,6 +501,8 @@ export const ContentCalendarPage: React.FC<ContentCalendarPageProps> = ({ onStar
     createEntry,
     updateEntry,
     deleteEntry,
+    linkNewsletter,
+    unlinkNewsletter,
     refreshEntries,
   } = useCalendar();
 
@@ -447,6 +569,30 @@ export const ContentCalendarPage: React.FC<ContentCalendarPageProps> = ({ onStar
       await deleteEntry(id);
       setIsModalOpen(false);
       setEditingEntry(null);
+    }
+  };
+
+  // Phase 16: Handle linking newsletter to calendar entry
+  const handleLinkNewsletter = async (entry: CalendarEntry, newsletterId: string, subject: string) => {
+    console.log(`[ContentCalendarPage] Linking newsletter ${newsletterId} to entry ${entry.id}`);
+    try {
+      const updated = await linkNewsletter(entry.id, newsletterId);
+      setEditingEntry(updated);
+      console.log(`[ContentCalendarPage] Successfully linked newsletter: ${subject}`);
+    } catch (err) {
+      console.error('[ContentCalendarPage] Failed to link newsletter:', err);
+    }
+  };
+
+  // Phase 16: Handle unlinking newsletter from calendar entry
+  const handleUnlinkNewsletter = async (entry: CalendarEntry) => {
+    console.log(`[ContentCalendarPage] Unlinking newsletter from entry ${entry.id}`);
+    try {
+      const updated = await unlinkNewsletter(entry.id);
+      setEditingEntry(updated);
+      console.log('[ContentCalendarPage] Successfully unlinked newsletter');
+    } catch (err) {
+      console.error('[ContentCalendarPage] Failed to unlink newsletter:', err);
     }
   };
 
@@ -636,6 +782,10 @@ export const ContentCalendarPage: React.FC<ContentCalendarPageProps> = ({ onStar
         }}
         onSave={handleSaveEntry}
         onStartGeneration={onStartGeneration}
+        onViewNewsletter={onViewNewsletter}
+        onGenerateNew={onGenerateNew}
+        onLinkNewsletter={handleLinkNewsletter}
+        onUnlinkNewsletter={handleUnlinkNewsletter}
         initialData={editingEntry}
         selectedDate={selectedDate}
       />

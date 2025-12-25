@@ -14,7 +14,7 @@
  */
 import Anthropic from '@anthropic-ai/sdk';
 import { getAnthropicClient } from '../../../external/claude';
-import { getAudienceDescription } from '../helpers/audienceHelpers';
+import { getAudienceDescription, getBalancedDomainExamples, getSpecializationsFromIds } from '../helpers/audienceHelpers';
 import { getDateRangeDescription } from '../helpers/dateHelpers';
 import { scoreSourceForPracticality } from '../helpers/scoringHelpers';
 import { fetchAllTrendingSources } from '../sources/aggregator';
@@ -44,14 +44,37 @@ export interface GenerateCompellingContentResult {
 const SYSTEM_PROMPT = `You are a seasoned consultant and technology strategist who speaks plainly and authentically. Your gift is translating complex AI developments into practical guidance that feels like advice from a trusted colleague, not a textbook. You extract specific, immediately actionable insights, tools, and implementation steps. You write with clarity, personality, and genuine helpfulness—always focusing on what professionals can actually DO TODAY. Always return valid JSON with human-centered guidance.`;
 
 /**
- * Build user message - EXACT copy from server.ts lines 708-770
- * DO NOT MODIFY any text in this function
+ * Build user message for compelling content generation
+ *
+ * Phase 15.2: Updated to use dynamic domain examples based on audience selection.
+ * Previously hardcoded all domains regardless of which audiences were selected.
+ *
+ * Phase 15.6: Added audience count for balanced tool distribution.
+ * Now explicitly requests equal representation per audience.
+ *
+ * @param audienceDescription - Formatted audience description string
+ * @param dateRange - Date range object for recency filtering
+ * @param sourceSummary - Formatted source summary string
+ * @param domainExamples - Dynamic domain examples based on selected audiences
+ * @param audienceCount - Number of distinct audiences selected
  */
 function buildUserMessage(
   audienceDescription: string,
   dateRange: { startDate: string; endDate: string; range: string },
-  sourceSummary: string
+  sourceSummary: string,
+  domainExamples: string,
+  audienceCount: number = 1
 ): string {
+  // Phase 15.6: Calculate balanced tool count per audience
+  // Minimum 2 tools per audience, max 8 total tools
+  const toolsPerAudience = Math.max(2, Math.floor(8 / audienceCount));
+  const totalTools = toolsPerAudience * audienceCount;
+
+  // Build explicit balance instruction when multiple audiences
+  const balanceInstruction = audienceCount > 1
+    ? `CRITICAL BALANCE REQUIREMENT: You MUST include exactly ${toolsPerAudience} tools for EACH audience domain. Do NOT favor one audience over another. Distribute tools equally across all ${audienceCount} audience domains.`
+    : '';
+
   return `
     You are an expert in making AI capabilities accessible and practical for professionals.
 
@@ -72,7 +95,8 @@ function buildUserMessage(
     - Expected Impact: Concrete benefit (time saved, accuracy improved, cost reduced, etc.)
     - Resource: GitHub repo, paper link, or tool name
 
-    **SECTION 2: ESSENTIAL TOOLS & RESOURCES** (5-7 items)
+    **SECTION 2: ESSENTIAL TOOLS & RESOURCES** (${totalTools} items total)
+    ${balanceInstruction}
     For each:
     - Tool/Paper Name
     - One-line what it does
@@ -87,10 +111,7 @@ function buildUserMessage(
     - PRACTICAL examples they can use this week
 
     When suggesting tools and capabilities, prioritize those with direct applications to:
-    - Forensic anthropology: skeletal analysis automation, morphometric measurements, ancestry classification, trauma pattern recognition, taphonomic analysis
-    - Digital/computational archaeology: LiDAR data processing, photogrammetry pipelines, 3D site reconstruction, geospatial analysis, artifact classification
-    - Business administration: workflow orchestration tools, document automation, meeting intelligence, task automation, process mining
-    - Business analytics/logistics: supply chain optimization, demand forecasting, route planning, warehouse automation, predictive maintenance
+    ${domainExamples}
 
     Format as valid JSON with this structure:
     {
@@ -149,7 +170,14 @@ export async function generateCompellingTrendingContent(
       ? topSources.map(s => `- "${s.title}" from ${s.publication} (${s.category}, ${s.date}): ${s.url}\n  ${s.summary || ""}`).join('\n')
       : "";
 
-    const userMessage = buildUserMessage(audienceDescription, dateRange, sourceSummary);
+    // Phase 15.3: Get BALANCED domain examples with shuffled order
+    const domainExamples = getBalancedDomainExamples(audience);
+
+    // Phase 15.6: Calculate audience count for balanced tool distribution
+    const resolvedAudiences = getSpecializationsFromIds(audience);
+    const audienceCount = resolvedAudiences.length || 1;
+
+    const userMessage = buildUserMessage(audienceDescription, dateRange, sourceSummary, domainExamples, audienceCount);
 
     // Use Haiku for this summarization task (token optimization) - MUST match server.ts line 779-780
     const response = await (await getAnthropicClient()).messages.create({

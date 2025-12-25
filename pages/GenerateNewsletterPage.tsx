@@ -72,6 +72,9 @@ interface GenerateNewsletterPageProps {
     onSaveAsTemplate?: (name: string, description: string) => Promise<void>;
     // Calendar entry tracking (Issue 2 fix)
     calendarEntryTitle?: string | null;
+    // Phase 16: Calendar entry linking
+    calendarEntryId?: string | null;
+    onOpenCalendarPicker?: () => void;
 }
 
 export const GenerateNewsletterPage: React.FC<GenerateNewsletterPageProps> = ({
@@ -99,6 +102,9 @@ export const GenerateNewsletterPage: React.FC<GenerateNewsletterPageProps> = ({
     onSaveAsTemplate,
     // Calendar entry tracking
     calendarEntryTitle,
+    // Phase 16: Calendar entry linking
+    calendarEntryId,
+    onOpenCalendarPicker,
 }) => {
     // Topics state from TopicsContext (Phase 10: added setters for inline editing)
     const { topics: selectedTopics, addTopic, removeTopic } = useSelectedTopics();
@@ -290,6 +296,10 @@ export const GenerateNewsletterPage: React.FC<GenerateNewsletterPageProps> = ({
                         onSendViaGmail={onSendViaGmail}
                         isAuthenticated={isAuthenticated}
                         workflowStatus={workflowStatus}
+                        // Phase 16: Calendar entry linking
+                        calendarEntryId={calendarEntryId}
+                        calendarEntryTitle={calendarEntryTitle}
+                        onOpenCalendarPicker={onOpenCalendarPicker}
                     />
                 }
             />

@@ -16,7 +16,11 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { getAnthropicClient, webSearchTool, searchGuidance } from '../../../external/claude';
 import { processToolCall } from '../../../external/brave';
-import { getAudienceDescription } from '../helpers/audienceHelpers';
+import {
+  getAudienceDescription,
+  getBalancedDomainExamples,
+  getBalancedJsonExamples,
+} from '../helpers/audienceHelpers';
 import { getDateRangeDescription } from '../helpers/dateHelpers';
 
 // Token optimization constant - MUST match server.ts
@@ -59,13 +63,25 @@ const TRENDING_SYSTEM_PROMPT = `You are a seasoned technical implementation cons
 const TRENDING_WITH_SOURCES_SYSTEM_PROMPT = `You are an AI news analyst specializing in identifying trending AI developments from real sources. Your task is to analyze provided trending sources and summarize the most relevant developments for specific audiences. The final output MUST be a valid JSON array of objects. Do not include any text outside of the JSON object.`;
 
 /**
- * Build user message for generateTrendingTopics - EXACT copy from server.ts lines 1508-1558
- * DO NOT MODIFY any text in this function
+ * Build user message for generateTrendingTopics
+ *
+ * Phase: Archaeology Bias Fix - Now uses dynamic domain examples based on audience selection.
+ * Previously used hardcoded examples that always included archaeology regardless of audience.
+ *
+ * @param audienceDescription - Formatted audience description string
+ * @param dateRange - Date range object for recency filtering
+ * @param audience - Array of selected audience keys for dynamic example selection
  */
 function buildTrendingUserMessage(
   audienceDescription: string,
-  dateRange: { startDate: string; endDate: string; range: string }
+  dateRange: { startDate: string; endDate: string; range: string },
+  audience: string[]
 ): string {
+  // Phase 15.3: Use BALANCED domain examples with shuffled order
+  const domainExamples = getBalancedDomainExamples(audience);
+  // Phase 15.3: Use BALANCED JSON examples with shuffled order
+  const jsonExamples = getBalancedJsonExamples(audience);
+
   return `
     You are an AI implementation strategist. Your task is to identify 2-3 of the most actionable, tutorial-worthy AI developments from the last 60 days that readers can immediately implement.
 
@@ -79,10 +95,7 @@ function buildTrendingUserMessage(
     - Every summary MUST include specific tools/technologies by name
 
     Focus on developments that have clear, implementable applications to:
-    - Forensic anthropology: skeletal analysis automation, trauma pattern classification, victim identification workflows, morphometric measurements, taphonomy modeling
-    - Digital/computational archaeology: LiDAR data processing, 3D reconstruction pipelines, artifact classification systems, site discovery automation, geospatial analysis tools
-    - Business administration: workflow orchestration, document automation systems, meeting intelligence tools, task automation frameworks, process mining implementations
-    - Business analytics/logistics: supply chain optimization models, demand forecasting systems, inventory management automation, route planning algorithms, predictive maintenance tools
+    ${domainExamples}
 
     RECENCY REQUIREMENT: Focus ONLY on tools, libraries, models, or APIs announced or significantly updated between ${dateRange.range}. Ignore all developments from before ${dateRange.startDate}. This must be CURRENT and IMPLEMENTABLE content only.
 
@@ -102,20 +115,7 @@ function buildTrendingUserMessage(
     }
 
     Example format (REQUIRED STRUCTURE):
-    [
-        {
-            "title": "How to Build a Skeletal Analysis Pipeline Using Claude Vision API and Python",
-            "summary": "Claude 3.5's new vision capabilities (released October 2024) enable forensic anthropologists to automate skeletal element identification and trauma documentation. Implementation: Use Claude API with base64-encoded bone images, prompt for morphometric measurements, integrate with existing case management systems. Expected outcome: 60% reduction in initial documentation time with standardized measurement protocols."
-        },
-        {
-            "title": "How to Deploy Automated LiDAR Site Discovery with Open3D and PyTorch",
-            "summary": "Recent updates to Open3D (v0.18, September 2024) combined with PyTorch's improved point cloud processing enable archaeologists to automate site anomaly detection from drone LiDAR scans. Implementation: Process raw .las files with Open3D, train anomaly detection model using labeled examples, export georeferenced site predictions. Expected outcome: Identify potential archaeological features 10x faster than manual scan review."
-        },
-        {
-            "title": "How to Automate Business Workflows Using n8n Cloud and Claude Integration",
-            "summary": "n8n's new Claude node (November 2024) enables business administrators to build no-code AI workflows for document processing, email triage, and meeting follow-ups. Implementation: Connect n8n to Gmail/Slack, configure Claude prompts for task extraction, route actions to project management tools. Expected outcome: Automate 80% of routine administrative decisions without code."
-        }
-    ]
+    ${JSON.stringify(jsonExamples, null, 4)}
   ` + searchGuidance;
 }
 
@@ -173,7 +173,8 @@ export async function generateTrendingTopics(
     const audienceDescription = getAudienceDescription(audience);
     const dateRange = getDateRangeDescription();
 
-    const userMessage = buildTrendingUserMessage(audienceDescription, dateRange);
+    // Phase: Archaeology Bias Fix - Pass audience for dynamic example selection
+    const userMessage = buildTrendingUserMessage(audienceDescription, dateRange, audience);
 
     let messages: Anthropic.Messages.MessageParam[] = [
       { role: "user", content: userMessage },

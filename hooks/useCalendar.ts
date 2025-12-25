@@ -32,6 +32,7 @@ interface UseCalendarReturn {
   ) => Promise<CalendarEntry>;
   deleteEntry: (id: string) => Promise<void>;
   linkNewsletter: (entryId: string, newsletterId: string) => Promise<CalendarEntry>;
+  unlinkNewsletter: (entryId: string) => Promise<CalendarEntry>;
   refreshEntries: () => Promise<void>;
 }
 
@@ -145,6 +146,19 @@ export function useCalendar(): UseCalendarReturn {
     []
   );
 
+  // Phase 16: Unlink newsletter
+  const unlinkNewsletter = useCallback(
+    async (entryId: string): Promise<CalendarEntry> => {
+      const updated = await calendarApi.unlinkNewsletter(entryId);
+      setEntries((prev) =>
+        prev.map((e) => (e.id === entryId ? updated : e))
+      );
+      console.log(`[useCalendar] Unlinked newsletter from entry ${entryId}`);
+      return updated;
+    },
+    []
+  );
+
   // Refresh
   const refreshEntries = useCallback(async () => {
     await loadEntries();
@@ -160,6 +174,7 @@ export function useCalendar(): UseCalendarReturn {
     updateEntry,
     deleteEntry,
     linkNewsletter,
+    unlinkNewsletter,
     refreshEntries,
   };
 }

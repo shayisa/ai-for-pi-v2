@@ -120,19 +120,36 @@ export const saveToDrive = async (
     const htmlContent = generateNewsletterHTML(newsletter, topics, originalEnhanced);
     const filename = `${newsletter.subject}.html`;
 
+    const payload = JSON.stringify({
+      userEmail,
+      content: htmlContent,
+      filename
+    });
+
+    // Log payload size for debugging
+    const payloadSizeMB = (payload.length / (1024 * 1024)).toFixed(2);
+    console.log(`[GoogleAPI] Saving to Drive - payload size: ${payloadSizeMB}MB`);
+
     const response = await fetch(`${API_BASE}/api/drive/save`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        userEmail,
-        content: htmlContent,
-        filename
-      })
+      body: payload
     });
 
     if (!response.ok) {
-      const json = await response.json();
-      const errorMsg = json.error?.message || json.error || 'Failed to save to Drive';
+      // Handle 413 Payload Too Large specially
+      if (response.status === 413) {
+        throw new Error(`Newsletter is too large to save (${payloadSizeMB}MB). Try removing some images or content.`);
+      }
+
+      // Try to parse JSON error, but handle non-JSON responses
+      let errorMsg = 'Failed to save to Drive';
+      try {
+        const json = await response.json();
+        errorMsg = json.error?.message || json.error || errorMsg;
+      } catch {
+        errorMsg = `Server error: ${response.status} ${response.statusText}`;
+      }
       throw new Error(errorMsg);
     }
 
@@ -405,6 +422,30 @@ const highlightPromptCode = (code: string): string => {
     .join('\n');
 };
 
+// Strip base64 data URLs from objects to reduce payload size
+// Keeps http/https URLs but removes large base64 encoded images
+const stripBase64Images = <T>(obj: T): T => {
+  if (obj === null || obj === undefined) return obj;
+  if (typeof obj === 'string') {
+    // Remove base64 data URLs (they start with "data:")
+    if (obj.startsWith('data:')) {
+      return '[image-data-removed]' as unknown as T;
+    }
+    return obj;
+  }
+  if (Array.isArray(obj)) {
+    return obj.map(item => stripBase64Images(item)) as unknown as T;
+  }
+  if (typeof obj === 'object') {
+    const result: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(obj)) {
+      result[key] = stripBase64Images(value);
+    }
+    return result as T;
+  }
+  return obj;
+};
+
 // Generate complete HTML document for newsletter
 // If originalEnhanced is provided, embed it for v2 format recovery on load
 const generateNewsletterHTML = (
@@ -412,10 +453,15 @@ const generateNewsletterHTML = (
   topics: string[] = [],
   originalEnhanced?: EnhancedNewsletter
 ): string => {
+  // Strip base64 images from embedded data to reduce payload size
+  // The images are already in the HTML as img tags, no need to duplicate in JSON
+  const strippedNewsletter = stripBase64Images(newsletter);
+  const strippedEnhanced = originalEnhanced ? stripBase64Images(originalEnhanced) : undefined;
+
   // Build embedded data with format version
-  const embeddedData = originalEnhanced
-    ? { newsletter, topics, formatVersion: 'v2' as const, originalEnhanced }
-    : { newsletter, topics, formatVersion: 'v1' as const };
+  const embeddedData = strippedEnhanced
+    ? { newsletter: strippedNewsletter, topics, formatVersion: 'v2' as const, originalEnhanced: strippedEnhanced }
+    : { newsletter: strippedNewsletter, topics, formatVersion: 'v1' as const };
 
   const topicsHtml = newsletter.sections.map(s => s.title).join(', ');
   const sectionsHtml = newsletter.sections.map(section => `

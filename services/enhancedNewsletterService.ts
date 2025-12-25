@@ -2,10 +2,23 @@
  * Enhanced Newsletter Client Service
  *
  * Client-side API calls for enhanced newsletter generation.
+ *
+ * Phase 15: Added validation types for anti-hallucination feedback
  */
 
 import type { EnhancedNewsletter, AudienceConfig, PromptOfTheDay } from '../types';
 import { apiRequest } from './apiHelper';
+
+/**
+ * Phase 15: Topic validation result from pre-generation checks
+ */
+export interface TopicValidationResult {
+  topic: string;
+  isValid: boolean;
+  confidence: 'high' | 'medium' | 'low' | 'none';
+  suggestedAlternative?: string;
+  error?: string;
+}
 
 export interface GenerateEnhancedNewsletterRequest {
   topics: string[];
@@ -26,6 +39,12 @@ export interface GenerateEnhancedNewsletterResponse {
     reddit: { status: string; count: number };
     github: { status: string; count: number };
     devto: { status: string; count: number };
+  };
+  /** Phase 15: Validation results (available in error responses) */
+  validation?: {
+    validTopics: string[];
+    invalidTopics: { topic: string; reason: string }[];
+    suggestions: string[];
   };
 }
 

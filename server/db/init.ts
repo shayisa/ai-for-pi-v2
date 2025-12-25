@@ -393,9 +393,55 @@ db.exec(`
     ON prompt_import_logs(import_id);
   CREATE INDEX IF NOT EXISTS idx_import_logs_created
     ON prompt_import_logs(created_at DESC);
+
+  -- ============================================================================
+  -- Saved Topics and Sources Tables (Topic/Source Persistence)
+  -- ============================================================================
+
+  -- Saved Topics table - stores topics from suggestions, trending, or manual entry
+  CREATE TABLE IF NOT EXISTS saved_topics (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    description TEXT,
+    category TEXT NOT NULL DEFAULT 'manual',
+    source_url TEXT,
+    is_favorite INTEGER DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_saved_topics_favorite
+    ON saved_topics(is_favorite);
+  CREATE INDEX IF NOT EXISTS idx_saved_topics_category
+    ON saved_topics(category);
+  CREATE INDEX IF NOT EXISTS idx_saved_topics_created
+    ON saved_topics(created_at DESC);
+
+  -- Saved Sources table - stores inspiration sources for later use
+  CREATE TABLE IF NOT EXISTS saved_sources (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    url TEXT NOT NULL,
+    author TEXT,
+    publication TEXT,
+    date TEXT,
+    category TEXT NOT NULL,
+    summary TEXT,
+    is_favorite INTEGER DEFAULT 0,
+    usage_count INTEGER DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_saved_sources_favorite
+    ON saved_sources(is_favorite);
+  CREATE INDEX IF NOT EXISTS idx_saved_sources_category
+    ON saved_sources(category);
+  CREATE INDEX IF NOT EXISTS idx_saved_sources_created
+    ON saved_sources(created_at DESC);
 `);
 
-console.log('[SQLite] Tables initialized (archives, newsletters, newsletter_logs, subscribers, subscriber_lists, api_keys, api_key_audit_log, oauth_tokens, saved_prompts, image_style_thumbnails, writer_personas, custom_audiences, newsletter_templates, newsletter_drafts, calendar_entries, scheduled_sends, email_tracking, email_stats, system_logs, user_settings, prompt_import_templates, prompt_import_logs)');
+console.log('[SQLite] Tables initialized (archives, newsletters, newsletter_logs, subscribers, subscriber_lists, api_keys, api_key_audit_log, oauth_tokens, saved_prompts, image_style_thumbnails, writer_personas, custom_audiences, newsletter_templates, newsletter_drafts, calendar_entries, scheduled_sends, email_tracking, email_stats, system_logs, user_settings, prompt_import_templates, prompt_import_logs, saved_topics, saved_sources)');
 
 // ============================================================================
 // Migration: Enhanced Newsletter Format (v2)

@@ -15,7 +15,11 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { getAnthropicClient, webSearchTool, searchGuidance } from '../../../external/claude';
 import { processToolCall } from '../../../external/brave';
-import { getAudienceDescription } from '../helpers/audienceHelpers';
+import {
+  getAudienceDescription,
+  getBalancedDomainExamples,
+  getBalancedTopicTitles,
+} from '../helpers/audienceHelpers';
 import { getDateRangeDescription } from '../helpers/dateHelpers';
 
 // Token optimization constant - MUST match server.ts
@@ -45,17 +49,30 @@ export interface GenerateTopicSuggestionsResult {
 const SYSTEM_PROMPT = `You are an experienced technical writer and tutorial creator specializing in actionable, implementation-focused content. Your expertise is transforming new AI developments into step-by-step guides that readers can follow immediately. You NEVER suggest passive informational topics—every suggestion must be a hands-on tutorial or how-to guide with specific tools named. Think like someone who writes for O'Reilly, Real Python, or Towards Data Science—practical, specific, and immediately implementable.`;
 
 /**
- * Build user message - EXACT copy from server.ts lines 1340-1397
- * DO NOT MODIFY any text in this function
+ * Build user message for topic suggestions
+ *
+ * Phase: Archaeology Bias Fix - Now uses dynamic domain examples based on audience selection.
+ * Previously used hardcoded examples that always included archaeology regardless of audience.
+ *
+ * @param audienceDescription - Formatted audience description string
+ * @param dateRange - Date range object for recency filtering
+ * @param audience - Array of selected audience keys for dynamic example selection
+ * @param sources - Optional trending sources to incorporate
  */
 function buildUserMessage(
   audienceDescription: string,
   dateRange: { startDate: string; endDate: string; range: string },
+  audience: string[],
   sources?: string
 ): string {
   const sourceSummary = sources
     ? `Here are current trending topics from real AI communities:\n${sources}`
     : "";
+
+  // Phase 15.3: Use BALANCED domain examples with shuffled order
+  const domainExamples = getBalancedDomainExamples(audience);
+  // Phase 15.3: Use BALANCED topic titles with equal representation and shuffled order
+  const topicTitles = getBalancedTopicTitles(audience);
 
   return `
     You are an expert technical writer and tutorial creator specializing in actionable, implementation-focused content.
@@ -81,10 +98,7 @@ function buildUserMessage(
     ${audienceDescription}
 
     Prioritize topics that address these domain-specific use cases:
-    - Forensic anthropology applications: skeletal analysis AI, trauma pattern recognition, morphometric analysis automation, mass fatality incident response, age/sex/ancestry estimation
-    - Digital/computational archaeology applications: LiDAR site discovery, photogrammetry pipelines, artifact classification, 3D reconstruction, geospatial analysis, cultural heritage preservation
-    - Business automation applications: workflow orchestration, document processing automation, meeting intelligence, RPA implementation, API integration, no-code/low-code tools
-    - Business analytics/logistics applications: supply chain optimization, demand forecasting models, inventory management, route optimization, warehouse automation, predictive analytics
+    ${domainExamples}
 
     AVOID these non-tutorial formats:
     - "Understanding [topic]" or "Introduction to [topic]" (too passive)
@@ -95,19 +109,8 @@ function buildUserMessage(
 
     The final output MUST be a valid JSON object. Do not include any text outside of the JSON object.
     The JSON object should be an array of 10 strings.
-    Example format (REQUIRED STRUCTURE):
-    [
-      "Build an Automated ArXiv Research Monitor Using n8n and Claude API",
-      "Deploy a Skeletal Age Estimation Model with PyTorch and Anthropic Vision",
-      "Implement Real-Time LiDAR Processing Pipeline Using Open3D and Python",
-      "Automate Supply Chain Forecasting with Prophet, Pandas, and Streamlit",
-      "Configure Document Intelligence Workflow Using Claude 3.5 and LangChain",
-      "Set Up a Multi-Agent Research Assistant with CrewAI and GPT-4",
-      "Integrate Slack Notifications into Your Data Pipeline Using Webhooks",
-      "Optimize Inventory Predictions Using XGBoost and Historical Sales Data",
-      "Create a Custom RAG System for Archaeological Research with Pinecone",
-      "Process Archaeological Photos with Photogrammetry Using Meshroom and Blender"
-    ]
+    Example format (REQUIRED STRUCTURE - these are tailored to the selected audience):
+    ${JSON.stringify(topicTitles, null, 6)}
 
     QUALITY CHECK: Each topic MUST:
     1. Start with action verb (Build, Deploy, etc.)
@@ -131,7 +134,8 @@ export async function generateTopicSuggestions(
     const audienceDescription = getAudienceDescription(audience);
     const dateRange = getDateRangeDescription();
 
-    const userMessage = buildUserMessage(audienceDescription, dateRange, sources);
+    // Phase: Archaeology Bias Fix - Pass audience for dynamic example selection
+    const userMessage = buildUserMessage(audienceDescription, dateRange, audience, sources);
 
     let messages: Anthropic.Messages.MessageParam[] = [
       { role: "user", content: userMessage },

@@ -16,15 +16,19 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { motion } from 'framer-motion';
-import { InspirationSourcesPanel } from '../components/InspirationSourcesPanel';
+import { motion, AnimatePresence } from 'framer-motion';
+import { InspirationSourcesPanel, TrendingSource } from '../components/InspirationSourcesPanel';
 import { Spinner } from '../components/Spinner';
-import { PlusIcon, RefreshIcon, SearchIcon, LightbulbIcon, XIcon, HistoryIcon, SettingsIcon } from '../components/IconComponents';
+import { PlusIcon, RefreshIcon, SearchIcon, LightbulbIcon, XIcon, HistoryIcon, SettingsIcon, FolderIcon, BookmarkIcon, BookmarkSolidIcon, ExternalLinkIcon } from '../components/IconComponents';
 import { ArchiveBrowser } from '../components/ArchiveBrowser';
+import { TopicLibrary } from '../components/TopicLibrary';
+import { SourceLibrary } from '../components/SourceLibrary';
 import type { ArchiveContent } from '../services/archiveClientService';
 import { fadeInUp, staggerContainer, staggerItem } from '../utils/animations';
 import { useSelectedTopics, useTrendingContent, useAudienceSelection, useTopics } from '../contexts';
 import { useLoading, useError, useModals, useCustomAudiences } from '../contexts';
+import { useSavedTopics } from '../hooks/useSavedTopics';
+import { useSavedSources } from '../hooks/useSavedSources';
 
 interface ActionableCapability {
     title: string;
@@ -74,8 +78,17 @@ export const DiscoverTopicsPage: React.FC<DiscoverTopicsPageProps> = ({
         addTrendingTopic,
     } = useTrendingContent();
 
-    // Audience selection from TopicsContext
-    const { selectedAudience, audienceOptions, handleAudienceChange, hasSelectedAudience } = useAudienceSelection();
+    // Audience selection from TopicsContext (Phase 15.2 - hierarchical)
+    const {
+        selectedAudience,
+        audienceOptions,
+        audienceCategories,
+        handleAudienceChange,
+        handleCategoryChange,
+        isCategoryFullySelected,
+        isCategoryPartiallySelected,
+        hasSelectedAudience,
+    } = useAudienceSelection();
 
     // Loading/error from UIContext
     const { loading } = useLoading();
@@ -85,6 +98,24 @@ export const DiscoverTopicsPage: React.FC<DiscoverTopicsPageProps> = ({
     const { openAudienceEditor } = useModals();
     const { customAudiences } = useCustomAudiences();
 
+    // Topic/Source persistence hooks
+    const { topics: savedTopics, saveTopic } = useSavedTopics();
+    const { saveSource, savedUrls: savedSourceUrls } = useSavedSources();
+
+    // Modal state
+    const [isArchiveBrowserOpen, setIsArchiveBrowserOpen] = useState(false);
+    const [isTopicLibraryOpen, setIsTopicLibraryOpen] = useState(false);
+    const [isSourceLibraryOpen, setIsSourceLibraryOpen] = useState(false);
+
+    // Toast notification state
+    const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+    // Show toast notification
+    const showToast = useCallback((message: string) => {
+        setToastMessage(message);
+        setTimeout(() => setToastMessage(null), 2000);
+    }, []);
+
     // Local wrapper for addTopic to use customTopic
     const handleAddTopic = useCallback(() => {
         if (customTopic.trim()) {
@@ -92,12 +123,62 @@ export const DiscoverTopicsPage: React.FC<DiscoverTopicsPageProps> = ({
         }
     }, [customTopic, addTopic]);
 
+    // Handle saving a topic to library
+    const handleSaveTopic = useCallback(async (title: string, category: 'suggested' | 'trending' | 'manual') => {
+        try {
+            await saveTopic({ title, category });
+            showToast('Topic saved to library!');
+        } catch (err) {
+            console.error('Failed to save topic:', err);
+            showToast('Failed to save topic');
+        }
+    }, [saveTopic, showToast]);
+
+    // Handle saving a source to library
+    const handleSaveSource = useCallback(async (source: TrendingSource) => {
+        try {
+            await saveSource({
+                title: source.title,
+                url: source.url,
+                author: source.author,
+                publication: source.publication,
+                date: source.date,
+                category: source.category,
+                summary: source.summary,
+            });
+            showToast('Source saved to library!');
+        } catch (err) {
+            console.error('Failed to save source:', err);
+            showToast('Failed to save source');
+        }
+    }, [saveSource, showToast]);
+
+    // Phase 15.6: Handle saving an essential tool to library (as a source)
+    const handleSaveTool = useCallback(async (tool: { name: string; description?: string; whyNow?: string; link?: string }) => {
+        if (!tool.link) {
+            showToast('Cannot save tool without a link');
+            return;
+        }
+        try {
+            await saveSource({
+                title: tool.name,
+                url: tool.link,
+                summary: tool.description || tool.whyNow,
+                category: 'github', // Default category for tools
+                publication: 'Essential Tool',
+            });
+            showToast('Tool saved to library!');
+        } catch (err) {
+            console.error('Failed to save tool:', err);
+            showToast('Failed to save tool');
+        }
+    }, [saveSource, showToast]);
+
     // Aliases for props API compatibility
     const handleRemoveTopic = removeTopic;
     const handleSelectSuggestedTopic = selectSuggestedTopic;
     const handleAddTrendingTopic = addTrendingTopic;
     const isActionLoading = !!loading || isGeneratingTopics;
-    const [isArchiveBrowserOpen, setIsArchiveBrowserOpen] = useState(false);
 
     return (
         <motion.div
@@ -141,34 +222,70 @@ export const DiscoverTopicsPage: React.FC<DiscoverTopicsPageProps> = ({
                     Choose your audience to tailor content recommendations
                 </p>
 
+                {/* Hierarchical Audience Selection (Phase 15.2) */}
                 <motion.div
                     variants={staggerContainer}
                     initial="hidden"
                     animate="visible"
-                    className="grid grid-cols-1 md:grid-cols-3 gap-4"
+                    className="grid grid-cols-1 md:grid-cols-2 gap-6"
                 >
-                    {Object.entries(audienceOptions).map(([key, { label, description }]) => (
-                        <motion.label
-                            key={key}
+                    {audienceCategories.map((category) => (
+                        <motion.div
+                            key={category.id}
                             variants={staggerItem}
-                            htmlFor={`audience-${key}`}
-                            className={`
-                                flex items-start gap-3 p-4 cursor-pointer transition-all duration-200
-                                border ${selectedAudience[key] ? 'border-ink bg-pearl' : 'border-border-subtle bg-paper hover:bg-pearl'}
-                            `}
+                            className="border border-border-subtle bg-paper"
                         >
-                            <input
-                                type="checkbox"
-                                id={`audience-${key}`}
-                                checked={selectedAudience[key]}
-                                onChange={() => handleAudienceChange(key)}
-                                className="mt-1 h-4 w-4 border-charcoal bg-paper text-ink focus:ring-ink"
-                            />
-                            <div>
-                                <span className="font-sans text-ui font-medium text-ink">{label}</span>
-                                <p className="font-sans text-caption text-slate mt-1">{description}</p>
+                            {/* Category Header (selects/deselects all children) */}
+                            <label
+                                htmlFor={`category-${category.id}`}
+                                className={`
+                                    flex items-center gap-3 p-4 cursor-pointer transition-all duration-200 border-b
+                                    ${isCategoryFullySelected(category.id) ? 'bg-pearl border-ink' : 'border-border-subtle hover:bg-pearl/50'}
+                                `}
+                            >
+                                <input
+                                    type="checkbox"
+                                    id={`category-${category.id}`}
+                                    checked={isCategoryFullySelected(category.id)}
+                                    ref={(el) => {
+                                        if (el) el.indeterminate = isCategoryPartiallySelected(category.id);
+                                    }}
+                                    onChange={() => handleCategoryChange(category.id)}
+                                    className="h-4 w-4 border-charcoal bg-paper text-ink focus:ring-ink"
+                                />
+                                <span className="font-sans text-ui font-semibold text-ink">{category.name}</span>
+                            </label>
+
+                            {/* Child Specializations */}
+                            <div className="divide-y divide-border-subtle">
+                                {category.children.map((childId) => {
+                                    const option = audienceOptions[childId];
+                                    if (!option) return null;
+                                    return (
+                                        <label
+                                            key={childId}
+                                            htmlFor={`audience-${childId}`}
+                                            className={`
+                                                flex items-start gap-3 p-4 pl-8 cursor-pointer transition-all duration-200
+                                                ${selectedAudience[childId] ? 'bg-pearl/70' : 'bg-paper hover:bg-pearl/30'}
+                                            `}
+                                        >
+                                            <input
+                                                type="checkbox"
+                                                id={`audience-${childId}`}
+                                                checked={selectedAudience[childId] || false}
+                                                onChange={() => handleAudienceChange(childId)}
+                                                className="mt-0.5 h-4 w-4 border-charcoal bg-paper text-ink focus:ring-ink"
+                                            />
+                                            <div>
+                                                <span className="font-sans text-ui font-medium text-ink">{option.label}</span>
+                                                <p className="font-sans text-caption text-slate mt-1">{option.description}</p>
+                                            </div>
+                                        </label>
+                                    );
+                                })}
                             </div>
-                        </motion.label>
+                        </motion.div>
                     ))}
                 </motion.div>
             </section>
@@ -205,82 +322,104 @@ export const DiscoverTopicsPage: React.FC<DiscoverTopicsPageProps> = ({
                         <Spinner />
                         <span className="font-sans text-ui text-slate">Fetching latest updates...</span>
                     </div>
-                ) : compellingContent ? (
+                ) : trendingContent && trendingContent.length > 0 ? (
                     <div className="space-y-10">
-                        {/* Actionable AI Capabilities */}
-                        {compellingContent.actionableCapabilities?.length > 0 && (
-                            <div>
-                                <h3 className="font-sans text-overline text-slate uppercase tracking-widest mb-4">
-                                    Actionable Capabilities
-                                </h3>
-                                <motion.div
-                                    variants={staggerContainer}
-                                    initial="hidden"
-                                    animate="visible"
-                                    className="grid grid-cols-1 lg:grid-cols-2 gap-4"
-                                >
-                                    {compellingContent.actionableCapabilities.map((capability, idx) => (
-                                        <motion.article
-                                            key={idx}
-                                            variants={staggerItem}
-                                            className="bg-pearl border border-border-subtle p-6 hover:shadow-editorial transition-shadow"
-                                        >
-                                            <h4 className="font-display text-h3 text-ink mb-4">{capability.title}</h4>
+                        {/* Phase 15.3c: Trending Topics from V2 Balanced Generation */}
+                        <div>
+                            <h3 className="font-sans text-overline text-slate uppercase tracking-widest mb-4">
+                                What's Trending
+                            </h3>
+                            <motion.div
+                                variants={staggerContainer}
+                                initial="hidden"
+                                animate="visible"
+                                className="grid grid-cols-1 lg:grid-cols-2 gap-4"
+                            >
+                                {trendingContent.map((topic, idx) => (
+                                    <motion.article
+                                        key={topic.id || idx}
+                                        variants={staggerItem}
+                                        className="bg-pearl border border-border-subtle p-6 hover:shadow-editorial transition-shadow"
+                                    >
+                                        <div className="flex items-start justify-between gap-2 mb-4">
+                                            <h4 className="font-display text-h3 text-ink">{topic.title}</h4>
+                                            {topic.audienceId && (
+                                                <span className="flex-shrink-0 px-2 py-1 text-xs font-sans bg-editorial-navy/10 text-editorial-navy rounded">
+                                                    {topic.audienceId.replace(/-/g, ' ')}
+                                                </span>
+                                            )}
+                                        </div>
 
-                                            <dl className="space-y-3 font-sans text-ui">
+                                        <dl className="space-y-3 font-sans text-ui">
+                                            {topic.whatItIs && (
                                                 <div>
                                                     <dt className="text-caption font-semibold text-slate uppercase tracking-wide">What It Is</dt>
-                                                    <dd className="text-charcoal mt-1">{capability.whatItIs}</dd>
+                                                    <dd className="text-charcoal mt-1">{topic.whatItIs}</dd>
                                                 </div>
+                                            )}
 
+                                            {topic.newCapability && (
                                                 <div className="bg-paper p-3 border-l-2 border-editorial-red">
                                                     <dt className="text-caption font-semibold text-editorial-red uppercase tracking-wide">New Capability</dt>
-                                                    <dd className="text-charcoal mt-1">{capability.newCapability}</dd>
+                                                    <dd className="text-charcoal mt-1">{topic.newCapability}</dd>
                                                 </div>
+                                            )}
 
+                                            {topic.whoShouldCare && (
                                                 <div>
                                                     <dt className="text-caption font-semibold text-slate uppercase tracking-wide">Who Should Care</dt>
-                                                    <dd className="text-charcoal mt-1">{capability.whoShouldCare}</dd>
+                                                    <dd className="text-charcoal mt-1">{topic.whoShouldCare}</dd>
                                                 </div>
+                                            )}
 
+                                            {topic.howToGetStarted && (
                                                 <div className="bg-paper p-3 border-l-2 border-editorial-sage">
                                                     <dt className="text-caption font-semibold text-editorial-sage uppercase tracking-wide">How to Get Started</dt>
-                                                    <dd className="text-charcoal mt-1 whitespace-pre-wrap">{capability.howToGetStarted}</dd>
+                                                    <dd className="text-charcoal mt-1 whitespace-pre-wrap">{topic.howToGetStarted}</dd>
                                                 </div>
+                                            )}
 
+                                            {topic.expectedImpact && (
                                                 <div>
                                                     <dt className="text-caption font-semibold text-slate uppercase tracking-wide">Expected Impact</dt>
-                                                    <dd className="text-charcoal mt-1">{capability.expectedImpact}</dd>
+                                                    <dd className="text-charcoal mt-1">{topic.expectedImpact}</dd>
                                                 </div>
-                                            </dl>
+                                            )}
 
-                                            <div className="flex gap-3 mt-6 pt-4 border-t border-border-subtle">
-                                                {capability.resource && (
-                                                    <a
-                                                        href={capability.resource}
-                                                        target="_blank"
-                                                        rel="noopener noreferrer"
-                                                        className="editorial-link font-sans text-ui"
-                                                    >
-                                                        Learn More
-                                                    </a>
-                                                )}
-                                                <button
-                                                    onClick={() => handleAddTrendingTopic(capability.title)}
-                                                    className="flex items-center gap-1 font-sans text-ui text-ink hover:text-charcoal transition-colors ml-auto"
+                                            {/* Fallback to summary if no rich fields */}
+                                            {!topic.whatItIs && !topic.newCapability && topic.summary && (
+                                                <div>
+                                                    <dd className="text-charcoal">{topic.summary}</dd>
+                                                </div>
+                                            )}
+                                        </dl>
+
+                                        <div className="flex gap-3 mt-6 pt-4 border-t border-border-subtle">
+                                            {topic.resource && (
+                                                <a
+                                                    href={topic.resource}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="editorial-link font-sans text-ui"
                                                 >
-                                                    <PlusIcon className="h-4 w-4" />
-                                                    Add Topic
-                                                </button>
-                                            </div>
-                                        </motion.article>
-                                    ))}
-                                </motion.div>
-                            </div>
-                        )}
+                                                    Learn More
+                                                </a>
+                                            )}
+                                            <button
+                                                onClick={() => handleAddTrendingTopic(topic.title)}
+                                                className="flex items-center gap-1 font-sans text-ui text-ink hover:text-charcoal transition-colors ml-auto"
+                                            >
+                                                <PlusIcon className="h-4 w-4" />
+                                                Add Topic
+                                            </button>
+                                        </div>
+                                    </motion.article>
+                                ))}
+                            </motion.div>
+                        </div>
 
-                        {/* Essential Tools */}
-                        {compellingContent.essentialTools?.length > 0 && (
+                        {/* Essential Tools - still from compellingContent */}
+                        {compellingContent?.essentialTools?.length > 0 && (
                             <div>
                                 <h3 className="font-sans text-overline text-slate uppercase tracking-widest mb-4">
                                     Essential Tools
@@ -304,16 +443,37 @@ export const DiscoverTopicsPage: React.FC<DiscoverTopicsPageProps> = ({
                                                     <span className="font-semibold">Why now:</span> {tool.whyNow}
                                                 </p>
                                             </div>
-                                            {tool.link && (
-                                                <a
-                                                    href={tool.link}
-                                                    target="_blank"
-                                                    rel="noopener noreferrer"
-                                                    className="font-sans text-ui text-editorial-navy hover:text-ink transition-colors flex-shrink-0"
-                                                >
-                                                    Visit
-                                                </a>
-                                            )}
+                                            <div className="flex items-center gap-2 flex-shrink-0">
+                                                {/* Phase 15.6: Save tool button */}
+                                                {tool.link && (
+                                                    <button
+                                                        onClick={() => handleSaveTool(tool)}
+                                                        disabled={savedSourceUrls.has(tool.link)}
+                                                        className={`p-1 transition-colors ${
+                                                            savedSourceUrls.has(tool.link)
+                                                                ? 'text-editorial-navy cursor-default'
+                                                                : 'text-slate hover:text-editorial-navy'
+                                                        }`}
+                                                        title={savedSourceUrls.has(tool.link) ? 'Saved to library' : 'Save to library'}
+                                                    >
+                                                        {savedSourceUrls.has(tool.link) ? (
+                                                            <BookmarkSolidIcon className="h-4 w-4" />
+                                                        ) : (
+                                                            <BookmarkIcon className="h-4 w-4" />
+                                                        )}
+                                                    </button>
+                                                )}
+                                                {tool.link && (
+                                                    <a
+                                                        href={tool.link}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        className="font-sans text-ui text-editorial-navy hover:text-ink transition-colors"
+                                                    >
+                                                        Visit
+                                                    </a>
+                                                )}
+                                            </div>
                                         </motion.div>
                                     ))}
                                 </motion.div>
@@ -343,16 +503,45 @@ export const DiscoverTopicsPage: React.FC<DiscoverTopicsPageProps> = ({
             </section>
 
             {/* Inspiration Sources */}
-            <InspirationSourcesPanel
-                sources={trendingSources}
-                isLoading={isFetchingTrending}
-            />
+            <div className="relative">
+                {/* Saved Sources button */}
+                <div className="absolute top-6 right-6 z-10">
+                    <button
+                        onClick={() => setIsSourceLibraryOpen(true)}
+                        className="flex items-center gap-2 font-sans text-ui text-editorial-navy hover:text-ink transition-colors"
+                    >
+                        <BookmarkIcon className="h-4 w-4" />
+                        <span>Saved Sources</span>
+                    </button>
+                </div>
+                <InspirationSourcesPanel
+                    sources={trendingSources}
+                    isLoading={isFetchingTrending}
+                    onSaveSource={handleSaveSource}
+                    savedSourceUrls={savedSourceUrls}
+                />
+            </div>
 
             {/* Section 3: Select Topics */}
             <section className="bg-paper border border-border-subtle p-8">
-                <div className="flex items-baseline gap-3 mb-4">
-                    <span className="text-overline text-slate uppercase tracking-widest font-sans">Step 3</span>
-                    <h2 className="font-display text-h3 text-ink">Select Topics</h2>
+                <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-baseline gap-3">
+                        <span className="text-overline text-slate uppercase tracking-widest font-sans">Step 3</span>
+                        <h2 className="font-display text-h3 text-ink">Select Topics</h2>
+                    </div>
+                    {/* My Library button */}
+                    <button
+                        onClick={() => setIsTopicLibraryOpen(true)}
+                        className="flex items-center gap-2 font-sans text-ui text-editorial-navy hover:text-ink transition-colors"
+                    >
+                        <FolderIcon className="h-4 w-4" />
+                        <span>My Library</span>
+                        {savedTopics.length > 0 && (
+                            <span className="ml-1 px-1.5 py-0.5 bg-editorial-navy/10 text-editorial-navy text-xs font-medium rounded">
+                                {savedTopics.length}
+                            </span>
+                        )}
+                    </button>
                 </div>
                 <p className="font-sans text-ui text-slate mb-6">
                     Add topics for your newsletter manually or get AI suggestions
@@ -411,7 +600,7 @@ export const DiscoverTopicsPage: React.FC<DiscoverTopicsPageProps> = ({
                     <span>{isGeneratingTopics ? 'Generating...' : 'Suggest Topics'}</span>
                 </button>
 
-                {/* Suggestions */}
+                {/* Suggestions (Phase 15.4: with audience badges, Phase 15.5: with source links) */}
                 {suggestedTopics.length > 0 && (
                     <div className="mt-6 pt-6 border-t border-border-subtle">
                         <h4 className="font-sans text-overline text-slate uppercase tracking-widest mb-3">
@@ -419,13 +608,34 @@ export const DiscoverTopicsPage: React.FC<DiscoverTopicsPageProps> = ({
                         </h4>
                         <div className="flex flex-wrap gap-2">
                             {suggestedTopics.map((suggestion, i) => (
-                                <button
+                                <div
                                     key={i}
-                                    onClick={() => handleSelectSuggestedTopic(suggestion)}
-                                    className="font-sans text-ui text-charcoal bg-pearl hover:bg-border-subtle border border-border-subtle px-3 py-1.5 transition-colors"
+                                    className="flex items-center gap-2 font-sans text-ui text-charcoal bg-pearl hover:bg-border-subtle border border-border-subtle px-3 py-1.5 transition-colors"
                                 >
-                                    {suggestion}
-                                </button>
+                                    <button
+                                        onClick={() => handleSelectSuggestedTopic(suggestion)}
+                                        className="text-left hover:text-ink transition-colors"
+                                    >
+                                        {suggestion.title}
+                                    </button>
+                                    {suggestion.audienceId && (
+                                        <span className="flex-shrink-0 px-1.5 py-0.5 text-xs bg-editorial-navy/10 text-editorial-navy rounded capitalize">
+                                            {suggestion.audienceId.replace(/-/g, ' ')}
+                                        </span>
+                                    )}
+                                    {suggestion.resource && (
+                                        <a
+                                            href={suggestion.resource}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            onClick={(e) => e.stopPropagation()}
+                                            className="flex-shrink-0 p-1 text-slate hover:text-editorial-navy transition-colors"
+                                            title={`Source: ${suggestion.resource}`}
+                                        >
+                                            <ExternalLinkIcon className="h-3.5 w-3.5" />
+                                        </a>
+                                    )}
+                                </div>
                             ))}
                         </div>
                     </div>
@@ -450,6 +660,37 @@ export const DiscoverTopicsPage: React.FC<DiscoverTopicsPageProps> = ({
                 onClose={() => setIsArchiveBrowserOpen(false)}
                 onLoadArchive={onLoadFromArchive}
             />
+
+            {/* Topic Library Modal */}
+            <TopicLibrary
+                isOpen={isTopicLibraryOpen}
+                onClose={() => setIsTopicLibraryOpen(false)}
+                onSelectTopic={(topic) => {
+                    addTopic(topic);
+                    setIsTopicLibraryOpen(false);
+                }}
+            />
+
+            {/* Source Library Modal */}
+            <SourceLibrary
+                isOpen={isSourceLibraryOpen}
+                onClose={() => setIsSourceLibraryOpen(false)}
+            />
+
+            {/* Toast Notification */}
+            <AnimatePresence>
+                {toastMessage && (
+                    <motion.div
+                        initial={{ opacity: 0, y: 50 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: 50 }}
+                        transition={{ duration: 0.2 }}
+                        className="fixed bottom-6 right-6 z-50 bg-ink text-paper px-4 py-3 shadow-lg font-sans text-ui"
+                    >
+                        {toastMessage}
+                    </motion.div>
+                )}
+            </AnimatePresence>
         </motion.div>
     );
 };

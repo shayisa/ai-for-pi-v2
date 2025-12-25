@@ -3,6 +3,7 @@
  *
  * Phase 6c: Extracted from App.tsx
  * Phase 6g.0: Extended with audience selection (selectedAudience, audienceOptions, handlers)
+ * Phase 15.2: Updated for hierarchical audience structure (parent categories + child specializations)
  *
  * Handles:
  * - Selected topics for newsletter
@@ -10,38 +11,80 @@
  * - AI-suggested topics
  * - Trending content and sources
  * - Topic generation loading states
- * - Audience selection for newsletter targeting
+ * - Hierarchical audience selection for newsletter targeting
  */
 
 import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
-import type { TrendingTopic } from '../types';
+import type { TrendingTopic, AudienceCategory, SuggestedTopic } from '../types';
 import type { TrendingSource } from '../services/trendingDataService';
 
 /**
- * Audience option type (from App.tsx lines 48-52)
+ * Audience option type (extended for hierarchical structure)
  */
 export interface AudienceOption {
   label: string;
   description: string;
+  parentId?: 'academic' | 'business'; // For child specializations
+  isCategory?: boolean; // For parent categories
+  children?: string[]; // For parent categories - child specialization IDs
 }
 
 /**
- * Default audience options (from App.tsx lines 48-52)
- * These are the built-in audience categories for newsletter targeting.
+ * Hierarchical audience categories (Phase 15.2)
+ */
+export const AUDIENCE_CATEGORIES: AudienceCategory[] = [
+  {
+    id: 'academic',
+    name: 'Academic',
+    children: ['forensic-anthropology', 'computational-archaeology'],
+  },
+  {
+    id: 'business',
+    name: 'Business',
+    children: ['business-administration', 'business-intelligence'],
+  },
+];
+
+/**
+ * Default audience options (Phase 15.2 - 4 specializations)
+ * These are the built-in audience specializations for newsletter targeting.
  */
 export const DEFAULT_AUDIENCE_OPTIONS: Record<string, AudienceOption> = {
-  academics: {
-    label: 'Academics',
-    description: 'Forensic anthropology & computational archeology professors.',
+  // === ACADEMIC SPECIALIZATIONS ===
+  'forensic-anthropology': {
+    label: 'Forensic Anthropology',
+    description:
+      'Forensic anthropology researchers specializing in skeletal analysis, trauma interpretation, and victim identification.',
+    parentId: 'academic',
   },
-  business: {
-    label: 'Business Leaders',
-    description: 'Admins & leaders upskilling in AI.',
+  'computational-archaeology': {
+    label: 'Computational Archaeology',
+    description:
+      'Digital archaeology researchers applying LiDAR, photogrammetry, 3D reconstruction, and geospatial analysis.',
+    parentId: 'academic',
   },
-  analysts: {
-    label: 'Data Analysts',
-    description: 'Analysts extracting business intelligence.',
+  // === BUSINESS SPECIALIZATIONS ===
+  'business-administration': {
+    label: 'Business Administration',
+    description:
+      'Business administrators seeking workflow automation, document processing, and productivity tools.',
+    parentId: 'business',
   },
+  'business-intelligence': {
+    label: 'Business Intelligence',
+    description:
+      'Business analytics professionals using predictive analytics, dashboards, and data-driven insights.',
+    parentId: 'business',
+  },
+};
+
+/**
+ * Legacy audience ID mapping for backward compatibility
+ */
+const LEGACY_AUDIENCE_MAPPING: Record<string, string[]> = {
+  academics: ['forensic-anthropology', 'computational-archaeology'],
+  business: ['business-administration', 'business-intelligence'],
+  analysts: ['business-intelligence'],
 };
 
 interface TopicsState {
@@ -49,8 +92,8 @@ interface TopicsState {
   selectedTopics: string[];
   customTopic: string;
 
-  // AI-suggested topics
-  suggestedTopics: string[];
+  // AI-suggested topics (Phase 15.4: with audience association)
+  suggestedTopics: SuggestedTopic[];
 
   // Trending content
   trendingContent: TrendingTopic[] | null;
@@ -61,9 +104,10 @@ interface TopicsState {
   isGeneratingTopics: boolean;
   isFetchingTrending: boolean;
 
-  // Audience selection (Phase 6g.0 - from App.tsx lines 144-148)
+  // Audience selection (Phase 15.2 - hierarchical)
   selectedAudience: Record<string, boolean>;
   audienceOptions: Record<string, AudienceOption>;
+  audienceCategories: AudienceCategory[];
 }
 
 interface TopicsActions {
@@ -74,9 +118,9 @@ interface TopicsActions {
   removeTopic: (index: number) => void;
   clearTopics: () => void;
 
-  // Suggested topics
-  setSuggestedTopics: (topics: string[]) => void;
-  selectSuggestedTopic: (topic: string) => void;
+  // Suggested topics (Phase 15.4: with audience association)
+  setSuggestedTopics: (topics: SuggestedTopic[]) => void;
+  selectSuggestedTopic: (topic: string | SuggestedTopic) => void;
 
   // Trending content
   setTrendingContent: (content: TrendingTopic[] | null) => void;
@@ -88,10 +132,13 @@ interface TopicsActions {
   setIsGeneratingTopics: (loading: boolean) => void;
   setIsFetchingTrending: (loading: boolean) => void;
 
-  // Audience selection actions (Phase 6g.0 - from App.tsx lines 519, 645-647, 1524)
+  // Audience selection actions (Phase 15.2 - hierarchical)
   setSelectedAudience: (audience: Record<string, boolean>) => void;
   handleAudienceChange: (key: string) => void;
+  handleCategoryChange: (categoryId: string) => void;
   getAudienceKeys: () => string[];
+  isCategoryFullySelected: (categoryId: string) => boolean;
+  isCategoryPartiallySelected: (categoryId: string) => boolean;
 }
 
 type TopicsContextValue = TopicsState & TopicsActions;
@@ -111,8 +158,8 @@ export const TopicsProvider: React.FC<TopicsProviderProps> = ({
   const [selectedTopics, setSelectedTopics] = useState<string[]>(defaultTopics);
   const [customTopic, setCustomTopic] = useState<string>('');
 
-  // Suggested topics state (from App.tsx line 137)
-  const [suggestedTopics, setSuggestedTopics] = useState<string[]>([]);
+  // Suggested topics state (Phase 15.4: with audience association)
+  const [suggestedTopics, setSuggestedTopics] = useState<SuggestedTopic[]>([]);
 
   // Trending content state (from App.tsx lines 138-140)
   const [trendingContent, setTrendingContent] = useState<TrendingTopic[] | null>(null);
@@ -123,28 +170,73 @@ export const TopicsProvider: React.FC<TopicsProviderProps> = ({
   const [isGeneratingTopics, setIsGeneratingTopics] = useState<boolean>(false);
   const [isFetchingTrending, setIsFetchingTrending] = useState<boolean>(false);
 
-  // Audience selection state (Phase 6g.0 - from App.tsx lines 144-148)
-  // Default: all audiences selected
+  // Audience selection state (Phase 15.2 - 4 specializations, all selected by default)
   const [selectedAudience, setSelectedAudience] = useState<Record<string, boolean>>({
-    academics: true,
-    business: true,
-    analysts: true,
+    'forensic-anthropology': true,
+    'computational-archaeology': true,
+    'business-administration': true,
+    'business-intelligence': true,
   });
 
-  // Audience options - static configuration (from App.tsx lines 48-52)
+  // Audience options - static configuration
   const audienceOptions = DEFAULT_AUDIENCE_OPTIONS;
+  const audienceCategories = AUDIENCE_CATEGORIES;
 
   /**
-   * Toggle audience selection
-   * Preserves exact behavior from App.tsx handleAudienceChange (lines 645-647)
+   * Toggle individual audience specialization
    */
   const handleAudienceChange = useCallback((key: string) => {
     setSelectedAudience((prev) => ({ ...prev, [key]: !prev[key] }));
   }, []);
 
   /**
-   * Get array of selected audience keys
-   * Preserves exact behavior from App.tsx getAudienceKeys (line 519)
+   * Toggle entire category (selects/deselects all children)
+   */
+  const handleCategoryChange = useCallback((categoryId: string) => {
+    const category = AUDIENCE_CATEGORIES.find((c) => c.id === categoryId);
+    if (!category) return;
+
+    setSelectedAudience((prev) => {
+      // Check if category is currently fully selected
+      const allSelected = category.children.every((child) => prev[child]);
+
+      // Toggle all children
+      const updates: Record<string, boolean> = {};
+      category.children.forEach((child) => {
+        updates[child] = !allSelected;
+      });
+
+      return { ...prev, ...updates };
+    });
+  }, []);
+
+  /**
+   * Check if all children in a category are selected
+   */
+  const isCategoryFullySelected = useCallback(
+    (categoryId: string) => {
+      const category = AUDIENCE_CATEGORIES.find((c) => c.id === categoryId);
+      if (!category) return false;
+      return category.children.every((child) => selectedAudience[child]);
+    },
+    [selectedAudience]
+  );
+
+  /**
+   * Check if some (but not all) children in a category are selected
+   */
+  const isCategoryPartiallySelected = useCallback(
+    (categoryId: string) => {
+      const category = AUDIENCE_CATEGORIES.find((c) => c.id === categoryId);
+      if (!category) return false;
+      const selectedCount = category.children.filter((child) => selectedAudience[child]).length;
+      return selectedCount > 0 && selectedCount < category.children.length;
+    },
+    [selectedAudience]
+  );
+
+  /**
+   * Get array of selected audience keys (specialization IDs only)
    */
   const getAudienceKeys = useCallback(
     () => Object.keys(selectedAudience).filter((key) => selectedAudience[key]),
@@ -153,19 +245,20 @@ export const TopicsProvider: React.FC<TopicsProviderProps> = ({
 
   /**
    * Add a topic to selected topics
-   * Preserves exact behavior from App.tsx handleAddTopic (lines 646-651)
    */
-  const addTopic = useCallback((topic: string) => {
-    const trimmed = topic.trim();
-    if (trimmed && !selectedTopics.includes(trimmed)) {
-      setSelectedTopics((prev) => [...prev, trimmed]);
-      setCustomTopic('');
-    }
-  }, [selectedTopics]);
+  const addTopic = useCallback(
+    (topic: string) => {
+      const trimmed = topic.trim();
+      if (trimmed && !selectedTopics.includes(trimmed)) {
+        setSelectedTopics((prev) => [...prev, trimmed]);
+        setCustomTopic('');
+      }
+    },
+    [selectedTopics]
+  );
 
   /**
    * Remove a topic by index
-   * Preserves exact behavior from App.tsx handleRemoveTopic (lines 653-655)
    */
   const removeTopic = useCallback((indexToRemove: number) => {
     setSelectedTopics((prev) => prev.filter((_, index) => index !== indexToRemove));
@@ -180,24 +273,30 @@ export const TopicsProvider: React.FC<TopicsProviderProps> = ({
 
   /**
    * Select a suggested topic (add to selected)
-   * Preserves exact behavior from App.tsx handleSelectSuggestedTopic (lines 657-661)
+   * Phase 15.4: Accepts both string and SuggestedTopic
    */
-  const selectSuggestedTopic = useCallback((suggestion: string) => {
-    if (!selectedTopics.includes(suggestion)) {
-      setSelectedTopics((prev) => [...prev, suggestion]);
-    }
-  }, [selectedTopics]);
+  const selectSuggestedTopic = useCallback(
+    (suggestion: string | SuggestedTopic) => {
+      const title = typeof suggestion === 'string' ? suggestion : suggestion.title;
+      if (!selectedTopics.includes(title)) {
+        setSelectedTopics((prev) => [...prev, title]);
+      }
+    },
+    [selectedTopics]
+  );
 
   /**
    * Add a trending topic
-   * Preserves exact behavior from App.tsx handleAddTrendingTopic (lines 663-667)
    */
-  const addTrendingTopic = useCallback((topic: string) => {
-    const trimmed = topic.trim();
-    if (trimmed && !selectedTopics.includes(trimmed)) {
-      setSelectedTopics((prev) => [...prev, trimmed]);
-    }
-  }, [selectedTopics]);
+  const addTrendingTopic = useCallback(
+    (topic: string) => {
+      const trimmed = topic.trim();
+      if (trimmed && !selectedTopics.includes(trimmed)) {
+        setSelectedTopics((prev) => [...prev, trimmed]);
+      }
+    },
+    [selectedTopics]
+  );
 
   const value: TopicsContextValue = {
     // State
@@ -209,9 +308,10 @@ export const TopicsProvider: React.FC<TopicsProviderProps> = ({
     trendingSources,
     isGeneratingTopics,
     isFetchingTrending,
-    // Audience state (Phase 6g.0)
+    // Audience state (Phase 15.2 - hierarchical)
     selectedAudience,
     audienceOptions,
+    audienceCategories,
     // Actions
     setSelectedTopics,
     setCustomTopic,
@@ -226,10 +326,13 @@ export const TopicsProvider: React.FC<TopicsProviderProps> = ({
     addTrendingTopic,
     setIsGeneratingTopics,
     setIsFetchingTrending,
-    // Audience actions (Phase 6g.0)
+    // Audience actions (Phase 15.2 - hierarchical)
     setSelectedAudience,
     handleAudienceChange,
+    handleCategoryChange,
     getAudienceKeys,
+    isCategoryFullySelected,
+    isCategoryPartiallySelected,
   };
 
   return <TopicsContext.Provider value={value}>{children}</TopicsContext.Provider>;
@@ -303,26 +406,39 @@ export const useTrendingContent = () => {
 };
 
 /**
- * Hook for audience selection (Phase 6g.0)
- * Provides audience selection state and actions for newsletter targeting.
+ * Hook for hierarchical audience selection (Phase 15.2)
+ * Provides audience selection state and actions with category support.
  */
 export const useAudienceSelection = () => {
   const {
     selectedAudience,
     audienceOptions,
+    audienceCategories,
     setSelectedAudience,
     handleAudienceChange,
+    handleCategoryChange,
     getAudienceKeys,
+    isCategoryFullySelected,
+    isCategoryPartiallySelected,
   } = useTopics();
 
   return {
     selectedAudience,
     audienceOptions,
+    audienceCategories,
     setSelectedAudience,
     handleAudienceChange,
+    handleCategoryChange,
     getAudienceKeys,
-    // Derived: whether any audience is selected (from App.tsx line 1524)
+    isCategoryFullySelected,
+    isCategoryPartiallySelected,
+    // Derived: whether any audience is selected
     hasSelectedAudience: getAudienceKeys().length > 0,
+    // Derived: get specializations for a category
+    getSpecializationsForCategory: (categoryId: string) => {
+      const category = audienceCategories.find((c) => c.id === categoryId);
+      return category ? category.children : [];
+    },
   };
 };
 

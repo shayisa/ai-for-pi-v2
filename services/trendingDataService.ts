@@ -191,20 +191,29 @@ const fetchDevToTopics = async (): Promise<TrendingSource[]> => {
 /**
  * Fetch all trending topics from backend (which fetches from multiple sources)
  * Returns mixed array of sources for Claude to analyze
+ *
+ * @param audienceIds - Optional array of audience specialization IDs for audience-aware caching
  */
-export const fetchAllTrendingSources = async (): Promise<TrendingSource[]> => {
+export const fetchAllTrendingSources = async (audienceIds?: string[]): Promise<TrendingSource[]> => {
     console.log("Fetching trending data from backend...");
 
     try {
-        const endpoint = `${API_BASE_URL}/api/fetchTrendingSources`;
+        // Build URL with optional audience query param for audience-aware caching
+        let endpoint = `${API_BASE_URL}/api/fetchTrendingSources`;
+        if (audienceIds && audienceIds.length > 0) {
+            endpoint += `?audiences=${audienceIds.join(',')}`;
+        }
         console.log(`Calling endpoint: ${endpoint}`);
         const response = await fetch(endpoint);
         if (!response.ok) {
             throw new Error(`Backend API error: ${response.statusText}`);
         }
-        const data = await response.json();
-        console.log(`Fetched ${data.sources.length} trending sources from backend`);
-        return data.sources || [];
+        const responseData = await response.json();
+        // Phase 15.6 Fix: Backend wraps response in { success, data: { sources } }
+        const sources = responseData.data?.sources || responseData.sources || [];
+        const audienceKey = responseData.data?.audienceKey || responseData.audienceKey || '_all_';
+        console.log(`[TrendingSources] Fetched ${sources.length} sources from backend (cache key: ${audienceKey})`);
+        return sources;
     } catch (error) {
         console.error('Error fetching trending sources from backend:', error);
         return [];
@@ -212,26 +221,40 @@ export const fetchAllTrendingSources = async (): Promise<TrendingSource[]> => {
 };
 
 /**
- * Filter sources by category/audience relevance
+ * Filter sources by category/audience relevance (Phase 15.2 - Updated for specializations)
+ *
+ * Uses new specialization-based source preferences. Also supports legacy audience IDs
+ * for backward compatibility.
  */
 export const filterSourcesByAudience = (sources: TrendingSource[], audience: string[]): TrendingSource[] => {
-    // Map audiences to preferred categories
-    const audiencePreferences: Record<string, string[]> = {
+    // Specialization-based source preferences (Phase 15.2)
+    const specializationPreferences: Record<string, string[]> = {
+        // Academic specializations - prefer arxiv for research papers
+        'forensic-anthropology': ['arxiv', 'github', 'dev'],
+        'computational-archaeology': ['arxiv', 'github', 'dev'],
+        // Business specializations - prefer hackernews for tech news
+        'business-administration': ['hackernews', 'reddit', 'dev'],
+        'business-intelligence': ['hackernews', 'reddit', 'github', 'dev'],
+        // Legacy audience IDs (backward compatibility)
         academics: ['arxiv', 'github', 'dev'],
         business: ['hackernews', 'reddit', 'dev'],
         analysts: ['hackernews', 'reddit', 'github', 'dev'],
     };
 
-    let preferredCategories: string[] = [];
+    // Collect unique preferred categories
+    const preferredCategories = new Set<string>();
     for (const aud of audience) {
-        preferredCategories = [...preferredCategories, ...(audiencePreferences[aud] || [])];
+        const prefs = specializationPreferences[aud];
+        if (prefs) {
+            prefs.forEach(p => preferredCategories.add(p));
+        }
     }
 
-    if (preferredCategories.length === 0) {
+    if (preferredCategories.size === 0) {
         return sources; // Return all if no preference
     }
 
-    // Shuffle and filter to get variety
-    const filtered = sources.filter(s => preferredCategories.includes(s.category));
+    // Filter and shuffle for variety
+    const filtered = sources.filter(s => preferredCategories.has(s.category));
     return filtered.sort(() => Math.random() - 0.5).slice(0, 12);
 };

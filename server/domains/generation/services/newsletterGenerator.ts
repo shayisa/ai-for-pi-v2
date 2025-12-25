@@ -8,14 +8,25 @@
  * ## Original Location
  * - server.ts lines 802-1057
  *
- * ## PRESERVATION NOTE - CRITICAL
- * ALL prompts, configurations, and logic in this file are EXACT copies from server.ts.
- * Do NOT modify any prompt text, model configurations, or agentic loop logic.
+ * ## Phase 15: Anti-Hallucination Update
+ * Added pre-generation validation and topic-source matching to prevent
+ * content hallucination. Topics are now validated via web search, and
+ * the prompt includes explicit topic-source mappings.
+ *
+ * ## Preserved Functionality
+ * - Agentic loop with web search tool (max 2 iterations)
+ * - Phase 12.0 persona support
+ * - Phase 13.1 tone instructions
+ * - Auto-save to SQLite
  */
 import Anthropic from '@anthropic-ai/sdk';
 import { getAnthropicClient, webSearchTool, searchGuidance } from '../../../external/claude';
 import { processToolCall } from '../../../external/brave';
-import { getAudienceDescription } from '../helpers/audienceHelpers';
+import { getAudienceDescription, getBalancedDomainExamples } from '../helpers/audienceHelpers';
+
+// Phase 15: Import pre-generation pipeline for topic validation and source matching
+import { runPreGenerationChecks } from './preGenerationPipeline';
+import type { TopicValidationResult } from '../../../services/topicValidationService';
 import { getFlavorInstructions } from '../helpers/flavorHelpers';
 import { getToneInstructions } from '../helpers/toneHelpers';
 import { getDateRangeDescription } from '../helpers/dateHelpers';
@@ -41,12 +52,19 @@ export interface GenerateNewsletterParams {
 
 /**
  * Newsletter generation result
+ * Phase 15: Added validation results for anti-hallucination feedback
  */
 export interface GenerateNewsletterResult {
   success: boolean;
   newsletter?: any;
   text?: string;
   error?: string;
+  /** Phase 15: Validation results for each topic */
+  validationResults?: TopicValidationResult[];
+  /** Phase 15: Topics that failed validation or had no sources */
+  invalidTopics?: string[];
+  /** Phase 15: Suggested alternative topics */
+  suggestions?: string[];
 }
 
 /**
@@ -110,21 +128,27 @@ function buildPersonaInstructions(persona: WriterPersona | null): string {
 }
 
 /**
- * Build user message - EXACT copy from server.ts lines 824-899
- * DO NOT MODIFY any text in this function
- * Phase 12.0: Added personaInstructions parameter (appended after flavorInstructions)
+ * Build user message for newsletter generation
+ *
+ * Phase 12.0: Added personaInstructions parameter
  * Phase 13.1: Added toneInstructions parameter for research-backed tone execution rules
+ * Phase 15: Added topicSourceContext for anti-hallucination source grounding
+ * Phase 15.3: Added audience parameter for dynamic domain examples (removes hardcoded archaeology bias)
  */
 function buildUserMessage(
   topics: string[],
   audienceDescription: string,
+  audience: string[],
   tone: string,
   flavorInstructions: string,
   dateRange: { startDate: string; endDate: string; range: string },
   styleDescription: string,
   personaInstructions?: string,
-  toneInstructions?: string
+  toneInstructions?: string,
+  topicSourceContext?: string
 ): string {
+  // Phase 15.3: Get BALANCED domain examples with shuffled order
+  const domainExamples = getBalancedDomainExamples(audience);
   return `
     You are an award-winning professional newsletter writer with a background in technology journalism and expert storytelling. Your task is to research and write compelling, human-centric newsletter content about: "${topics.join(
       ", "
@@ -148,10 +172,7 @@ function buildUserMessage(
     - Direct, unfiltered perspective
 
     Your content should demonstrate understanding of these domain-specific applications:
-    - For forensic anthropologists: AI tools for skeletal morphology analysis, automated age/sex estimation, trauma analysis, mass disaster identification workflows, 3D bone modeling
-    - For digital archaeologists: LiDAR processing workflows, automated artifact classification, 3D site reconstruction from drone imagery, geospatial pattern recognition, cultural heritage digitization
-    - For business administrators: Workflow automation platforms (n8n, Zapier, Make), document intelligence, meeting summarization, calendar orchestration, email automation, approval routing
-    - For business analysts: Supply chain predictive models, inventory optimization, route planning algorithms, warehouse robotics, demand forecasting, logistics dashboards
+    ${domainExamples}
 
     You MUST tailor the content, examples, and language to be relevant and valuable to this specific audience. Think like a newsletter editor writing for people you know.
 
@@ -170,10 +191,22 @@ function buildUserMessage(
     4. Concrete Steps: Provide 3-5 numbered steps to get started
     5. Expected Outcome: What user will achieve (e.g., "You'll have a working classifier")
 
-    SOURCE REQUIREMENTS:
+    SOURCE REQUIREMENTS - CRITICAL FOR ACCURACY:
+    ${topicSourceContext ? `
+    TOPIC-SOURCE MAPPINGS (use ONLY these sources for each topic):
+    ${topicSourceContext}
+
+    RULES:
+    1. ONLY discuss topics that have matched sources above
+    2. For each topic, use ONLY its matched sources for information
+    3. If a source doesn't mention a claim, do NOT make that claim
+    4. Cite every fact with its source URL using inline <a> tags
+    5. For topics marked "NO SOURCES", write: "No current information available for [topic name]"
+    ` : `
     - Every tool mentioned MUST include a direct link to its documentation or GitHub
     - Include at least 2 sources per section with verifiable URLs
     - Do NOT invent or guess URLs - only include URLs you found via web search
+    `}
 
     When you find relevant web pages, you MUST embed hyperlinks directly within the text of the 'content' field for each section using HTML \`<a>\` tags. For example: \`<a href='URL' target="_blank" rel="noopener noreferrer">this new tool</a>\`.
 
@@ -208,14 +241,59 @@ function buildUserMessage(
 /**
  * Generate newsletter with agentic loop
  *
- * EXACT logic from server.ts lines 907-1057
- * DO NOT MODIFY the agentic loop pattern or force final response logic
+ * Phase 15: Added pre-generation validation and source matching
+ * Preserves agentic loop pattern and force final response logic
  */
 export async function generateNewsletter(
   params: GenerateNewsletterParams
 ): Promise<GenerateNewsletterResult> {
   try {
     const { topics, audience, tone, flavors, imageStyle, personaId } = params;
+
+    // ===== Phase 15: Pre-generation validation and source matching =====
+    console.log(`[Newsletter] Phase 15: Running pre-generation checks...`);
+    const preGenResult = await runPreGenerationChecks({
+      topics,
+      audiences: audience.map((a) => ({ id: a, name: a, description: a })),
+    });
+
+    // Block generation if all topics are invalid/unsourced
+    if (!preGenResult.canProceed) {
+      console.log(`[Newsletter] Generation blocked: ${preGenResult.blockReason}`);
+      return {
+        success: false,
+        error: preGenResult.blockReason,
+        validationResults: preGenResult.validatedTopics,
+        invalidTopics: preGenResult.invalidTopics,
+        suggestions: preGenResult.suggestions,
+      };
+    }
+
+    // Log any partial issues
+    if (preGenResult.invalidTopics && preGenResult.invalidTopics.length > 0) {
+      console.log(`[Newsletter] Warning: ${preGenResult.invalidTopics.length} topics have no sources: ${preGenResult.invalidTopics.join(', ')}`);
+    }
+
+    // Phase 15: Filter out fictional/invalid topics before passing to Claude
+    const validTopics = topics.filter((topic) => {
+      const validation = preGenResult.validatedTopics.find((v) => v.topic === topic);
+      return !validation || validation.isValid || validation.confidence !== 'none';
+    });
+
+    if (validTopics.length === 0) {
+      return {
+        success: false,
+        error: 'No valid topics remaining after filtering fictional ones',
+        validationResults: preGenResult.validatedTopics,
+        invalidTopics: topics,
+      };
+    }
+
+    console.log(`[Newsletter] Filtered topics: ${topics.length} -> ${validTopics.length} valid`);
+    if (validTopics.length < topics.length) {
+      const filteredOut = topics.filter((t) => !validTopics.includes(t));
+      console.log(`[Newsletter] Removed fictional topics: ${filteredOut.join(', ')}`);
+    }
 
     // Phase 12.0: Look up persona if provided
     let persona: WriterPersona | null = null;
@@ -231,15 +309,19 @@ export async function generateNewsletter(
     const styleDescription = imageStyleMap[imageStyle] || "photorealistic";
     const personaInstructions = buildPersonaInstructions(persona);
 
+    // Phase 15: Pass topic-source context to prevent hallucination, use FILTERED topics
+    // Phase 15.3: Pass audience for dynamic domain examples
     const userMessage = buildUserMessage(
-      topics,
+      validTopics,  // Use filtered valid topics only
       audienceDescription,
+      audience,  // Phase 15.3: For dynamic domain examples
       tone,
       flavorInstructions,
       dateRange,
       styleDescription,
       personaInstructions,
-      toneInstructions
+      toneInstructions,
+      preGenResult.topicSourceContext  // Phase 15: Topic-source mappings
     );
 
     let messages: Anthropic.Messages.MessageParam[] = [

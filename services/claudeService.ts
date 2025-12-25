@@ -255,6 +255,68 @@ export const generateTrendingTopics = withRetry(
   generateTrendingTopicsInternal
 );
 
+// ===================================================================
+// PHASE 15.4: PARALLEL TOPIC SUGGESTIONS V2
+// ===================================================================
+
+import type { SuggestedTopic } from '../types';
+
+export interface TopicSuggestionsV2Response {
+  success: boolean;
+  topics?: SuggestedTopic[];
+  perAudienceResults?: Array<{
+    audienceId: string;
+    topicCount: number;
+    success: boolean;
+    error?: string;
+    durationMs: number;
+  }>;
+  totalDurationMs?: number;
+}
+
+/**
+ * Generate topic suggestions using V2 parallel per-audience generation.
+ *
+ * Phase 15.4: This endpoint runs parallel agents for each audience,
+ * each generating a set number of suggestions. Results are merged
+ * with equal representation across all audiences.
+ *
+ * @param audience - Array of audience IDs
+ * @param topicsPerAudience - Number of topics to generate per audience (default: 3)
+ */
+const generateTopicSuggestionsV2Internal = async (
+  audience: string[],
+  topicsPerAudience: number = 3
+): Promise<TopicSuggestionsV2Response> => {
+  try {
+    console.log('[claudeService] generateTopicSuggestionsV2 called with:', {
+      audience,
+      topicsPerAudience,
+    });
+
+    const response = await apiRequest<TopicSuggestionsV2Response>('/api/generateTopicSuggestionsV2', {
+      method: 'POST',
+      body: JSON.stringify({
+        audience,
+        topicsPerAudience,
+      }),
+    });
+
+    console.log('[claudeService] generateTopicSuggestionsV2 response:', {
+      success: response.success,
+      topicCount: response.topics?.length,
+      perAudienceResults: response.perAudienceResults,
+    });
+
+    return response;
+  } catch (error) {
+    console.error('Error generating topic suggestions V2:', error);
+    throw error;
+  }
+};
+
+export const generateTopicSuggestionsV2 = withRetry(generateTopicSuggestionsV2Internal);
+
 const generateCompellingTrendingContentInternal = async (
   audience: string[]
 ): Promise<{ text: string }> => {
@@ -280,6 +342,84 @@ export const generateCompellingTrendingContent = withRetry(
 );
 export const generateImage = withRetry(generateImageInternal);
 export const editImage = withRetry(editImageInternal);
+
+// ===================================================================
+// PHASE 15.3b: PARALLEL TRENDING TOPICS V2
+// ===================================================================
+
+import type { TrendingTopic } from '../types';
+
+export interface ParallelGenConfig {
+  mode: 'per-category' | 'per-audience' | 'hybrid';
+  maxParallelAgents?: number;
+  topicsPerAgent: number;
+}
+
+export interface GenerationTradeoffs {
+  audienceCount: number;
+  audienceBreakdown: {
+    defaultCount: number;
+    customCount: number;
+    byCategory: Record<string, number>;
+  };
+  mode: ParallelGenConfig['mode'];
+  agentCount: number;
+  estimatedTopics: number;
+  estimatedTimeSeconds: number;
+  estimatedApiCalls: number;
+}
+
+export interface PerAudienceResultSummary {
+  batchId: string;
+  audienceIds: string[];
+  topicCount: number;
+  success: boolean;
+  error?: string;
+  durationMs: number;
+}
+
+export interface TrendingTopicsV2Response {
+  success: boolean;
+  topics?: TrendingTopic[];
+  needsConfirmation?: boolean;
+  tradeoffs?: GenerationTradeoffs;
+  perAudienceResults?: PerAudienceResultSummary[];
+  totalDurationMs?: number;
+  cacheKey?: string;
+  cached?: boolean;
+}
+
+/**
+ * Generate trending topics using V2 parallel per-audience generation.
+ *
+ * Phase 15.3b: This endpoint runs parallel agents for each audience,
+ * then merges results with equal representation to eliminate bias.
+ *
+ * @param audience - Array of audience IDs
+ * @param config - Optional parallel generation configuration
+ * @param confirmed - Whether to skip trade-off confirmation and execute
+ */
+const generateTrendingTopicsV2Internal = async (
+  audience: string[],
+  config?: Partial<ParallelGenConfig>,
+  confirmed: boolean = true
+): Promise<TrendingTopicsV2Response> => {
+  try {
+    return await apiRequest<TrendingTopicsV2Response>('/api/generateTrendingTopicsV2', {
+      method: 'POST',
+      body: JSON.stringify({
+        audience,
+        config,
+        confirmed,
+      }),
+    });
+  } catch (error) {
+    console.error('Error generating trending topics V2:', error);
+    throw error;
+  }
+};
+
+export const generateTrendingTopicsV2 = withRetry(generateTrendingTopicsV2Internal);
 
 // ===================================================================
 // PRESET MANAGEMENT ENDPOINTS

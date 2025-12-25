@@ -6,7 +6,8 @@ import { NewsletterPreview } from './components/NewsletterPreview';
 import { ImageEditorModal } from './components/ImageEditorModal';
 import { Spinner } from './components/Spinner';
 import { SparklesIcon, SearchIcon, LightbulbIcon, PlusIcon, XIcon, DriveIcon, SheetIcon, SendIcon, RefreshIcon, TypeIcon, ImageIcon, HistoryIcon, SettingsIcon, CodeIcon } from './components/IconComponents'; // Added new icons
-import { generateNewsletterContent, generateImage, generateTopicSuggestions, generateTrendingTopics, generateTrendingTopicsWithSources, generateCompellingTrendingContent, savePresetsToCloud, loadPresetsFromCloud } from './services/claudeService';
+import { generateNewsletterContent, generateImage, generateTopicSuggestions, generateTopicSuggestionsV2, generateTrendingTopics, generateTrendingTopicsWithSources, generateCompellingTrendingContent, generateTrendingTopicsV2, savePresetsToCloud, loadPresetsFromCloud } from './services/claudeService';
+import type { ParallelGenConfig } from './services/claudeService';
 import { InspirationSources } from './components/InspirationSources';
 import * as trendingDataService from './services/trendingDataService';
 import type { TrendingSource } from './services/trendingDataService';
@@ -33,8 +34,11 @@ import { usePrompts } from './hooks/usePrompts';
 import { usePersonas } from './hooks/usePersonas';
 import { useStyleThumbnails } from './hooks/useStyleThumbnails';
 import { useTemplates } from './hooks/useTemplates';
+import { useSavedTopics } from './hooks/useSavedTopics'; // Phase 15.5
+import { useSavedSources } from './hooks/useSavedSources'; // Phase 15.6
 import * as draftApi from './services/draftClientService';
 import { PersonaEditor } from './components/PersonaEditor';
+import { CalendarEntryPickerModal } from './components/CalendarEntryPickerModal';
 import * as calendarApi from './services/calendarClientService';
 import type { CalendarEntry } from './services/calendarClientService';
 import type { SavedPrompt } from './services/promptClientService';
@@ -279,6 +283,12 @@ const AppContent: React.FC = () => {
         createFromNewsletter: createTemplateFromNewsletter,
     } = useTemplates();
 
+    // Phase 15.5: Saved topics for auto-save
+    const { saveTopicsBatch } = useSavedTopics();
+
+    // Phase 15.6: Saved sources for auto-save
+    const { saveSourcesBatch } = useSavedSources();
+
     // Template selection state
     const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
 
@@ -288,6 +298,9 @@ const AppContent: React.FC = () => {
     // Calendar entry linking state
     const [pendingCalendarEntryId, setPendingCalendarEntryId] = useState<string | null>(null);
     const [pendingCalendarEntryTitle, setPendingCalendarEntryTitle] = useState<string | null>(null);
+
+    // Phase 16: Calendar entry picker modal (for explicit linking from Generate page)
+    const [showCalendarPicker, setShowCalendarPicker] = useState(false);
 
     // promptOfTheDay now comes from useNewsletter context (removed duplicate useState)
 
@@ -458,6 +471,13 @@ const AppContent: React.FC = () => {
                 try {
                     await calendarApi.linkNewsletter(pendingCalendarEntryId, generatedNewsletter.id);
                     console.log(`[App] Linked newsletter to calendar entry: ${pendingCalendarEntryId}`);
+
+                    // Phase 6: Show confirmation toast when newsletter is linked to calendar
+                    setWorkflowStatus({
+                        message: `Newsletter linked to calendar entry: ${pendingCalendarEntryTitle || 'Entry'}`,
+                        type: 'success'
+                    });
+
                     setPendingCalendarEntryId(null); // Clear after linking
                     setPendingCalendarEntryTitle(null); // Clear title indicator
                 } catch (linkErr) {
@@ -507,10 +527,32 @@ const AppContent: React.FC = () => {
     };
 
     // Handle starting generation from calendar entry (pre-populates settings)
-    const handleStartFromCalendarEntry = useCallback((entry: CalendarEntry) => {
+    // Phase 5: Modified to load linked newsletter if present
+    const handleStartFromCalendarEntry = useCallback(async (entry: CalendarEntry) => {
         setPendingCalendarEntryId(entry.id);
         setPendingCalendarEntryTitle(entry.title);  // Store title for display in Generate page
-        setSelectedTopics(entry.topics);
+
+        // If entry has a linked newsletter, load it into preview
+        if (entry.newsletterId) {
+            try {
+                const result = await newsletterApi.getNewsletterById(entry.newsletterId);
+                if (result.formatVersion === 'v2') {
+                    setUseEnhancedFormat(true);
+                    setEnhancedNewsletter(result.newsletter as EnhancedNewsletter);
+                    setNewsletter(null);
+                } else {
+                    setUseEnhancedFormat(false);
+                    setNewsletter(result.newsletter as Newsletter);
+                    setEnhancedNewsletter(null);
+                }
+                setSelectedTopics(result.topics);
+            } catch (err) {
+                console.warn('[App] Could not load linked newsletter, starting fresh:', err);
+                setSelectedTopics(entry.topics);
+            }
+        } else {
+            setSelectedTopics(entry.topics);
+        }
 
         // Apply saved settings if available
         if (entry.settings) {
@@ -533,6 +575,81 @@ const AppContent: React.FC = () => {
 
         setActivePage('generateNewsletter');
     }, [setActivePersona]);
+
+    // Phase 3: Handler to view linked newsletter from calendar
+    const handleViewLinkedNewsletter = useCallback(async (newsletterId: string, calendarEntry: CalendarEntry) => {
+        try {
+            const result = await newsletterApi.getNewsletterById(newsletterId);
+
+            // Format detection and state loading
+            if (result.formatVersion === 'v2') {
+                setUseEnhancedFormat(true);
+                setEnhancedNewsletter(result.newsletter as EnhancedNewsletter);
+                setNewsletter(null);
+            } else {
+                setUseEnhancedFormat(false);
+                setNewsletter(result.newsletter as Newsletter);
+                setEnhancedNewsletter(null);
+            }
+
+            setSelectedTopics(result.topics);
+            setPendingCalendarEntryId(calendarEntry.id);
+            setPendingCalendarEntryTitle(calendarEntry.title);
+            setActivePage('generateNewsletter');
+
+            // Toast confirmation
+            setWorkflowStatus({ message: `Loaded newsletter: ${result.subject}`, type: 'success' });
+        } catch (err) {
+            console.error('[App] Failed to load newsletter:', err);
+            setError({ message: 'Could not load the linked newsletter.' });
+        }
+    }, [setError]);
+
+    // Phase 4: Handler to generate new newsletter from calendar (replaces existing link)
+    const handleGenerateNewFromCalendar = useCallback((entry: CalendarEntry) => {
+        if (entry.newsletterId) {
+            const confirmed = window.confirm(
+                'This calendar entry already has a linked newsletter.\n\n' +
+                'Generating a new newsletter will replace the existing link.\n\nContinue?'
+            );
+            if (!confirmed) return;
+        }
+
+        // Clear existing newsletter and start fresh
+        setNewsletter(null);
+        setEnhancedNewsletter(null);
+        handleStartFromCalendarEntry(entry);
+    }, [handleStartFromCalendarEntry]);
+
+    // Phase 16: Handler for explicit calendar entry linking from Generate page
+    const handleExplicitCalendarLink = useCallback(async (entryId: string, entryTitle: string) => {
+        // Get the current newsletter ID
+        const currentNewsletterId = useEnhancedFormat && enhancedNewsletter
+            ? enhancedNewsletter.id
+            : newsletter?.id;
+
+        if (!currentNewsletterId) {
+            console.warn('[App] No newsletter to link');
+            return;
+        }
+
+        try {
+            await calendarApi.linkNewsletter(entryId, currentNewsletterId);
+            setPendingCalendarEntryId(entryId);
+            setPendingCalendarEntryTitle(entryTitle);
+            setWorkflowStatus({
+                message: `Newsletter linked to: ${entryTitle}`,
+                type: 'success'
+            });
+            console.log(`[App] Linked newsletter ${currentNewsletterId} to calendar entry ${entryId}`);
+        } catch (err) {
+            console.error('[App] Failed to link newsletter to calendar:', err);
+            setWorkflowStatus({
+                message: 'Failed to link newsletter to calendar entry',
+                type: 'error'
+            });
+        }
+    }, [newsletter, enhancedNewsletter, useEnhancedFormat]);
 
     // Load newsletter from Drive with format detection (supports v1 and v2)
     const handleLoadFromDrive = (
@@ -627,38 +744,99 @@ const AppContent: React.FC = () => {
         let fetchedSources: TrendingSource[] = [];
 
         try {
-            // Fetch trending sources for the Inspiration Sources panel
+            // Step 1: Fetch trending sources for the Inspiration Sources panel
             console.log("Fetching trending sources...");
             try {
                 const allSources = await trendingDataService.fetchAllTrendingSources();
                 fetchedSources = trendingDataService.filterSourcesByAudience(allSources, audience);
                 setTrendingSources(fetchedSources);
-                console.log(`Fetched ${fetchedSources.length} trending sources`);
+                console.log(`[Sources] Loaded ${fetchedSources.length} sources (filtered from ${allSources.length} by audience)`);
+
+                // Phase 15.6: Auto-save trending sources to SQLite for persistence
+                if (fetchedSources.length > 0) {
+                    try {
+                        const batchResult = await saveSourcesBatch(
+                            fetchedSources.map(s => ({
+                                title: s.title,
+                                url: s.url,
+                                author: s.author,
+                                publication: s.publication,
+                                date: s.date,
+                                category: s.category,
+                                summary: s.summary,
+                            }))
+                        );
+                        console.log(`[Sources] Auto-saved ${batchResult.created.length} sources to library (${batchResult.duplicateCount} duplicates skipped)`);
+                    } catch (saveErr) {
+                        console.warn('[Sources] Failed to auto-save sources:', saveErr);
+                        // Non-fatal: sources are still in UI state
+                    }
+                }
             } catch (err) {
                 console.warn("Could not fetch trending sources:", err);
             }
 
-            // Generate COMPELLING, actionable trending content with structured insights
+            // Step 2: Phase 15.3b - Use V2 parallel generation for BALANCED trending topics
+            // This runs parallel agents per-audience and merges with equal representation
+            console.log("[V2] Generating parallel trending topics for balanced audience representation...");
+            const v2Result = await generateTrendingTopicsV2(
+                audience,
+                { mode: 'per-audience', topicsPerAgent: 3 }, // Per-audience mode for best balance
+                true // Auto-confirm (skip trade-off display for now)
+            );
+
+            if (v2Result.success && v2Result.topics && v2Result.topics.length > 0) {
+                // Use V2 balanced topics as the primary trending content
+                // Include ALL rich fields for proper UI rendering (Phase 15.3c fix)
+                setTrendingContent(v2Result.topics.map(t => ({
+                    title: t.title,
+                    summary: t.summary,
+                    id: t.id,
+                    audienceId: t.audienceId,
+                    // Rich format fields
+                    whatItIs: t.whatItIs,
+                    newCapability: t.newCapability,
+                    whoShouldCare: t.whoShouldCare,
+                    howToGetStarted: t.howToGetStarted,
+                    expectedImpact: t.expectedImpact,
+                    resource: t.resource,
+                })));
+
+                console.log(`[V2] Generated ${v2Result.topics.length} topics with equal audience representation`);
+                if (v2Result.perAudienceResults) {
+                    v2Result.perAudienceResults.forEach(r => {
+                        console.log(`[V2]   ${r.batchId}: ${r.topicCount} topics (${r.success ? 'success' : 'failed'})`);
+                    });
+                }
+                if (v2Result.totalDurationMs) {
+                    console.log(`[V2] Total generation time: ${v2Result.totalDurationMs}ms`);
+                }
+            } else {
+                console.warn("[V2] No topics returned, falling back to compelling content extraction");
+            }
+
+            // Step 3: Still generate compelling content for actionable insights panel
+            // This provides the detailed capability cards even if V2 topics are used above
             console.log("Generating compelling trending content with actionable insights...");
             const result = await generateCompellingTrendingContent(audience);
             const rawJsonString = result.text;
-            console.log("Raw Compelling Content JSON response:", rawJsonString);
             const cleanedJsonString = extractStrictJson(rawJsonString);
-            console.log("Cleaned Compelling Content JSON string for parsing:", cleanedJsonString);
-
             const compellingData = JSON.parse(cleanedJsonString);
             setCompellingContent(compellingData);
 
-            // Extract titles from actionable capabilities for the old "Add to Topics" feature
-            if (compellingData.actionableCapabilities && Array.isArray(compellingData.actionableCapabilities)) {
-                const titles = compellingData.actionableCapabilities.map((item: any) => item.title);
-                setTrendingContent(titles.map((title: string) => ({ title, summary: "Actionable AI capability from trending insights" })));
+            // Fallback: If V2 didn't produce topics, use compelling content titles
+            if (!v2Result.success || !v2Result.topics || v2Result.topics.length === 0) {
+                if (compellingData.actionableCapabilities && Array.isArray(compellingData.actionableCapabilities)) {
+                    const titles = compellingData.actionableCapabilities.map((item: any) => item.title);
+                    setTrendingContent(titles.map((title: string) => ({ title, summary: "Actionable AI capability from trending insights" })));
+                    console.log("[Fallback] Using compelling content titles as trending topics");
+                }
             }
 
             // Auto-save archive after successful fetch
             try {
                 const archiveContent = {
-                    trendingTopics: compellingData.actionableCapabilities?.map((item: any) => ({
+                    trendingTopics: v2Result.topics || compellingData.actionableCapabilities?.map((item: any) => ({
                         title: item.title,
                         summary: item.description || item.whatItIs || ""
                     })) || [],
@@ -669,10 +847,9 @@ const AppContent: React.FC = () => {
                 console.log(`[Archive] Auto-saved: ${savedArchive.name} (${savedArchive.id})`);
             } catch (archiveError) {
                 console.warn("[Archive] Could not auto-save:", archiveError);
-                // Don't show error to user - archive is a background feature
             }
         } catch (e) {
-            console.error("Failed to fetch compelling trending content:", e);
+            console.error("Failed to fetch trending content:", e);
             const errorMessage = e instanceof SyntaxError
                 ? "Could not parse trending insights. The model returned an unexpected format."
                 : "Could not load trending insights due to a network error.";
@@ -680,7 +857,7 @@ const AppContent: React.FC = () => {
         } finally {
             setIsFetchingTrending(false);
         }
-    }, [getAudienceKeys]);
+    }, [getAudienceKeys, saveSourcesBatch]);
 
     // Load content from an archive (skips API calls, saves tokens)
     const handleLoadFromArchive = useCallback((content: archiveClientService.ArchiveContent, audience: string[]) => {
@@ -738,45 +915,66 @@ const AppContent: React.FC = () => {
         setIsGeneratingTopics(true);
         setError(null);
         try {
-            // Fetch trending sources if not already available
-            let sources = trendingSources;
-            if (sources.length === 0) {
-                console.log("Fetching trending sources for suggestions...");
-                try {
-                    const allSources = await trendingDataService.fetchAllTrendingSources();
-                    const filteredSources = trendingDataService.filterSourcesByAudience(allSources, audience);
-                    sources = filteredSources;
-                    setTrendingSources(filteredSources);
-                } catch (err) {
-                    console.warn("Could not fetch trending sources, will generate suggestions without real data:", err);
+            // Phase 15.4: Use V2 parallel per-audience generation
+            // This spawns parallel agents per audience, each generating 3 topics
+            // Results are merged with equal representation and audience tagging
+            console.log("[V2] Generating parallel topic suggestions for balanced audience representation...");
+            console.log("[V2] Audiences:", audience);
+
+            const result = await generateTopicSuggestionsV2(audience, 3);
+
+            console.log("[V2] Topic suggestions result:", {
+                success: result.success,
+                topicCount: result.topics?.length,
+                perAudienceResults: result.perAudienceResults,
+                totalDurationMs: result.totalDurationMs,
+            });
+
+            if (result.success && result.topics && result.topics.length > 0) {
+                // Log per-audience breakdown
+                if (result.perAudienceResults) {
+                    result.perAudienceResults.forEach(r => {
+                        console.log(`[V2]   ${r.audienceId}: ${r.topicCount} topics (${r.success ? 'success' : 'failed'})`);
+                    });
                 }
+
+                // Merge with existing suggestions, removing duplicates by title
+                const existingTitles = new Set(suggestedTopics.map(t => t.title));
+                const newTopics = result.topics.filter(t => !existingTitles.has(t.title));
+                setSuggestedTopics([...suggestedTopics, ...newTopics]);
+
+                console.log(`[V2] Added ${newTopics.length} new suggestions (${result.topics.length - newTopics.length} duplicates skipped)`);
+
+                // Phase 15.5: Auto-save new topics to SQLite for persistence
+                if (newTopics.length > 0) {
+                    try {
+                        const batchResult = await saveTopicsBatch(
+                            newTopics.map(t => ({
+                                title: t.title,
+                                category: 'suggested' as const,
+                                sourceUrl: t.resource,
+                            }))
+                        );
+                        console.log(`[V2] Auto-saved ${batchResult.created.length} topics to library (${batchResult.duplicateCount} duplicates in DB skipped)`);
+                    } catch (saveErr) {
+                        console.warn('[V2] Failed to auto-save topics to library:', saveErr);
+                        // Non-fatal: topics are still in UI state, just not persisted
+                    }
+                }
+            } else {
+                console.warn("[V2] No topics returned from parallel generation");
+                setError({ message: "No topic suggestions were generated. Please try again.", onRetry: handleGenerateSuggestions });
             }
-
-            // Format sources for the API
-            const sourceSummary = sources.length > 0
-                ? sources.map(s => `- "${s.title}" from ${s.publication} (${s.category}): ${s.url}`).join('\n')
-                : undefined;
-
-            console.log("Generating suggestions based on sources...");
-            const result = await generateTopicSuggestions(audience, sourceSummary);
-            const rawJsonString = result.text;
-            console.log("Raw Topic Suggestions JSON response:", rawJsonString);
-            const cleanedJsonString = extractStrictJson(rawJsonString);
-            console.log("Cleaned Topic Suggestions JSON string for parsing:", cleanedJsonString);
-
-            const topics = JSON.parse(cleanedJsonString);
-            // Merge with existing suggestions, removing duplicates
-            setSuggestedTopics([...new Set([...suggestedTopics, ...topics])]);
         } catch (e) {
             console.error("Failed to generate topic suggestions:", e);
-            const errorMessage = e instanceof SyntaxError
-                ? "Failed to parse topic suggestions. The AI returned an invalid format."
+            const errorMessage = e instanceof Error
+                ? `Failed to generate topic suggestions: ${e.message}`
                 : "Failed to generate topic suggestions due to a network error.";
             setError({ message: errorMessage, onRetry: handleGenerateSuggestions });
         } finally {
             setIsGeneratingTopics(false);
         }
-    }, [getAudienceKeys, trendingSources, suggestedTopics, setSuggestedTopics, setIsGeneratingTopics, setTrendingSources]);
+    }, [getAudienceKeys, suggestedTopics, setSuggestedTopics, setIsGeneratingTopics, saveTopicsBatch]);
 
     const handleGenerateNewsletter = useCallback(async () => {
         const audience = getAudienceKeys();
@@ -1043,8 +1241,30 @@ const AppContent: React.FC = () => {
 
         } catch (e) {
             console.error('Enhanced newsletter generation failed:', e);
-            const errorMessage = e instanceof Error ? e.message : 'An unexpected error occurred';
-            setError({ message: errorMessage, onRetry: handleGenerateEnhancedNewsletter });
+
+            // Phase 15: Handle validation errors with detailed feedback
+            let errorMessage = e instanceof Error ? e.message : 'An unexpected error occurred';
+            let detailsMessage = '';
+
+            // Check if this is an ApiError with validation details
+            if (e && typeof e === 'object' && 'invalidTopics' in e) {
+                const apiError = e as {
+                    message: string;
+                    invalidTopics?: string[];
+                    suggestions?: string[];
+                };
+                if (apiError.invalidTopics && apiError.invalidTopics.length > 0) {
+                    detailsMessage = `\n\nInvalid/fictional topics: ${apiError.invalidTopics.join(', ')}`;
+                }
+                if (apiError.suggestions && apiError.suggestions.length > 0) {
+                    detailsMessage += `\n\nSuggested alternatives: ${apiError.suggestions.join(', ')}`;
+                }
+            }
+
+            setError({
+                message: errorMessage + detailsMessage,
+                onRetry: handleGenerateEnhancedNewsletter
+            });
         } finally {
             setLoading(null);
             setProgress(0);
@@ -1669,6 +1889,9 @@ const AppContent: React.FC = () => {
                             onSaveAsTemplate={handleSaveAsTemplate}
                             // Calendar entry tracking (Issue 2 fix)
                             calendarEntryTitle={pendingCalendarEntryTitle}
+                            // Phase 16: Calendar entry linking
+                            calendarEntryId={pendingCalendarEntryId}
+                            onOpenCalendarPicker={() => setShowCalendarPicker(true)}
                         />
                     )}
 
@@ -1695,6 +1918,8 @@ const AppContent: React.FC = () => {
                     {activePage === 'contentCalendar' && (
                         <ContentCalendarPage
                             onStartGeneration={handleStartFromCalendarEntry}
+                            onViewNewsletter={handleViewLinkedNewsletter}
+                            onGenerateNew={handleGenerateNewFromCalendar}
                         />
                     )}
 
@@ -1759,6 +1984,17 @@ const AppContent: React.FC = () => {
                         }
                     }}
                     editingPersona={editingPersona}
+                />
+
+                {/* Phase 16: Calendar Entry Picker modal (for explicit linking from Generate page) */}
+                <CalendarEntryPickerModal
+                    isOpen={showCalendarPicker}
+                    onClose={() => setShowCalendarPicker(false)}
+                    onSelect={(entryId, entryTitle) => {
+                        handleExplicitCalendarLink(entryId, entryTitle);
+                        setShowCalendarPicker(false);
+                    }}
+                    currentEntryId={pendingCalendarEntryId}
                 />
             </div>
         </div>

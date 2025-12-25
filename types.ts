@@ -36,6 +36,28 @@ export interface GroundingChunk {
 export interface TrendingTopic {
   title: string;
   summary: string;
+  /** Phase 15.3: Optional unique identifier for tracking */
+  id?: string;
+  /** Phase 15.3: Optional audience this topic was generated for */
+  audienceId?: string;
+  /** Phase 15.3c: Rich format fields matching ActionableCapability */
+  whatItIs?: string;
+  newCapability?: string;
+  whoShouldCare?: string;
+  howToGetStarted?: string;
+  expectedImpact?: string;
+  resource?: string;
+}
+
+/**
+ * Phase 15.4: Suggested topic with audience association
+ * Used for "Suggest Topics" feature with per-audience generation
+ * Phase 15.5: Added resource field for source URL
+ */
+export interface SuggestedTopic {
+  title: string;
+  audienceId: string;
+  resource?: string; // Source URL for the topic
 }
 
 export interface GoogleSettings {
@@ -214,6 +236,52 @@ export interface AudienceConfig {
     search_templates: string[];
   };
 }
+
+// ============================================================================
+// Hierarchical Audience Types (Phase 15.2 - Audience Restructure)
+// ============================================================================
+
+/**
+ * Parent category for audience grouping (Academic, Business)
+ * Users can select at this level to include all child specializations
+ */
+export interface AudienceCategory {
+  id: 'academic' | 'business';
+  name: string;
+  children: string[]; // Child specialization IDs
+}
+
+/**
+ * Specific audience specialization with tailored content generation parameters
+ * Each specialization has its own domain context, examples, and source preferences
+ */
+export interface AudienceSpecialization {
+  id: string;
+  parentId: 'academic' | 'business';
+  name: string;
+  description: string; // Domain-specific keywords for prompt context
+  domainExamples: string; // Example use cases for this specialization
+  jsonExamples: AudienceJsonExample[]; // Format examples for Claude
+  topicTitles: string[]; // Example topic titles for this specialization
+  sourcePreferences: AudienceSourcePreference[]; // Which APIs to prioritize
+}
+
+export interface AudienceJsonExample {
+  title: string;
+  summary: string;
+}
+
+export type AudienceSourcePreference = 'arxiv' | 'hackernews' | 'github' | 'reddit' | 'dev' | 'gdelt';
+
+/**
+ * Legacy audience ID mapping for backward compatibility
+ * Maps old combined IDs to new specialization IDs
+ */
+export const LEGACY_AUDIENCE_MAPPING: Record<string, string[]> = {
+  'academics': ['forensic-anthropology', 'computational-archaeology'],
+  'business': ['business-administration', 'business-intelligence'],
+  'analysts': ['business-intelligence'], // Merged into business-intelligence
+};
 
 // Extended history item for enhanced newsletters
 export interface EnhancedHistoryItem {
