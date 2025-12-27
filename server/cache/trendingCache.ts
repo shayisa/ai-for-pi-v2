@@ -54,6 +54,17 @@ interface MergedTopicsCacheEntry {
   ttl: number;
 }
 
+/**
+ * Phase 17: Stale-While-Revalidate response type
+ * Returns cached data along with freshness metadata
+ */
+export interface CacheEntryWithStale<T> {
+  data: T;
+  timestamp: number;
+  isStale: boolean;
+  cacheAge: number; // seconds since cached
+}
+
 class TrendingCache {
   /**
    * Audience-keyed source cache: different audience combinations get separate caches
@@ -78,6 +89,12 @@ class TrendingCache {
   private readonly DEFAULT_TTL = 60 * 60 * 1000; // 1 hour
   private readonly TOPIC_TTL = 30 * 60 * 1000; // 30 minutes for generated topics
   private readonly MAX_CACHE_ENTRIES = 20; // Limit memory usage per cache type
+
+  // Phase 17: Stale-While-Revalidate thresholds
+  // Data older than STALE_THRESHOLD triggers background refresh while returning cached data
+  // Rollback: Set ENABLE_SWR=false
+  private readonly STALE_THRESHOLD = 15 * 60 * 1000; // 15 minutes
+  private readonly ENABLE_SWR = process.env.ENABLE_SWR !== 'false';
 
   // Legacy alias for backward compatibility
   private get cache() {
@@ -254,6 +271,53 @@ class TrendingCache {
       `[TrendingCache] Merged topics cache hit: ${key} - ${topicCount} topics, ${ageMinutes}m old`
     );
     return entry.result;
+  }
+
+  /**
+   * Phase 17: Get merged topics with stale status for SWR pattern
+   *
+   * Returns cached data even if stale (but not expired), along with
+   * metadata indicating whether background refresh should be triggered.
+   *
+   * - Fresh (< 15min): Return data, isStale = false
+   * - Stale (15-30min): Return data, isStale = true (trigger background refresh)
+   * - Expired (> 30min): Return null (must regenerate)
+   */
+  getMergedTopicsWithStale(audienceIds: string[]): CacheEntryWithStale<ParallelTrendingResult> | null {
+    const key = this.getCacheKey(audienceIds);
+    const entry = this.mergedTopicsCache.get(key);
+
+    if (!entry) {
+      console.log(`[TrendingCache] Merged topics cache miss (SWR): ${key}`);
+      return null;
+    }
+
+    const now = Date.now();
+    const age = now - entry.timestamp;
+
+    // Check if expired (past TTL)
+    if (age > entry.ttl) {
+      console.log(`[TrendingCache] Merged topics cache expired (SWR): ${key}`);
+      this.mergedTopicsCache.delete(key);
+      return null;
+    }
+
+    // Determine if stale (past STALE_THRESHOLD but not expired)
+    const isStale = this.ENABLE_SWR && age > this.STALE_THRESHOLD;
+    const cacheAge = Math.floor(age / 1000); // Convert to seconds
+    const ageMinutes = Math.round(age / 60000);
+    const topicCount = entry.result.topics?.length || 0;
+
+    console.log(
+      `[TrendingCache] Merged topics cache ${isStale ? 'STALE' : 'FRESH'} (SWR): ${key} - ${topicCount} topics, ${ageMinutes}m old`
+    );
+
+    return {
+      data: entry.result,
+      timestamp: entry.timestamp,
+      isStale,
+      cacheAge,
+    };
   }
 
   /**

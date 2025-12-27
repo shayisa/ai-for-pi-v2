@@ -117,6 +117,64 @@ router.get('/fetchTrendingSources', async (req: Request, res: Response) => {
 });
 
 /**
+ * POST /api/trendingCacheStatus
+ *
+ * Phase 17: Lightweight endpoint to check cache freshness for pre-fetching.
+ * Returns cache status without fetching data, enabling smart pre-fetch decisions.
+ *
+ * Request body:
+ * - audience: string[] - Array of audience IDs
+ *
+ * Response:
+ * - isFresh: boolean - Data is fresh (< 15 minutes old)
+ * - isStale: boolean - Data is stale (15-30 minutes old, still usable)
+ * - isMissing: boolean - No cached data available
+ * - cacheAge?: number - Seconds since cached (if data exists)
+ */
+router.post('/trendingCacheStatus', (req: Request, res: Response) => {
+  const correlationId = getCorrelationId();
+
+  try {
+    const { audience } = req.body as { audience: string[] };
+
+    if (!audience || !Array.isArray(audience)) {
+      return sendError(res, 'Audience array is required', ErrorCodes.VALIDATION_ERROR, correlationId);
+    }
+
+    const cacheResult = trendingCache.getMergedTopicsWithStale(audience);
+
+    if (!cacheResult || !cacheResult.data) {
+      logger.info('generation', 'cache_status_miss', 'Cache status check: MISSING', {
+        correlationId,
+        audiences: audience,
+      });
+      return sendSuccess(res, {
+        isFresh: false,
+        isStale: false,
+        isMissing: true,
+      }, correlationId);
+    }
+
+    logger.info('generation', 'cache_status_check', `Cache status check: ${cacheResult.isStale ? 'STALE' : 'FRESH'}`, {
+      correlationId,
+      audiences: audience,
+      cacheAge: cacheResult.cacheAge,
+    });
+
+    sendSuccess(res, {
+      isFresh: !cacheResult.isStale,
+      isStale: cacheResult.isStale,
+      isMissing: false,
+      cacheAge: cacheResult.cacheAge,
+    }, correlationId);
+  } catch (error) {
+    const err = error as Error;
+    logger.error('generation', 'cache_status_error', `Cache status check failed: ${err.message}`, err, { correlationId });
+    sendError(res, 'Failed to check cache status', ErrorCodes.INTERNAL_ERROR, correlationId);
+  }
+});
+
+/**
  * POST /api/generateCompellingTrendingContent
  *
  * Extract actionable insights and tools from trending sources.
@@ -496,6 +554,9 @@ import {
 } from '../domains/generation/services/parallelTrendingOrchestrator';
 import type { ParallelGenerationConfig } from '../domains/generation/types/parallelGeneration';
 
+// Phase 17: Streaming orchestrator for SSE
+import { generateTrendingTopicsStreaming } from '../domains/generation/services/streamingTrendingOrchestrator';
+
 // Phase 15.4: Parallel topic suggestions
 import { generateSuggestionsParallel } from '../domains/generation/services/parallelSuggestionOrchestrator';
 
@@ -559,20 +620,64 @@ router.post('/generateTrendingTopicsV2', async (req: Request, res: Response) => 
     });
 
     // Check cache first for confirmed requests (skip if cache was just cleared)
+    // Phase 17: Use SWR pattern - return stale data immediately, refresh in background
     if (confirmed && !clearCache) {
-      const cached = trendingCache.getMergedTopics(audience);
-      if (cached && cached.success && cached.topics) {
-        logger.info('generation', 'trending_v2_cached', 'Returning cached parallel trending topics', {
+      const cacheResult = trendingCache.getMergedTopicsWithStale(audience);
+      if (cacheResult && cacheResult.data && cacheResult.data.success && cacheResult.data.topics) {
+        const cached = cacheResult.data;
+
+        logger.info('generation', 'trending_v2_cached', `Returning ${cacheResult.isStale ? 'STALE' : 'FRESH'} cached parallel trending topics`, {
           correlationId,
           topicCount: cached.topics.length,
+          isStale: cacheResult.isStale,
+          cacheAge: cacheResult.cacheAge,
         });
-        return sendSuccess(res, {
+
+        // Send cached response immediately
+        sendSuccess(res, {
           success: true,
           topics: cached.topics,
           tradeoffs: cached.tradeoffs,
           cached: true,
           cacheKey: cached.cacheKey,
+          // Phase 17: SWR metadata for UI
+          isStale: cacheResult.isStale,
+          cacheAge: cacheResult.cacheAge,
         }, correlationId);
+
+        // Phase 17: If stale, trigger background refresh (non-blocking)
+        if (cacheResult.isStale) {
+          logger.info('generation', 'trending_v2_swr_refresh', 'Triggering background refresh for stale cache', {
+            correlationId,
+            audiences: audience,
+          });
+
+          setImmediate(async () => {
+            try {
+              const fullConfig = {
+                mode: config?.mode || 'per-category' as const,
+                topicsPerAgent: config?.topicsPerAgent || 4,
+                maxParallelAgents: config?.maxParallelAgents,
+                showTradeoffs: false, // Skip trade-offs for background refresh
+              };
+
+              const freshResult = await generateTrendingTopicsParallel(audience, fullConfig, customAudiences, true);
+              if (freshResult.success && freshResult.topics) {
+                trendingCache.setMergedTopics(audience, freshResult);
+                logger.info('generation', 'trending_v2_swr_complete', 'Background refresh completed', {
+                  correlationId,
+                  topicCount: freshResult.topics.length,
+                });
+              }
+            } catch (err) {
+              logger.error('generation', 'trending_v2_swr_error', `Background refresh failed: ${(err as Error).message}`, err as Error, {
+                correlationId,
+              });
+            }
+          });
+        }
+
+        return; // Already sent response
       }
     }
 
@@ -638,6 +743,123 @@ router.post('/generateTrendingTopicsV2', async (req: Request, res: Response) => 
     const err = error as Error;
     logger.error('generation', 'trending_v2_error', `Failed to generate trending topics V2: ${err.message}`, err, { correlationId });
     sendError(res, 'Failed to generate trending topics V2', ErrorCodes.EXTERNAL_SERVICE_ERROR, correlationId, { details: err.message });
+  }
+});
+
+// ============================================================================
+// Streaming Trending Topics (Phase 17)
+// ============================================================================
+
+/**
+ * POST /api/generateTrendingTopicsV2/stream
+ *
+ * Phase 17: SSE streaming variant of V2 trending topic generation.
+ *
+ * Streams results as each agent completes instead of waiting for all.
+ * This enables first results in ~5s instead of ~15s.
+ *
+ * Returns Server-Sent Events:
+ * - agent_start: When an agent begins
+ * - agent_complete: When an agent finishes with topics
+ * - agent_error: When an agent fails
+ * - complete: When all agents have finished
+ *
+ * Rollback: Set VITE_ENABLE_STREAMING=false on frontend
+ */
+router.post('/generateTrendingTopicsV2/stream', async (req: Request, res: Response) => {
+  const correlationId = getCorrelationId();
+
+  try {
+    const {
+      audience,
+      config,
+      customAudiences,
+    } = req.body as {
+      audience: string[];
+      config?: Partial<ParallelGenerationConfig>;
+      customAudiences?: Array<{
+        id: string;
+        name: string;
+        description: string;
+        domainExamples: string;
+        topicTitles: string[];
+      }>;
+    };
+
+    if (!audience || !Array.isArray(audience) || audience.length === 0) {
+      return sendError(res, 'Audience array is required', ErrorCodes.VALIDATION_ERROR, correlationId);
+    }
+
+    logger.info('generation', 'streaming_start', `Starting streaming trending generation for ${audience.length} audiences`, {
+      correlationId,
+      audiences: audience,
+    });
+
+    // Set SSE headers
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no'); // Disable nginx buffering
+    res.flushHeaders();
+
+    // Send initial connection event
+    res.write(`data: ${JSON.stringify({ type: 'connected', correlationId })}\n\n`);
+
+    // Build config
+    const fullConfig = {
+      mode: config?.mode || 'per-audience' as const,
+      topicsPerAgent: config?.topicsPerAgent || 3,
+      maxParallelAgents: config?.maxParallelAgents,
+      showTradeoffs: false,
+    };
+
+    // Collect all topics for caching
+    const allTopics: any[] = [];
+
+    // Start streaming generation
+    await generateTrendingTopicsStreaming(
+      audience,
+      fullConfig,
+      customAudiences,
+      (event) => {
+        // Collect topics for cache
+        if (event.type === 'agent_complete' && event.topics) {
+          allTopics.push(...event.topics);
+        }
+
+        // Send SSE event
+        res.write(`data: ${JSON.stringify(event)}\n\n`);
+      }
+    );
+
+    // Cache the aggregated results
+    if (allTopics.length > 0) {
+      trendingCache.setMergedTopics(audience, {
+        success: true,
+        topics: allTopics,
+        cacheKey: audience.sort().join(':'),
+      });
+      logger.info('generation', 'streaming_cached', `Cached ${allTopics.length} streamed topics`, { correlationId });
+    }
+
+    // Close the connection
+    res.end();
+
+    logger.info('generation', 'streaming_complete', 'Streaming generation complete', {
+      correlationId,
+      totalTopics: allTopics.length,
+    });
+  } catch (error) {
+    const err = error as Error;
+    logger.error('generation', 'streaming_error', `Streaming generation failed: ${err.message}`, err, { correlationId });
+
+    // Send error event if connection is still open
+    if (!res.headersSent) {
+      sendError(res, 'Streaming generation failed', ErrorCodes.EXTERNAL_SERVICE_ERROR, correlationId, { details: err.message });
+    } else {
+      res.write(`data: ${JSON.stringify({ type: 'error', error: err.message })}\n\n`);
+      res.end();
+    }
   }
 });
 

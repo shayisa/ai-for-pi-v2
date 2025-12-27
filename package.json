@@ -21,6 +21,7 @@
     "@extractus/article-extractor": "^8.0.20",
     "@google/gemini-cli": "^0.15.1",
     "@google/genai": "^1.33.0",
+    "@microsoft/fetch-event-source": "^2.0.1",
     "@types/express": "^5.0.5",
     "@types/multer": "^2.0.0",
     "@types/node": "^24.10.1",

@@ -25,7 +25,13 @@ import type { ResolvedAudience } from '../helpers/audienceHelpers';
 import { shuffleArray } from '../helpers/audienceHelpers';
 
 // Token optimization - limit search iterations per agent
-const MAX_SEARCH_ITERATIONS = 2;
+// Phase 17: Reduced from 2 to 1 for 30-40% speed improvement
+// Rollback: Set AGENT_MAX_SEARCH_ITERATIONS=2
+const MAX_SEARCH_ITERATIONS = parseInt(process.env.AGENT_MAX_SEARCH_ITERATIONS || '1', 10);
+
+// Phase 17: Use Haiku for ~10x faster topic generation
+// Rollback: Set AGENT_MODEL=claude-sonnet-4-20250514
+const AGENT_MODEL = process.env.AGENT_MODEL || 'claude-haiku-4-5-20251001';
 
 /**
  * System prompt for single audience topic generation
@@ -237,7 +243,7 @@ async function executeAgenticLoop(
   ];
 
   let response = await client.messages.create({
-    model: 'claude-sonnet-4-20250514',
+    model: AGENT_MODEL,
     max_tokens: 2048,
     system: systemPrompt,
     tools: [webSearchTool],
@@ -280,7 +286,7 @@ async function executeAgenticLoop(
     });
 
     response = await client.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: AGENT_MODEL,
       max_tokens: 2048,
       system: systemPrompt,
       tools: [webSearchTool],
@@ -310,7 +316,7 @@ async function executeAgenticLoop(
       ],
     });
     response = await client.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: AGENT_MODEL,
       max_tokens: 2048,
       system: systemPrompt,
       messages: messages,

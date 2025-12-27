@@ -99,6 +99,16 @@ export interface TopicContext {
   newCapability?: string;
 }
 
+/**
+ * Phase 17: Cache metadata for Stale-While-Revalidate display
+ */
+export interface TrendingCacheMetadata {
+  cached: boolean;
+  isStale: boolean;
+  cacheAge?: number; // seconds since cached
+  fetchedAt?: number; // timestamp when last fetched
+}
+
 interface TopicsState {
   // Selected topics for newsletter generation
   selectedTopics: string[];
@@ -114,6 +124,9 @@ interface TopicsState {
   trendingContent: TrendingTopic[] | null;
   compellingContent: any;
   trendingSources: TrendingSource[];
+
+  // Phase 17: Cache metadata for SWR display
+  trendingCacheMetadata: TrendingCacheMetadata | null;
 
   // Loading states
   isGeneratingTopics: boolean;
@@ -146,6 +159,9 @@ interface TopicsActions {
   setCompellingContent: (content: any) => void;
   setTrendingSources: (sources: TrendingSource[]) => void;
   addTrendingTopic: (topic: string) => void;
+
+  // Phase 17: Cache metadata
+  setTrendingCacheMetadata: (metadata: TrendingCacheMetadata | null) => void;
 
   // Loading states
   setIsGeneratingTopics: (loading: boolean) => void;
@@ -187,6 +203,9 @@ export const TopicsProvider: React.FC<TopicsProviderProps> = ({
   const [trendingContent, setTrendingContent] = useState<TrendingTopic[] | null>(null);
   const [compellingContent, setCompellingContent] = useState<any>(null);
   const [trendingSources, setTrendingSources] = useState<TrendingSource[]>([]);
+
+  // Phase 17: Cache metadata for SWR display
+  const [trendingCacheMetadata, setTrendingCacheMetadata] = useState<TrendingCacheMetadata | null>(null);
 
   // Loading states (from App.tsx lines 141-142)
   const [isGeneratingTopics, setIsGeneratingTopics] = useState<boolean>(false);
@@ -389,6 +408,7 @@ export const TopicsProvider: React.FC<TopicsProviderProps> = ({
     trendingContent,
     compellingContent,
     trendingSources,
+    trendingCacheMetadata, // Phase 17
     isGeneratingTopics,
     isFetchingTrending,
     // Audience state (Phase 15.2 - hierarchical)
@@ -409,6 +429,7 @@ export const TopicsProvider: React.FC<TopicsProviderProps> = ({
     setCompellingContent,
     setTrendingSources,
     addTrendingTopic,
+    setTrendingCacheMetadata, // Phase 17
     setIsGeneratingTopics,
     setIsFetchingTrending,
     // Audience actions (Phase 15.2 - hierarchical)
@@ -471,6 +492,7 @@ export const useSelectedTopics = () => {
 
 /**
  * Hook for trending content
+ * Phase 17: Extended with cache metadata for SWR display
  * Phase 18: Extended with addTopicWithContext for preserving topic context
  */
 export const useTrendingContent = () => {
@@ -478,10 +500,12 @@ export const useTrendingContent = () => {
     trendingContent,
     compellingContent,
     trendingSources,
+    trendingCacheMetadata,
     isFetchingTrending,
     setTrendingContent,
     setCompellingContent,
     setTrendingSources,
+    setTrendingCacheMetadata,
     setIsFetchingTrending,
     addTrendingTopic,
     addTopicWithContext,
@@ -491,10 +515,12 @@ export const useTrendingContent = () => {
     trendingContent,
     compellingContent,
     trendingSources,
+    trendingCacheMetadata, // Phase 17
     isFetchingTrending,
     setTrendingContent,
     setCompellingContent,
     setTrendingSources,
+    setTrendingCacheMetadata, // Phase 17
     setIsFetchingTrending,
     addTrendingTopic,
     addTopicWithContext,  // Phase 18: add with full context

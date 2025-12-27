@@ -189,6 +189,7 @@ const AppContent: React.FC = () => {
     } = useAudienceSelection();
 
     // Trending content from TopicsContext (Phase 6g.9 Batch 1 - combined with Batch 4)
+    // Phase 17: Added setTrendingCacheMetadata for SWR display
     const {
         trendingContent,
         setTrendingContent,
@@ -198,6 +199,7 @@ const AppContent: React.FC = () => {
         setTrendingSources,
         isFetchingTrending,
         setIsFetchingTrending,
+        setTrendingCacheMetadata,
     } = useTrendingContent();
     // Newsletter state from context (Phase 6g.8 fix - must use context for GenerateNewsletterPage to work)
     const {
@@ -743,6 +745,7 @@ const AppContent: React.FC = () => {
         setTrendingContent(null);
         setCompellingContent(null);
         setTrendingSources([]);
+        setTrendingCacheMetadata(null); // Phase 17: Reset cache metadata
         setError(null);
 
         const audience = getAudienceKeys();
@@ -813,6 +816,14 @@ const AppContent: React.FC = () => {
                     expectedImpact: t.expectedImpact,
                     resource: t.resource,
                 })));
+
+                // Phase 17: Set cache metadata for SWR display
+                setTrendingCacheMetadata({
+                    cached: v2Result.cached || false,
+                    isStale: v2Result.isStale || false,
+                    cacheAge: v2Result.cacheAge,
+                    fetchedAt: Date.now(),
+                });
 
                 console.log(`[V2] Generated ${v2Result.topics.length} topics with equal audience representation`);
                 if (v2Result.perAudienceResults) {

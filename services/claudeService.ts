@@ -387,6 +387,19 @@ export interface TrendingTopicsV2Response {
   totalDurationMs?: number;
   cacheKey?: string;
   cached?: boolean;
+  // Phase 17: Stale-While-Revalidate metadata
+  isStale?: boolean;
+  cacheAge?: number; // seconds since cached
+}
+
+/**
+ * Phase 17: Cache status response for pre-fetch decisions
+ */
+export interface TrendingCacheStatusResponse {
+  isFresh: boolean;
+  isStale: boolean;
+  isMissing: boolean;
+  cacheAge?: number; // seconds
 }
 
 /**
@@ -420,6 +433,151 @@ const generateTrendingTopicsV2Internal = async (
 };
 
 export const generateTrendingTopicsV2 = withRetry(generateTrendingTopicsV2Internal);
+
+// ===================================================================
+// PHASE 17: CACHE STATUS CHECK FOR PRE-FETCHING
+// ===================================================================
+
+/**
+ * Check the cache status for trending topics without fetching content.
+ *
+ * Phase 17: This lightweight endpoint allows the frontend to check
+ * if cached data exists and whether it's stale, enabling intelligent
+ * pre-fetch decisions on page mount.
+ *
+ * @param audience - Array of audience IDs
+ * @returns Cache status (fresh, stale, or missing)
+ */
+export async function checkTrendingCacheStatus(
+  audience: string[]
+): Promise<TrendingCacheStatusResponse> {
+  try {
+    return await apiRequest<TrendingCacheStatusResponse>('/api/trendingCacheStatus', {
+      method: 'POST',
+      body: JSON.stringify({ audience }),
+    });
+  } catch (error) {
+    console.error('[claudeService] Error checking cache status:', error);
+    // Default to missing on error - will trigger a fresh fetch
+    return { isFresh: false, isStale: false, isMissing: true };
+  }
+}
+
+// ===================================================================
+// PHASE 17: STREAMING TRENDING TOPICS
+// ===================================================================
+
+import { fetchEventSource } from '@microsoft/fetch-event-source';
+// Note: TrendingTopic already imported above from '../types'
+
+/**
+ * Streaming event from SSE endpoint
+ */
+export interface StreamingTrendingEvent {
+  type: 'connected' | 'agent_start' | 'agent_complete' | 'agent_error' | 'complete' | 'error';
+  batchId?: string;
+  batchName?: string;
+  topics?: TrendingTopic[];
+  error?: string;
+  completedCount?: number;
+  totalCount?: number;
+  durationMs?: number;
+  correlationId?: string;
+}
+
+/**
+ * Stream trending topics with progressive updates.
+ *
+ * Phase 17: Uses SSE to receive topics as each agent completes,
+ * enabling first results in ~5s instead of ~15s.
+ *
+ * @param audience - Array of audience IDs
+ * @param config - Optional generation configuration
+ * @param onEvent - Callback for each streaming event
+ * @param onComplete - Callback when streaming completes
+ * @param onError - Callback for errors
+ * @returns Cleanup function to abort the connection
+ *
+ * Rollback: Set VITE_ENABLE_STREAMING=false
+ */
+export function streamTrendingTopicsV2(
+  audience: string[],
+  config?: Partial<ParallelGenConfig>,
+  onEvent?: (event: StreamingTrendingEvent) => void,
+  onComplete?: () => void,
+  onError?: (error: Error) => void
+): () => void {
+  const abortController = new AbortController();
+
+  console.log('[claudeService] Starting streaming trending generation', { audience });
+
+  fetchEventSource(`${API_BASE}/api/generateTrendingTopicsV2/stream`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      audience,
+      config,
+    }),
+    signal: abortController.signal,
+
+    onopen: async (response) => {
+      if (response.ok) {
+        console.log('[claudeService] SSE connection opened');
+        return;
+      }
+      throw new Error(`SSE connection failed: ${response.status} ${response.statusText}`);
+    },
+
+    onmessage: (msg) => {
+      if (!msg.data) return;
+
+      try {
+        const event = JSON.parse(msg.data) as StreamingTrendingEvent;
+        console.log('[claudeService] SSE event:', event.type, event.batchId || '');
+
+        if (onEvent) {
+          onEvent(event);
+        }
+
+        if (event.type === 'complete') {
+          if (onComplete) {
+            onComplete();
+          }
+        }
+      } catch (err) {
+        console.error('[claudeService] Failed to parse SSE message:', err);
+      }
+    },
+
+    onerror: (err) => {
+      console.error('[claudeService] SSE error:', err);
+      if (onError && err instanceof Error) {
+        onError(err);
+      }
+      // Don't throw - let fetchEventSource handle reconnection logic
+    },
+
+    onclose: () => {
+      console.log('[claudeService] SSE connection closed');
+      if (onComplete) {
+        onComplete();
+      }
+    },
+  }).catch((err) => {
+    console.error('[claudeService] SSE stream error:', err);
+    if (onError) {
+      onError(err instanceof Error ? err : new Error(String(err)));
+    }
+  });
+
+  // Return cleanup function
+  return () => {
+    console.log('[claudeService] Aborting SSE connection');
+    abortController.abort();
+  };
+}
 
 // ===================================================================
 // PRESET MANAGEMENT ENDPOINTS

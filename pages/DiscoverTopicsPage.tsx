@@ -15,7 +15,7 @@
  * - onLoadFromArchive: Multi-state handler (modifies topics, audience, content)
  */
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { InspirationSourcesPanel, TrendingSource } from '../components/InspirationSourcesPanel';
 import { Spinner } from '../components/Spinner';
@@ -31,6 +31,7 @@ import { useLoading, useError, useModals, useCustomAudiences } from '../contexts
 import { useSavedTopics } from '../hooks/useSavedTopics';
 import { useSavedSources } from '../hooks/useSavedSources';
 import { useRagIndexing } from '../hooks/useRagIndexing';
+import { checkTrendingCacheStatus } from '../services/claudeService';
 
 interface ActionableCapability {
     title: string;
@@ -72,11 +73,13 @@ export const DiscoverTopicsPage: React.FC<DiscoverTopicsPageProps> = ({
     const { suggestedTopics, selectSuggestedTopic, isGeneratingTopics } = useTopics();
 
     // Trending content from TopicsContext
+    // Phase 17: Added trendingCacheMetadata for SWR display
     // Phase 18: Added addTopicWithContext to preserve audienceId
     const {
         trendingContent,
         compellingContent,
         trendingSources,
+        trendingCacheMetadata,
         isFetchingTrending,
         addTrendingTopic,
         addTopicWithContext,
@@ -125,11 +128,66 @@ export const DiscoverTopicsPage: React.FC<DiscoverTopicsPageProps> = ({
     // Toast notification state
     const [toastMessage, setToastMessage] = useState<string | null>(null);
 
+    // Phase 17: Pre-fetch tracking
+    const prefetchAttempted = useRef(false);
+    const [isBackgroundRefreshing, setIsBackgroundRefreshing] = useState(false);
+
     // Show toast notification
     const showToast = useCallback((message: string) => {
         setToastMessage(message);
         setTimeout(() => setToastMessage(null), 2000);
     }, []);
+
+    /**
+     * Phase 17: Format cache age for display
+     * @param seconds - Cache age in seconds
+     * @returns Human-readable string like "2 min ago" or "1 hour ago"
+     */
+    const formatCacheAge = useCallback((seconds: number): string => {
+        if (seconds < 60) return 'just now';
+        if (seconds < 3600) {
+            const mins = Math.floor(seconds / 60);
+            return `${mins} min${mins > 1 ? 's' : ''} ago`;
+        }
+        const hours = Math.floor(seconds / 3600);
+        return `${hours} hour${hours > 1 ? 's' : ''} ago`;
+    }, []);
+
+    /**
+     * Phase 17: Pre-fetch trending content on page mount if cache is stale/missing
+     */
+    useEffect(() => {
+        // Only attempt once per page mount
+        if (prefetchAttempted.current) return;
+        // Need audience selected
+        if (!hasSelectedAudience) return;
+        // Don't pre-fetch if already loading
+        if (isFetchingTrending) return;
+        // Don't pre-fetch if we have fresh content
+        if (trendingContent && trendingContent.length > 0 && trendingCacheMetadata && !trendingCacheMetadata.isStale) return;
+
+        prefetchAttempted.current = true;
+
+        // Check cache status and pre-fetch if stale or missing
+        const doPrefetch = async () => {
+            try {
+                const audience = Object.keys(selectedAudience).filter(k => selectedAudience[k]);
+                const status = await checkTrendingCacheStatus(audience);
+
+                if (status.isStale || status.isMissing) {
+                    console.log('[DiscoverTopicsPage] Pre-fetching: cache is', status.isMissing ? 'missing' : 'stale');
+                    setIsBackgroundRefreshing(true);
+                    await fetchTrendingContent();
+                    setIsBackgroundRefreshing(false);
+                }
+            } catch (err) {
+                console.warn('[DiscoverTopicsPage] Pre-fetch check failed:', err);
+                setIsBackgroundRefreshing(false);
+            }
+        };
+
+        doPrefetch();
+    }, [hasSelectedAudience, selectedAudience, trendingContent, trendingCacheMetadata, isFetchingTrending, fetchTrendingContent]);
 
     // Local wrapper for addTopic to use customTopic
     const handleAddTopic = useCallback(() => {
@@ -425,6 +483,22 @@ export const DiscoverTopicsPage: React.FC<DiscoverTopicsPageProps> = ({
                     <div className="flex items-baseline gap-3">
                         <span className="text-overline text-slate uppercase tracking-widest font-sans">Step 2</span>
                         <h2 className="font-display text-h3 text-ink">What's Trending</h2>
+                        {/* Phase 17: Cache status indicator */}
+                        {trendingCacheMetadata && trendingContent && trendingContent.length > 0 && (
+                            <span className="font-sans text-caption text-slate">
+                                {trendingCacheMetadata.cached ? (
+                                    <>
+                                        <span className="opacity-60">Updated </span>
+                                        <span>{trendingCacheMetadata.cacheAge ? formatCacheAge(trendingCacheMetadata.cacheAge) : 'recently'}</span>
+                                        {(trendingCacheMetadata.isStale || isBackgroundRefreshing) && (
+                                            <span className="ml-2 text-editorial-navy animate-pulse">(refreshing...)</span>
+                                        )}
+                                    </>
+                                ) : (
+                                    <span className="text-editorial-sage">fresh</span>
+                                )}
+                            </span>
+                        )}
                     </div>
                     <div className="flex items-center gap-3">
                         {/* Index All Trending Topics button */}
