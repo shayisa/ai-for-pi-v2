@@ -75,94 +75,180 @@ interface ScoredSource {
 }
 
 /**
+ * Topic with audience assignment for intelligent partitioning
+ */
+interface TopicWithAudience {
+  title: string;
+  audienceId: string;
+}
+
+/**
  * Allocate sources to topics and audiences ensuring diversity
  *
- * @param topics - Topics to allocate sources for
+ * PHASE 18 FIX v2: Partition sources by TOPIC RELEVANCE, not just round-robin.
+ * Each source goes to the audience whose topics it best matches.
+ *
+ * Algorithm:
+ * 1. Score each source against each topic
+ * 2. Group topics by audience
+ * 3. Assign each source to the audience whose topics it matches best
+ * 4. Allocate within each audience's pool
+ * 5. Result: diversity + topic relevance
+ *
+ * @param topics - Topics with audience assignments (string[] for backwards compat, or TopicWithAudience[])
  * @param audiences - Audience configurations
  * @param sources - Available sources to allocate from
  * @param sourcesPerAllocation - Number of sources to allocate per topic-audience pair (default: 2)
+ * @param topicAudienceMap - Optional map of topic title -> audienceId for better partitioning
  * @returns Allocation result with diversity metrics
  */
 export function allocateSourcesToAudiences(
-  topics: string[],
+  topics: string[] | TopicWithAudience[],
   audiences: AudienceConfig[],
   sources: (SourceArticle | ExtractedArticle)[],
-  sourcesPerAllocation: number = 2
+  sourcesPerAllocation: number = 2,
+  topicAudienceMap?: Map<string, string>
 ): AllocationResult {
-  console.log(`[SourceAllocation] Allocating ${sources.length} sources to ${topics.length} topics × ${audiences.length} audiences...`);
+  console.log(`[SourceAllocation] Phase 18v2: Smart partitioning ${sources.length} sources for ${audiences.length} audiences...`);
 
   const allocations: SourceAllocation[] = [];
-  const allocatedUrls = new Set<string>(); // Track globally allocated URLs
-  const audienceSourceUrls = new Map<string, Set<string>>(); // Track per-audience URLs
   const reusedSourceUrls = new Set<string>();
 
-  // Initialize per-audience tracking
+  // Normalize topics to strings for scoring
+  const topicTitles = topics.map(t => typeof t === 'string' ? t : t.title);
+
+  // Build topic-audience map from input or parameter
+  const topicToAudience = new Map<string, string>();
+  if (topicAudienceMap) {
+    for (const [title, audienceId] of topicAudienceMap) {
+      topicToAudience.set(title, audienceId);
+    }
+  } else if (topics.length > 0 && typeof topics[0] !== 'string') {
+    // Topics are TopicWithAudience objects
+    for (const topic of topics as TopicWithAudience[]) {
+      topicToAudience.set(topic.title, topic.audienceId);
+    }
+  }
+
+  // ===== PHASE 18v2: SMART PARTITIONING BY TOPIC RELEVANCE =====
+  // Instead of round-robin, assign each source to the audience whose topics it matches best
+
+  const audiencePartitions = new Map<string, (SourceArticle | ExtractedArticle)[]>();
   for (const audience of audiences) {
-    audienceSourceUrls.set(audience.id, new Set<string>());
+    audiencePartitions.set(audience.id, []);
   }
 
-  // Score all sources for each topic
-  const topicSourceScores = new Map<string, ScoredSource[]>();
-  for (const topic of topics) {
-    const scoredSources: ScoredSource[] = sources
-      .map((source) => ({
-        source,
-        score: calculateRelevanceScore(topic, source),
-      }))
-      .sort((a, b) => b.score - a.score);
-    topicSourceScores.set(topic, scoredSources);
+  // Group topics by audience
+  const topicsByAudience = new Map<string, string[]>();
+  for (const audience of audiences) {
+    topicsByAudience.set(audience.id, []);
   }
 
-  // Allocate sources for each topic-audience pair
-  for (const topic of topics) {
-    const scoredSources = topicSourceScores.get(topic) || [];
+  for (const topic of topicTitles) {
+    const audienceId = topicToAudience.get(topic) || audiences[0]?.id;
+    if (topicsByAudience.has(audienceId)) {
+      topicsByAudience.get(audienceId)!.push(topic);
+    }
+  }
+
+  // Log topic assignments
+  for (const [audienceId, audTopics] of Array.from(topicsByAudience.entries())) {
+    console.log(`[SourceAllocation] Audience "${audienceId}" has topics: [${audTopics.join(', ')}]`);
+  }
+
+  // For each source, find which audience's topics it matches best
+  const assignedSources = new Set<string>();
+
+  for (const source of sources) {
+    let bestAudienceId = audiences[0]?.id;
+    let bestScore = 0;
 
     for (const audience of audiences) {
-      const audienceUrls = audienceSourceUrls.get(audience.id)!;
-      const allocatedForThisPair: (SourceArticle | ExtractedArticle)[] = [];
-      let hasReusedSources = false;
-
-      // First pass: try to find sources not already allocated to ANY audience
-      for (const { source, score } of scoredSources) {
-        if (allocatedForThisPair.length >= sourcesPerAllocation) break;
-        if (score < 0.1) continue; // Skip very low relevance
-
-        if (!allocatedUrls.has(source.url)) {
-          allocatedForThisPair.push(source);
-          allocatedUrls.add(source.url);
-          audienceUrls.add(source.url);
+      const audTopics = topicsByAudience.get(audience.id) || [];
+      // Calculate max relevance score across this audience's topics
+      let maxTopicScore = 0;
+      for (const topic of audTopics) {
+        const score = calculateRelevanceScore(topic, source);
+        if (score > maxTopicScore) {
+          maxTopicScore = score;
         }
       }
 
-      // Second pass: if not enough, allow reuse from other audiences but not this one
-      if (allocatedForThisPair.length < sourcesPerAllocation) {
-        for (const { source, score } of scoredSources) {
-          if (allocatedForThisPair.length >= sourcesPerAllocation) break;
-          if (score < 0.1) continue;
+      if (maxTopicScore > bestScore) {
+        bestScore = maxTopicScore;
+        bestAudienceId = audience.id;
+      }
+    }
 
-          // Allow if not already used by THIS audience
-          if (!audienceUrls.has(source.url)) {
+    // Assign source to best-matching audience (or round-robin if no match)
+    if (bestScore >= 0.1) {
+      audiencePartitions.get(bestAudienceId)!.push(source);
+      console.log(`[SourceAllocation] "${source.title.substring(0, 40)}..." -> ${bestAudienceId} (score: ${bestScore.toFixed(2)})`);
+    } else {
+      // No good match - distribute round-robin to balance
+      const audienceIndex = assignedSources.size % audiences.length;
+      const fallbackAudienceId = audiences[audienceIndex].id;
+      audiencePartitions.get(fallbackAudienceId)!.push(source);
+      console.log(`[SourceAllocation] "${source.title.substring(0, 40)}..." -> ${fallbackAudienceId} (fallback, no topic match)`);
+    }
+
+    assignedSources.add(source.url);
+  }
+
+  // Log partition sizes
+  for (const [audienceId, partition] of Array.from(audiencePartitions.entries())) {
+    console.log(`[SourceAllocation] Audience "${audienceId}" partition: ${partition.length} sources`);
+  }
+
+  // ===== ALLOCATE WITHIN EACH AUDIENCE'S PARTITION =====
+  // Each audience only uses sources from their partition
+
+  for (const audience of audiences) {
+    const partition = audiencePartitions.get(audience.id) || [];
+    const audienceTopics = topicsByAudience.get(audience.id) || topicTitles;
+    const usedInAudience = new Set<string>();
+
+    // Only allocate for topics that belong to this audience
+    for (const topic of audienceTopics) {
+      const scoredSources: ScoredSource[] = partition
+        .map((source) => ({
+          source,
+          score: calculateRelevanceScore(topic, source),
+        }))
+        .filter((s) => s.score >= 0.05) // Lower threshold - we already filtered during partitioning
+        .sort((a, b) => b.score - a.score);
+
+      const allocatedForThisPair: (SourceArticle | ExtractedArticle)[] = [];
+      let hasReusedSources = false;
+
+      // First pass: unique sources
+      for (const { source } of scoredSources) {
+        if (allocatedForThisPair.length >= sourcesPerAllocation) break;
+        if (!usedInAudience.has(source.url)) {
+          allocatedForThisPair.push(source);
+          usedInAudience.add(source.url);
+        }
+      }
+
+      // Second pass: allow reuse if needed
+      if (allocatedForThisPair.length < sourcesPerAllocation && scoredSources.length > 0) {
+        for (const { source } of scoredSources) {
+          if (allocatedForThisPair.length >= sourcesPerAllocation) break;
+          if (!allocatedForThisPair.includes(source)) {
             allocatedForThisPair.push(source);
-            audienceUrls.add(source.url);
-            reusedSourceUrls.add(source.url);
             hasReusedSources = true;
+            reusedSourceUrls.add(source.url);
           }
         }
       }
 
-      // Third pass: if still not enough, just use any relevant source
-      if (allocatedForThisPair.length < 1 && scoredSources.length > 0) {
-        // Take the best source even if already used
-        const best = scoredSources[0];
-        if (best.score >= 0.1) {
-          allocatedForThisPair.push(best.source);
-          audienceUrls.add(best.source.url);
-          reusedSourceUrls.add(best.source.url);
-          hasReusedSources = true;
-        }
+      // If still no sources, take anything from partition
+      if (allocatedForThisPair.length === 0 && partition.length > 0) {
+        allocatedForThisPair.push(partition[0]);
+        usedInAudience.add(partition[0].url);
+        console.log(`[SourceAllocation] Fallback: gave "${topic}" any source from partition`);
       }
 
-      // Create the allocation
       const allocation: SourceAllocation = {
         topic,
         audienceId: audience.id,
@@ -179,23 +265,43 @@ export function allocateSourcesToAudiences(
     }
   }
 
-  // Calculate statistics
-  const uniqueSourceUrls = new Set<string>();
+  // ===== CALCULATE DIVERSITY METRICS =====
+  // Diversity is now measured as: how many sources are shared across audiences?
+
+  const audienceSourceSets = new Map<string, Set<string>>();
   for (const allocation of allocations) {
+    if (!audienceSourceSets.has(allocation.audienceId)) {
+      audienceSourceSets.set(allocation.audienceId, new Set());
+    }
     for (const source of allocation.sources) {
-      uniqueSourceUrls.add(source.url);
+      audienceSourceSets.get(allocation.audienceId)!.add(source.url);
     }
   }
 
-  const topicsWithoutSources = topics.filter((topic) => {
-    const topicAllocations = allocations.filter((a) => a.topic === topic);
+  // Count sources that appear in multiple audiences (should be 0 with partitioning)
+  const allSourceUrls = new Set<string>();
+  let crossAudienceReuse = 0;
+
+  for (const [, urlSet] of Array.from(audienceSourceSets.entries())) {
+    for (const url of urlSet) {
+      if (allSourceUrls.has(url)) {
+        crossAudienceReuse++;
+      }
+      allSourceUrls.add(url);
+    }
+  }
+
+  const topicsWithoutSources = topicTitles.filter((title) => {
+    const topicAllocations = allocations.filter((a) => a.topic === title);
     return topicAllocations.every((a) => a.sources.length === 0);
   });
 
   const totalAllocations = allocations.filter((a) => a.sources.length > 0).length;
-  const diversityScore = reusedSourceUrls.size === 0
-    ? 100
-    : Math.max(0, 100 - (reusedSourceUrls.size / uniqueSourceUrls.size) * 100);
+
+  // Diversity = 100% if no cross-audience reuse, decreases with more overlap
+  const diversityScore = allSourceUrls.size > 0
+    ? Math.max(0, 100 - (crossAudienceReuse / allSourceUrls.size) * 100)
+    : 0;
 
   const result: AllocationResult = {
     allocations,
@@ -205,15 +311,15 @@ export function allocateSourcesToAudiences(
     topicsWithoutSources,
     stats: {
       totalAllocations,
-      totalUniqueSources: uniqueSourceUrls.size,
-      totalReusedSources: reusedSourceUrls.size,
+      totalUniqueSources: allSourceUrls.size,
+      totalReusedSources: crossAudienceReuse,
       averageSourcesPerAllocation: totalAllocations > 0
         ? allocations.reduce((sum, a) => sum + a.sources.length, 0) / totalAllocations
         : 0,
     },
   };
 
-  console.log(`[SourceAllocation] Complete. Allocations: ${totalAllocations}, Unique sources: ${uniqueSourceUrls.size}, Diversity: ${diversityScore.toFixed(0)}%`);
+  console.log(`[SourceAllocation] Phase 18 Complete. Allocations: ${totalAllocations}, Unique sources: ${allSourceUrls.size}, Cross-audience reuse: ${crossAudienceReuse}, Diversity: ${diversityScore.toFixed(0)}%`);
 
   return result;
 }

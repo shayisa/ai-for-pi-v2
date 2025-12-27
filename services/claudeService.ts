@@ -457,3 +457,165 @@ export const loadPresetsFromCloud = async (accessToken: string): Promise<{ prese
     throw error;
   }
 };
+
+// ===================================================================
+// PHASE 16: PER-AUDIENCE NEWSLETTER GENERATION (V4)
+// ===================================================================
+
+import type {
+  AudienceConfig,
+  TopicWithAudienceId,
+  MismatchResolution,
+  PerAudienceGenerationParams,
+  PerAudienceNewsletterResult,
+  MismatchInfo,
+  EnhancedNewsletter,
+} from '../types';
+
+/**
+ * Topic-audience analysis result from the backend
+ */
+export interface TopicAudienceAnalysisResult {
+  matched: Record<string, TopicWithAudienceId[]>;
+  mismatched: MismatchInfo[];
+  orphanedAudiences: AudienceConfig[];
+}
+
+/**
+ * V4 generation response from the backend
+ */
+export interface V4GenerationResponse {
+  success: boolean;
+  newsletter?: EnhancedNewsletter;
+  sectionResults: Array<{
+    audienceId: string;
+    audienceName: string;
+    topicCount: number;
+    sourceCount: number;
+    generationTimeMs: number;
+  }>;
+  appliedOverlaps: Array<{
+    originalTopic: TopicWithAudienceId;
+    originalAudienceId: string;
+    suggestedTopic: string;
+    targetAudienceId: string;
+    overlapType: string;
+    confidence: number;
+  }>;
+  balanceResult: {
+    balancedMap: Record<string, TopicWithAudienceId[]>;
+    orphanedAudiences: AudienceConfig[];
+    unmatchedTopics: TopicWithAudienceId[];
+    reassignedTopics: TopicWithAudienceId[];
+    hasMismatches: boolean;
+    stats: {
+      totalTopics: number;
+      matchedTopics: number;
+      orphanedAudienceCount: number;
+      mismatchCount: number;
+    };
+  };
+  metrics: {
+    totalTimeMs: number;
+    topicGenerationTimeMs: number;
+    sourceAllocationTimeMs: number;
+    contentGenerationTimeMs: number;
+    parallelEfficiency: number;
+  };
+  error?: string;
+}
+
+/**
+ * Analyze topic-audience matches before V4 generation.
+ *
+ * Phase 16: This function calls the backend to analyze which topics
+ * match which audiences, identify mismatches, and find orphaned audiences.
+ *
+ * @param selectedTopics - Topics with audience ID tags
+ * @param selectedAudiences - Selected audience configurations
+ * @returns Analysis result with matched, mismatched, and orphaned info
+ */
+export async function analyzeTopicAudienceMatch(
+  selectedTopics: TopicWithAudienceId[],
+  selectedAudiences: AudienceConfig[]
+): Promise<TopicAudienceAnalysisResult> {
+  console.log('[ClaudeService] analyzeTopicAudienceMatch START', {
+    topicCount: selectedTopics.length,
+    audienceCount: selectedAudiences.length,
+  });
+
+  try {
+    const response = await apiRequest<TopicAudienceAnalysisResult>('/api/analyzeTopicAudienceMatch', {
+      method: 'POST',
+      body: JSON.stringify({
+        selectedTopics,
+        selectedAudiences,
+      }),
+    });
+
+    console.log('[ClaudeService] analyzeTopicAudienceMatch END', {
+      matchedAudiences: Object.keys(response.matched).length,
+      mismatchedCount: response.mismatched.length,
+      orphanedCount: response.orphanedAudiences.length,
+    });
+
+    return response;
+  } catch (error) {
+    console.error('[ClaudeService] analyzeTopicAudienceMatch ERROR:', error);
+    throw error;
+  }
+}
+
+/**
+ * Generate newsletter with per-audience topic isolation (V4).
+ *
+ * Phase 16: This function calls the V4 backend pipeline that:
+ * - Balances topics across audiences
+ * - Generates fresh topics for orphaned audiences
+ * - Detects strategic platform overlaps
+ * - Allocates sources per audience
+ * - Generates content in parallel
+ *
+ * @param params - Generation parameters
+ * @param mismatchResolutions - Optional user resolutions for mismatched topics
+ * @returns Generation result with newsletter and metrics
+ */
+export async function generateNewsletterV4(
+  params: PerAudienceGenerationParams,
+  mismatchResolutions?: MismatchResolution[]
+): Promise<V4GenerationResponse> {
+  console.log('[ClaudeService] generateNewsletterV4 START', {
+    audienceCount: params.audiences.length,
+    topicCount: params.selectedTopics?.length || 0,
+    hasResolutions: !!mismatchResolutions?.length,
+  });
+
+  try {
+    const response = await apiRequest<V4GenerationResponse>('/api/generateNewsletterV4', {
+      method: 'POST',
+      body: JSON.stringify({
+        audiences: params.audiences,
+        selectedTopics: params.selectedTopics,
+        topicsPerAudience: params.topicsPerAudience,
+        tone: params.tone,
+        flavors: params.flavors,
+        imageStyle: params.imageStyle,
+        personaId: params.personaId,
+        promptOfTheDay: params.promptOfTheDay,
+        mismatchResolutions,
+      }),
+    });
+
+    console.log('[ClaudeService] generateNewsletterV4 END', {
+      success: response.success,
+      hasNewsletter: !!response.newsletter,
+      sectionCount: response.sectionResults?.length,
+      totalTimeMs: response.metrics?.totalTimeMs,
+    });
+
+    return response;
+  } catch (error) {
+    console.error('[ClaudeService] generateNewsletterV4 ERROR:', error);
+    throw error;
+  }
+}

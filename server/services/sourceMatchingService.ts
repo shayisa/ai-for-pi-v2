@@ -6,7 +6,12 @@
  *
  * @module services/sourceMatchingService
  *
- * ## Relevance Scoring
+ * ## Phase 19: PRIMARY SOURCE ENFORCEMENT
+ * - If topic has a pre-attached resource URL, that source is ALWAYS PRIMARY
+ * - No keyword matching needed - direct URL match
+ * - Other keyword-matched sources become SECONDARY
+ *
+ * ## Relevance Scoring (for topics WITHOUT pre-attached sources)
  * - Title match: +0.5 (most important - topic in source title)
  * - Content match: +0.3 (topic mentioned in article body)
  * - URL/domain match: +0.2 (topic-related domain)
@@ -17,6 +22,7 @@
 
 import type { SourceArticle } from './sourceFetchingService';
 import type { ExtractedArticle } from './articleExtractorService';
+import type { TopicWithAudienceId } from '../../types';
 
 /**
  * Mapping of a single topic to its matched sources
@@ -32,6 +38,10 @@ export interface TopicSourceMapping {
   hasMatch: boolean;
   /** Keywords extracted from the topic */
   topicKeywords: string[];
+  /** Phase 19: PRIMARY source URL (if topic had pre-attached resource) */
+  primarySourceUrl?: string;
+  /** Phase 19: The PRIMARY source object (if found) */
+  primarySource?: SourceArticle | ExtractedArticle;
 }
 
 /**
@@ -186,20 +196,89 @@ export function matchSingleTopic(
 }
 
 /**
- * Match multiple topics to sources
+ * Phase 19: Match a single topic WITH PRIMARY SOURCE enforcement
+ * If topic has a pre-attached resource URL, that source is ALWAYS PRIMARY
  *
- * @param topics - Array of topics to match
+ * @param topic - The topic object (may include resource URL)
+ * @param sources - Available sources to match against
+ * @returns Mapping with PRIMARY source first, then keyword-matched secondaries
+ */
+export function matchSingleTopicWithPrimary(
+  topic: TopicWithAudienceId | string,
+  sources: (SourceArticle | ExtractedArticle)[]
+): TopicSourceMapping {
+  // Extract topic title and resource URL
+  const topicTitle = typeof topic === 'string' ? topic : topic.title;
+  const primarySourceUrl = typeof topic === 'string' ? undefined : topic.resource;
+
+  const topicKeywords = extractKeywords(topicTitle);
+
+  // Phase 19: Check if topic has pre-attached resource URL
+  if (primarySourceUrl) {
+    console.log(`[SourceMatching] Phase 19: Topic "${topicTitle}" has PRIMARY SOURCE: ${primarySourceUrl}`);
+
+    // Find the PRIMARY source in the pool by URL match
+    const primarySource = sources.find((s) => {
+      // Normalize URLs for comparison (remove trailing slashes, compare case-insensitive)
+      const normalizedPrimary = primarySourceUrl.toLowerCase().replace(/\/$/, '');
+      const normalizedSource = s.url.toLowerCase().replace(/\/$/, '');
+      return normalizedSource === normalizedPrimary || normalizedSource.includes(normalizedPrimary) || normalizedPrimary.includes(normalizedSource);
+    });
+
+    if (primarySource) {
+      console.log(`[SourceMatching] Phase 19: Found PRIMARY source "${primarySource.title}" in pool`);
+
+      // Get secondary sources via keyword matching (excluding the primary)
+      const secondarySources = sources
+        .filter((s) => s.url !== primarySource.url)
+        .map((s) => ({ source: s, score: calculateRelevanceScore(topicTitle, s) }))
+        .filter((s) => s.score >= MATCH_THRESHOLD)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 2)  // Limit secondary sources
+        .map((s) => s.source);
+
+      // PRIMARY source is ALWAYS first, with relevance score of 1.0
+      return {
+        topic: topicTitle,
+        matchedSources: [primarySource, ...secondarySources],
+        relevanceScore: 1.0,  // Maximum relevance for PRIMARY source
+        hasMatch: true,
+        topicKeywords,
+        primarySourceUrl,
+        primarySource,
+      };
+    } else {
+      console.log(`[SourceMatching] Phase 19: WARNING - PRIMARY source ${primarySourceUrl} NOT FOUND in pool!`);
+      // Fall back to keyword matching but log the warning
+    }
+  }
+
+  // No PRIMARY source - use standard keyword matching
+  return matchSingleTopic(topicTitle, sources);
+}
+
+/**
+ * Match multiple topics to sources
+ * Phase 19: Updated to accept full topic objects and enforce PRIMARY sources
+ *
+ * @param topics - Array of topics to match (strings or TopicWithAudienceId objects)
  * @param sources - Available sources to match against
  * @returns Complete matching result
  */
 export function matchTopicsToSources(
-  topics: string[],
+  topics: (string | TopicWithAudienceId)[],
   sources: (SourceArticle | ExtractedArticle)[]
 ): MatchingResult {
   console.log(`[SourceMatching] Matching ${topics.length} topics to ${sources.length} sources...`);
 
-  // Match each topic
-  const mappings = topics.map((topic) => matchSingleTopic(topic, sources));
+  // Phase 19: Log topics with PRIMARY sources
+  const topicsWithPrimary = topics.filter((t) => typeof t !== 'string' && t.resource);
+  if (topicsWithPrimary.length > 0) {
+    console.log(`[SourceMatching] Phase 19: ${topicsWithPrimary.length} topic(s) have PRIMARY SOURCES attached`);
+  }
+
+  // Match each topic - use matchSingleTopicWithPrimary to handle PRIMARY sources
+  const mappings = topics.map((topic) => matchSingleTopicWithPrimary(topic, sources));
 
   // Identify unmatched topics
   const unmatchedTopics = mappings
@@ -211,6 +290,15 @@ export function matchTopicsToSources(
   for (const mapping of mappings) {
     for (const source of mapping.matchedSources) {
       citedSourceUrls.add(source.url);
+    }
+  }
+
+  // Phase 19: Log PRIMARY source results
+  const mappingsWithPrimary = mappings.filter((m) => m.primarySource);
+  if (mappingsWithPrimary.length > 0) {
+    console.log(`[SourceMatching] Phase 19: ${mappingsWithPrimary.length} topic(s) matched to their PRIMARY sources:`);
+    for (const m of mappingsWithPrimary) {
+      console.log(`[SourceMatching]   "${m.topic}" -> PRIMARY: ${m.primarySourceUrl}`);
     }
   }
 
@@ -229,6 +317,7 @@ export function matchTopicsToSources(
 /**
  * Build a formatted context string for Claude prompt
  * Shows topic-source mappings clearly so Claude knows which sources to use for each topic
+ * Phase 19: Clearly marks PRIMARY sources and enforces their usage
  *
  * @param mappings - Topic-source mappings
  * @param maxSourcesPerTopic - Maximum sources to include per topic (default: 3)
@@ -245,18 +334,42 @@ export function buildTopicSourceContext(
     section += `Keywords: ${mapping.topicKeywords.join(', ')}\n`;
 
     if (mapping.hasMatch) {
-      section += `Status: MATCHED (relevance: ${(mapping.relevanceScore * 100).toFixed(0)}%)\n`;
-      section += `Available Sources (use ONLY these for this topic):\n`;
+      // Phase 19: Check if this topic has a PRIMARY source
+      if (mapping.primarySource) {
+        section += `Status: PRIMARY SOURCE ASSIGNED (MUST BE CITED)\n`;
+        section += `\n*** PRIMARY SOURCE (MANDATORY - MUST BE THE MAIN CITATION) ***\n`;
+        const primaryContent = 'content' in mapping.primarySource ? mapping.primarySource.content : mapping.primarySource.snippet;
+        const primarySnippet = primaryContent ? primaryContent.substring(0, 500) + '...' : 'No content available';
+        section += `   Title: ${mapping.primarySource.title}\n`;
+        section += `   URL: ${mapping.primarySource.url}\n`;
+        section += `   Content: ${primarySnippet}\n`;
+        section += `\n   ENFORCEMENT: This article MUST cite the PRIMARY SOURCE above as its main reference.\n`;
+        section += `   The PRIMARY SOURCE URL (${mapping.primarySource.url}) MUST appear in the sources array.\n`;
 
-      const sourcesToShow = mapping.matchedSources.slice(0, maxSourcesPerTopic);
-      for (let i = 0; i < sourcesToShow.length; i++) {
-        const source = sourcesToShow[i];
-        const content = 'content' in source ? source.content : source.snippet;
-        const snippet = content ? content.substring(0, 200) + '...' : 'No content available';
+        // Show secondary sources if any
+        const secondarySources = mapping.matchedSources.filter(s => s.url !== mapping.primarySource!.url);
+        if (secondarySources.length > 0) {
+          section += `\n   Secondary Sources (optional, only if directly relevant to PRIMARY):\n`;
+          for (let i = 0; i < Math.min(secondarySources.length, 2); i++) {
+            const source = secondarySources[i];
+            section += `     ${i + 1}. ${source.title} (${source.url})\n`;
+          }
+        }
+      } else {
+        // Standard keyword-matched sources
+        section += `Status: MATCHED (relevance: ${(mapping.relevanceScore * 100).toFixed(0)}%)\n`;
+        section += `Available Sources (use ONLY these for this topic):\n`;
 
-        section += `  ${i + 1}. ${source.title}\n`;
-        section += `     URL: ${source.url}\n`;
-        section += `     Snippet: ${snippet}\n`;
+        const sourcesToShow = mapping.matchedSources.slice(0, maxSourcesPerTopic);
+        for (let i = 0; i < sourcesToShow.length; i++) {
+          const source = sourcesToShow[i];
+          const content = 'content' in source ? source.content : source.snippet;
+          const snippet = content ? content.substring(0, 200) + '...' : 'No content available';
+
+          section += `  ${i + 1}. ${source.title}\n`;
+          section += `     URL: ${source.url}\n`;
+          section += `     Snippet: ${snippet}\n`;
+        }
       }
     } else {
       section += `Status: NO SOURCES FOUND\n`;
@@ -287,6 +400,7 @@ export function getSourcesForTopic(
 export default {
   matchTopicsToSources,
   matchSingleTopic,
+  matchSingleTopicWithPrimary,
   calculateRelevanceScore,
   extractKeywords,
   buildTopicSourceContext,

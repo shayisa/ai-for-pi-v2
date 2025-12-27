@@ -77,9 +77,17 @@ export const HistoryPanel: React.FC<HistoryPanelProps> = ({ history, onLoad, onC
                             variants={staggerItem}
                             layout
                         >
-                            <button
+                            <div
                                 onClick={() => onLoad(item)}
-                                className="w-full text-left px-6 py-4 hover:bg-pearl transition-colors group"
+                                className="w-full text-left px-6 py-4 hover:bg-pearl transition-colors group cursor-pointer"
+                                role="button"
+                                tabIndex={0}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter' || e.key === ' ') {
+                                        e.preventDefault();
+                                        onLoad(item);
+                                    }
+                                }}
                             >
                                 <div className="flex items-start justify-between gap-4">
                                     <div className="flex-1 min-w-0">
@@ -130,7 +138,7 @@ export const HistoryPanel: React.FC<HistoryPanelProps> = ({ history, onLoad, onC
                                         )}
                                     </div>
                                 </div>
-                            </button>
+                            </div>
                         </motion.li>
                     ))}
                 </AnimatePresence>

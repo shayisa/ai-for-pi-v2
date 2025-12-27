@@ -90,11 +90,16 @@ export const fetchBraveSearchResults = async (query: string): Promise<string> =>
     apiKey = process.env.VITE_BRAVE_SEARCH_API_KEY || null;
   }
 
+  // IMPORTANT: These messages are checked by topicValidationService to determine
+  // whether a topic is fictional. Rate limit messages should NOT cause topics
+  // to be marked as fictional - only truly empty results should.
   const NO_RESULTS_MESSAGE = `No current web search results available for "${query}". Please use your training knowledge to provide accurate, helpful information about this topic.`;
+  const RATE_LIMITED_MESSAGE = `[RATE_LIMITED] Search temporarily rate limited for "${query}". Unable to validate topic.`;
+  const API_ERROR_MESSAGE = `[API_ERROR] Search temporarily unavailable for "${query}". Unable to validate topic.`;
 
   if (!apiKey) {
     console.warn("[BraveSearch] API key not configured - using training knowledge");
-    return NO_RESULTS_MESSAGE;
+    return API_ERROR_MESSAGE;
   }
 
   try {
@@ -115,12 +120,14 @@ export const fetchBraveSearchResults = async (query: string): Promise<string> =>
     if (!response.ok) {
       if (response.status === 429) {
         console.warn("[BraveSearch] Rate limit exceeded");
+        return RATE_LIMITED_MESSAGE; // Return distinct message for rate limits
       } else if (response.status === 401 || response.status === 403) {
         console.warn("[BraveSearch] Authentication failed - check API key");
+        return API_ERROR_MESSAGE;
       } else {
         console.warn(`[BraveSearch] API error: ${response.status}`);
+        return API_ERROR_MESSAGE;
       }
-      return NO_RESULTS_MESSAGE;
     }
 
     const data = await response.json();

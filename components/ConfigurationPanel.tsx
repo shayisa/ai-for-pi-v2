@@ -63,6 +63,7 @@ interface ConfigurationPanelProps {
   onToggleEnhancedFormat: (value: boolean) => void;
   onOpenAudienceEditor?: () => void;
 
+
   // Persona
   activePersona?: WriterPersona | null;
 
@@ -364,6 +365,7 @@ export const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
             </div>
           </div>
         </section>
+
 
         {/* Newsletter Templates */}
         {onSelectTemplate && (

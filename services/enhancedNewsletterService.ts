@@ -6,7 +6,7 @@
  * Phase 15: Added validation types for anti-hallucination feedback
  */
 
-import type { EnhancedNewsletter, AudienceConfig, PromptOfTheDay } from '../types';
+import type { EnhancedNewsletter, AudienceConfig, PromptOfTheDay, TopicWithAudienceId } from '../types';
 import { apiRequest } from './apiHelper';
 
 /**
@@ -21,7 +21,7 @@ export interface TopicValidationResult {
 }
 
 export interface GenerateEnhancedNewsletterRequest {
-  topics: string[];
+  topics: (string | TopicWithAudienceId)[];  // Phase 17: Accept full topic objects with resource URLs
   audiences: AudienceConfig[];
   imageStyle?: string;
   promptOfTheDay?: PromptOfTheDay | null;

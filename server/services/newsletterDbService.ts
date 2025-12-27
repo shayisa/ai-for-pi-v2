@@ -158,16 +158,33 @@ export const getNewsletterById = (id: string): Newsletter | null => {
 
 /**
  * Delete a newsletter by ID
+ * Cleans up all related records in tables with foreign key references
  */
 export const deleteNewsletter = (id: string): boolean => {
-  // Delete logs first (foreign key)
+  // Delete from all related tables first (foreign key constraints)
+  // Order matters - delete child records before parent
+
+  // 1. Newsletter logs
   db.prepare(`DELETE FROM newsletter_logs WHERE newsletter_id = ?`).run(id);
 
+  // 2. Scheduled sends
+  db.prepare(`DELETE FROM scheduled_sends WHERE newsletter_id = ?`).run(id);
+
+  // 3. Email tracking
+  db.prepare(`DELETE FROM email_tracking WHERE newsletter_id = ?`).run(id);
+
+  // 4. Email stats
+  db.prepare(`DELETE FROM email_stats WHERE newsletter_id = ?`).run(id);
+
+  // 5. Calendar entries - set newsletter_id to NULL instead of deleting
+  db.prepare(`UPDATE calendar_entries SET newsletter_id = NULL WHERE newsletter_id = ?`).run(id);
+
+  // Now delete the newsletter itself
   const stmt = db.prepare(`DELETE FROM newsletters WHERE id = ?`);
   const result = stmt.run(id);
 
   if (result.changes > 0) {
-    console.log(`[NewsletterDb] Deleted newsletter: ${id}`);
+    console.log(`[NewsletterDb] Deleted newsletter and related records: ${id}`);
   }
 
   return result.changes > 0;

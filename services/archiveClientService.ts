@@ -7,7 +7,21 @@ import { apiRequest } from './apiHelper.ts';
 
 // Types matching backend
 export interface ArchiveContent {
-  trendingTopics?: Array<{ title: string; summary: string }>;
+  /**
+   * Trending topics with full context preserved
+   * Phase 18: Added audienceId, resource, and rich context fields
+   */
+  trendingTopics?: Array<{
+    title: string;
+    summary: string;
+    audienceId?: string;  // Which audience this topic was generated for
+    resource?: string;    // Source URL for grounding
+    whatItIs?: string;
+    newCapability?: string;
+    whoShouldCare?: string;
+    howToGetStarted?: string;
+    expectedImpact?: string;
+  }>;
   compellingContent?: {
     actionableCapabilities?: Array<{
       title: string;

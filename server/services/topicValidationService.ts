@@ -26,8 +26,9 @@ import { performWebSearch } from '../external/brave/client';
  * - medium: Some results found but may be tangential
  * - low: Few results, topic may be obscure or misspelled
  * - none: No results found, topic likely fictional or nonexistent
+ * - unknown: Validation was unavailable (rate limit, API error) - should NOT block
  */
-export type ValidationConfidence = 'high' | 'medium' | 'low' | 'none';
+export type ValidationConfidence = 'high' | 'medium' | 'low' | 'none' | 'unknown';
 
 /**
  * Result of validating a single topic
@@ -74,12 +75,15 @@ const HIGH_QUALITY_INDICATORS = [
 
 /**
  * Patterns that indicate fictional or non-existent topics
+ * IMPORTANT: Do NOT add patterns that match rate-limit fallback messages
+ * as this causes false positives when Brave API is temporarily unavailable
  */
 const FICTIONAL_INDICATORS = [
   /no results found/i,
   /did you mean/i,
-  /search temporarily unavailable/i,
-  /training knowledge/i,  // Fallback message from Brave client
+  // REMOVED: /training knowledge/i - causes false positives on rate limits
+  // The "training knowledge" phrase appears in the Brave client fallback
+  // message when rate limited, causing all topics to be marked fictional
 ];
 
 /**
@@ -113,13 +117,45 @@ function checkForFictionalVersion(topic: string): { isFictional: boolean; reason
 }
 
 /**
+ * Check if search results indicate validation was unavailable (not fictional)
+ * This happens when Brave API is rate-limited or unavailable
+ */
+function isValidationUnavailable(searchResults: string): { unavailable: boolean; reason?: string } {
+  // Check for rate limit indicator from brave/client.ts
+  if (searchResults.includes('[RATE_LIMITED]')) {
+    return { unavailable: true, reason: 'Search API rate limited' };
+  }
+  // Check for API error indicator from brave/client.ts
+  if (searchResults.includes('[API_ERROR]')) {
+    return { unavailable: true, reason: 'Search API temporarily unavailable' };
+  }
+  return { unavailable: false };
+}
+
+/**
  * Analyze search results to determine confidence level
  */
 function analyzeSearchResults(searchResults: string): {
   confidence: ValidationConfidence;
   hasAuthoritative: boolean;
   resultCount: number;
+  validationUnavailable?: boolean;
+  unavailableReason?: string;
 } {
+  // FIRST: Check if validation was unavailable (rate limit, API error)
+  // This is NOT the same as fictional - we simply couldn't verify
+  const unavailableCheck = isValidationUnavailable(searchResults);
+  if (unavailableCheck.unavailable) {
+    console.log(`[TopicValidation] Validation unavailable: ${unavailableCheck.reason}`);
+    return {
+      confidence: 'unknown',
+      hasAuthoritative: false,
+      resultCount: 0,
+      validationUnavailable: true,
+      unavailableReason: unavailableCheck.reason,
+    };
+  }
+
   // Check for fictional/empty indicators
   for (const indicator of FICTIONAL_INDICATORS) {
     if (indicator.test(searchResults)) {
@@ -189,16 +225,26 @@ export async function validateSingleTopic(topic: string): Promise<TopicValidatio
     // Analyze the results
     const analysis = analyzeSearchResults(searchResults);
 
+    // IMPORTANT: 'unknown' confidence means validation was unavailable (rate limit, API error)
+    // In this case, we should treat the topic as VALID to avoid blocking generation
+    // Only 'none' confidence (actual empty results) should mark topic as invalid
     const isValid = analysis.confidence !== 'none';
     const validationTimeMs = Date.now() - startTime;
 
-    console.log(`[TopicValidation] "${topic}" - Valid: ${isValid}, Confidence: ${analysis.confidence}, Time: ${validationTimeMs}ms`);
+    // Log with extra detail when validation was unavailable
+    if (analysis.validationUnavailable) {
+      console.log(`[TopicValidation] "${topic}" - Valid: ${isValid} (validation unavailable: ${analysis.unavailableReason}), Time: ${validationTimeMs}ms`);
+    } else {
+      console.log(`[TopicValidation] "${topic}" - Valid: ${isValid}, Confidence: ${analysis.confidence}, Time: ${validationTimeMs}ms`);
+    }
 
     return {
       topic,
       isValid,
       confidence: analysis.confidence,
       webSearchResults: searchResults,
+      // Include error message when validation was unavailable
+      error: analysis.validationUnavailable ? analysis.unavailableReason : undefined,
     };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);

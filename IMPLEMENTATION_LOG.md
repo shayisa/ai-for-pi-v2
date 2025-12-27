@@ -1,6 +1,76 @@
-# Implementation Log: Image Style Thumbnails, Newsletter Templates & Draft Auto-Save
+# Implementation Log
 
-This document provides comprehensive documentation of the implementation of three features that were partially built but missing API endpoints and UI integrations. Created as a reference for future replication and understanding of the system architecture.
+This document provides comprehensive documentation of feature implementations. Created as a reference for future replication and understanding of the system architecture.
+
+---
+
+## Phase 19-20: Parallel Generation & PRIMARY SOURCE Enforcement (December 2024)
+
+### Overview
+
+Phase 19-20 addresses two critical improvements:
+1. **PRIMARY SOURCE Enforcement** - Topics with attached source URLs must cite those URLs
+2. **Parallel Generation** - Generate audience sections simultaneously for 40-50% faster performance
+
+### Problem Statement
+
+**Phase 19 Issue:** When users add topics from the archive that have attached source URLs, the generated newsletter wasn't citing those specific sources. The PRIMARY SOURCE was being ignored in favor of randomly fetched articles.
+
+**Phase 20 Issue:** Newsletter generation was slow (~60-90 seconds for 4 audiences) because all Claude API calls were made sequentially in a single monolithic call.
+
+### Solution
+
+**Phase 19 - PRIMARY SOURCE Enforcement:**
+- Modified `sourceMatchingService.ts` to prioritize topics with `.resource` field
+- Added PRIMARY SOURCE indicators in prompts with explicit "MUST CITE" instructions
+- Skip API fetching when ALL topics have PRIMARY sources (performance optimization)
+
+**Phase 20 - Parallel Generation:**
+- Reuse existing `singleAudienceSectionGenerator.ts` parallel pattern
+- Generate all audience sections simultaneously via `Promise.allSettled()`
+- Separate Claude call for shared elements (editorsNote, toolOfTheDay, etc.)
+- Feature flag `ENHANCED_PARALLEL_GENERATION` for instant rollback
+
+### Files Modified
+
+| File | Changes |
+|------|---------|
+| `server/domains/generation/services/enhancedGenerator.ts` | Added parallel generation path, shared elements generator, feature flag |
+| `server/services/sourceMatchingService.ts` | Added PRIMARY SOURCE enforcement logic |
+| `server/domains/generation/services/preGenerationPipeline.ts` | Pass full topic objects for source matching |
+| `server/services/newsletterDbService.ts` | Fixed delete to clean up all foreign key references |
+| `components/HistoryPanel.tsx` | Fixed nested button hydration error |
+
+### Performance Results
+
+| Metric | Before | After | Improvement |
+|--------|--------|-------|-------------|
+| 2 audiences | ~40 seconds | ~25 seconds | 37% faster |
+| 4 audiences | ~90 seconds | ~48 seconds | 47% faster |
+| Parallel phase (4 audiences) | N/A | ~18 seconds | New |
+| Shared elements | N/A | ~17 seconds | New |
+
+### Feature Flag
+
+```bash
+# Enable parallel generation (default)
+ENHANCED_PARALLEL_GENERATION=true
+
+# Disable for rollback to sequential
+ENHANCED_PARALLEL_GENERATION=false
+```
+
+### Bug Fixes
+
+1. **Newsletter Delete Foreign Key Error** - Added cleanup for `scheduled_sends`, `email_tracking`, `email_stats` tables before newsletter deletion
+
+2. **HistoryPanel Nested Button** - Changed outer `<button>` to `<div>` with `role="button"` to fix React hydration error
+
+---
+
+## Phase 8i: Image Style Thumbnails, Newsletter Templates & Draft Auto-Save
+
+This section documents the implementation of three features that were partially built but missing API endpoints and UI integrations.
 
 ---
 

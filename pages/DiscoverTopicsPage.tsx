@@ -70,12 +70,14 @@ export const DiscoverTopicsPage: React.FC<DiscoverTopicsPageProps> = ({
     const { suggestedTopics, selectSuggestedTopic, isGeneratingTopics } = useTopics();
 
     // Trending content from TopicsContext
+    // Phase 18: Added addTopicWithContext to preserve audienceId
     const {
         trendingContent,
         compellingContent,
         trendingSources,
         isFetchingTrending,
         addTrendingTopic,
+        addTopicWithContext,
     } = useTrendingContent();
 
     // Audience selection from TopicsContext (Phase 15.2 - hierarchical)
@@ -406,7 +408,7 @@ export const DiscoverTopicsPage: React.FC<DiscoverTopicsPageProps> = ({
                                                 </a>
                                             )}
                                             <button
-                                                onClick={() => handleAddTrendingTopic(topic.title)}
+                                                onClick={() => addTopicWithContext(topic)}
                                                 className="flex items-center gap-1 font-sans text-ui text-ink hover:text-charcoal transition-colors ml-auto"
                                             >
                                                 <PlusIcon className="h-4 w-4" />

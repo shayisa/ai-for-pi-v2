@@ -192,7 +192,7 @@ router.post('/generateEnhancedNewsletter', async (req: Request, res: Response) =
   try {
     // Phase 14: Extract tone and flavors for quality fix
     const { topics, audiences, imageStyle, promptOfTheDay, personaId, tone, flavors } = req.body as {
-      topics: string[];
+      topics: (string | TopicWithAudienceId)[];  // Phase 17: Accept full topic objects with resource URLs
       audiences: AudienceConfig[];
       imageStyle?: string;
       promptOfTheDay?: {
@@ -825,6 +825,232 @@ router.post('/generatePersonaPreview', async (req: Request, res: Response) => {
     const err = error as Error;
     logger.error('generation', 'persona_preview_error', `Failed to generate persona preview: ${err.message}`, err, { correlationId });
     sendError(res, 'Failed to generate persona preview', ErrorCodes.INTERNAL_ERROR, correlationId, { details: err.message });
+  }
+});
+
+// ============================================================================
+// Phase 16: Per-Audience Newsletter Generation (V4)
+// ============================================================================
+
+import {
+  generateNewsletterPerAudience,
+  DEFAULT_ORCHESTRATOR_CONFIG,
+} from '../domains/generation/services/perAudienceNewsletterGenerator';
+
+import {
+  analyzeTopicAudienceMatch,
+  serializeBalancedMap,
+} from '../domains/generation/services/topicAudienceBalancer';
+
+import type {
+  TopicWithAudienceId,
+  MismatchResolution,
+  PerAudienceGenerationParams,
+} from '../../types';
+
+/**
+ * POST /api/analyzeTopicAudienceMatch
+ *
+ * Phase 16: Analyze topic-audience matches before V4 generation.
+ * Returns matched topics, mismatched topics, and orphaned audiences.
+ * Frontend uses this to show the TopicMismatchModal if needed.
+ */
+router.post('/analyzeTopicAudienceMatch', async (req: Request, res: Response) => {
+  const correlationId = getCorrelationId();
+
+  console.log('[V4Route] analyzeTopicAudienceMatch START', { correlationId });
+
+  try {
+    const { selectedTopics, selectedAudiences } = req.body as {
+      selectedTopics: TopicWithAudienceId[];
+      selectedAudiences: AudienceConfig[];
+    };
+
+    if (!selectedAudiences || !Array.isArray(selectedAudiences)) {
+      return sendError(res, 'selectedAudiences array is required', ErrorCodes.VALIDATION_ERROR, correlationId);
+    }
+
+    console.log('[V4Route] Analyzing matches', {
+      topicCount: selectedTopics?.length || 0,
+      audienceCount: selectedAudiences.length,
+    });
+
+    const analysis = analyzeTopicAudienceMatch(
+      selectedTopics || [],
+      selectedAudiences
+    );
+
+    console.log('[V4Route] Analysis result', {
+      matchedCount: analysis.matched.size,
+      mismatchedCount: analysis.mismatched.length,
+      orphanedCount: analysis.orphanedAudiences.length,
+    });
+
+    // Convert Map to serializable object for JSON response
+    const matchedObj: Record<string, TopicWithAudienceId[]> = {};
+    for (const [key, value] of analysis.matched) {
+      matchedObj[key] = value;
+    }
+
+    logger.info('generation', 'topic_audience_analysis', 'Analyzed topic-audience matches', {
+      correlationId,
+      matched: Object.keys(matchedObj).length,
+      mismatched: analysis.mismatched.length,
+      orphaned: analysis.orphanedAudiences.length,
+    });
+
+    sendSuccess(res, {
+      matched: matchedObj,
+      mismatched: analysis.mismatched,
+      orphanedAudiences: analysis.orphanedAudiences,
+    }, correlationId);
+  } catch (error) {
+    const err = error as Error;
+    console.error('[V4Route] analyzeTopicAudienceMatch ERROR', error);
+    logger.error('generation', 'topic_audience_analysis_error', `Analysis failed: ${err.message}`, err, { correlationId });
+    sendError(res, 'Failed to analyze topic-audience matches', ErrorCodes.INTERNAL_ERROR, correlationId, { details: err.message });
+  }
+});
+
+/**
+ * POST /api/generateNewsletterV4
+ *
+ * Phase 16: Generate newsletter with per-audience topic isolation.
+ *
+ * This is the V4 pipeline that generates DIFFERENT topics for each audience:
+ * - Phase 0: Topic-Audience Balancing
+ * - Phase 1: Parallel Topic Generation (for orphaned audiences)
+ * - Phase 2: Strategic Overlap Detection
+ * - Phase 3: Parallel Source Allocation
+ * - Phase 4: Parallel Article Generation
+ * - Phase 5: Merge & Finalize
+ *
+ * Request body:
+ * - audiences: AudienceConfig[] - Selected audiences
+ * - selectedTopics?: TopicWithAudienceId[] - Pre-selected topics with audience tags
+ * - topicsPerAudience?: number - Topics to generate per audience (default: 3)
+ * - tone: string - Writing tone
+ * - flavors: string[] - Additional style flavors
+ * - imageStyle?: string - Image generation style
+ * - personaId?: string - Writer persona ID
+ * - promptOfTheDay?: PromptOfTheDay - Optional prompt of the day
+ * - mismatchResolutions?: MismatchResolution[] - User decisions for mismatched topics
+ */
+router.post('/generateNewsletterV4', async (req: Request, res: Response) => {
+  const correlationId = getCorrelationId();
+
+  console.log('[V4Route] generateNewsletterV4 START', { correlationId });
+
+  try {
+    const {
+      audiences,
+      selectedTopics,
+      topicsPerAudience,
+      tone,
+      flavors,
+      imageStyle,
+      personaId,
+      promptOfTheDay,
+      mismatchResolutions,
+    } = req.body as {
+      audiences: AudienceConfig[];
+      selectedTopics?: TopicWithAudienceId[];
+      topicsPerAudience?: number;
+      tone?: string;
+      flavors?: string[];
+      imageStyle?: string;
+      personaId?: string;
+      promptOfTheDay?: {
+        title: string;
+        summary: string;
+        examplePrompts: string[];
+        promptCode: string;
+      };
+      mismatchResolutions?: MismatchResolution[];
+    };
+
+    if (!audiences || !Array.isArray(audiences) || audiences.length === 0) {
+      return sendError(res, 'audiences array is required', ErrorCodes.VALIDATION_ERROR, correlationId);
+    }
+
+    console.log('[V4Route] V4 generation params', {
+      audienceCount: audiences.length,
+      topicCount: selectedTopics?.length || 0,
+      hasMismatchResolutions: !!mismatchResolutions?.length,
+      tone,
+      flavors,
+    });
+
+    logger.info('generation', 'v4_start', `Starting V4 generation for ${audiences.length} audiences`, {
+      correlationId,
+      audiences: audiences.map(a => a.id),
+      topicCount: selectedTopics?.length || 0,
+    });
+
+    const params: PerAudienceGenerationParams = {
+      audiences,
+      selectedTopics,
+      topicsPerAudience: topicsPerAudience || DEFAULT_ORCHESTRATOR_CONFIG.topicsPerAudience,
+      tone: tone || 'confident',
+      flavors: flavors || [],
+      imageStyle,
+      personaId,
+      promptOfTheDay,
+    };
+
+    const result = await generateNewsletterPerAudience(
+      params,
+      DEFAULT_ORCHESTRATOR_CONFIG,
+      mismatchResolutions
+    );
+
+    console.log('[V4Route] V4 generation result', {
+      success: result.success,
+      sectionCount: result.sectionResults?.length,
+      hasError: !!result.error,
+      totalTimeMs: result.metrics?.totalTimeMs,
+    });
+
+    if (!result.success) {
+      logger.error('generation', 'v4_failed', result.error || 'V4 generation failed', undefined, { correlationId });
+      return sendError(res, result.error || 'Failed to generate newsletter V4', ErrorCodes.EXTERNAL_SERVICE_ERROR, correlationId, {
+        metrics: result.metrics,
+      });
+    }
+
+    logger.info('generation', 'v4_complete', 'Generated newsletter V4', {
+      correlationId,
+      id: result.newsletter?.id,
+      sectionCount: result.sectionResults.length,
+      overlapsFound: result.appliedOverlaps.length,
+      totalTimeMs: result.metrics.totalTimeMs,
+    });
+
+    // Serialize the balancedMap for JSON response
+    const serializedBalanceResult = {
+      ...result.balanceResult,
+      balancedMap: serializeBalancedMap(result.balanceResult.balancedMap),
+    };
+
+    sendSuccess(res, {
+      success: true,
+      newsletter: result.newsletter,
+      sectionResults: result.sectionResults.map(sr => ({
+        audienceId: sr.audienceId,
+        audienceName: sr.audienceName,
+        topicCount: sr.topics.length,
+        sourceCount: sr.sources.length,
+        generationTimeMs: sr.generationTimeMs,
+      })),
+      appliedOverlaps: result.appliedOverlaps,
+      balanceResult: serializedBalanceResult,
+      metrics: result.metrics,
+    }, correlationId);
+  } catch (error) {
+    const err = error as Error;
+    console.error('[V4Route] generateNewsletterV4 ERROR', error);
+    logger.error('generation', 'v4_error', `Failed to generate newsletter V4: ${err.message}`, err, { correlationId });
+    sendError(res, 'Failed to generate newsletter V4', ErrorCodes.EXTERNAL_SERVICE_ERROR, correlationId, { details: err.message });
   }
 });
 

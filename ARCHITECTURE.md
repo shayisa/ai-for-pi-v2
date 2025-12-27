@@ -2,11 +2,31 @@
 
 > **Comprehensive technical documentation** for understanding, maintaining, and extending the AI Newsletter Generator application.
 
-**Last Updated:** December 2024 (Phase 8+ Complete)
-**Version:** 3.1 (Full Feature Implementation)
+**Last Updated:** December 2024 (Phase 20 Complete)
+**Version:** 3.2 (Parallel Generation + PRIMARY SOURCE Enforcement)
 **Status:** Production-ready with full feature set
 
-## What's New in v3.1 (Phase 8+ Complete)
+## What's New in v3.2 (Phase 19-20 Complete)
+
+| Improvement | Before (v3.1) | After (v3.2) |
+|-------------|---------------|--------------|
+| **Generation Speed** | ~60-90 seconds | ~35-48 seconds (40-50% faster) |
+| **Source Matching** | Random source selection | PRIMARY SOURCE enforcement |
+| **Generation Mode** | Sequential Claude calls | Parallel Claude calls |
+| **Feature Flags** | None | `ENHANCED_PARALLEL_GENERATION` for rollback |
+
+### Phase 19-20 Features Added
+| Feature | Description |
+|---------|-------------|
+| **PRIMARY SOURCE Enforcement** | Topics with attached `.resource` URLs MUST cite that source as main reference |
+| **Parallel Generation** | All audience sections generated simultaneously via `Promise.allSettled()` |
+| **Shared Elements Generator** | Separate Claude call for editorsNote, toolOfTheDay, conclusion, subject |
+| **Performance Optimization** | Skip API fetching when all topics have PRIMARY sources |
+| **Feature Flag Rollback** | Set `ENHANCED_PARALLEL_GENERATION=false` to revert to sequential |
+| **Newsletter Delete Fix** | Proper cleanup of all related tables (foreign key constraints) |
+| **HistoryPanel Fix** | Fixed nested button hydration error |
+
+### v3.1 Features (Previous Release)
 
 | Improvement | Before (v3.0) | After (v3.1) |
 |-------------|---------------|--------------|

@@ -93,9 +93,15 @@ Use web search to find the latest announcements and updates.
 
 ===== OUTPUT FORMAT =====
 Return a JSON array of ${topicsToGenerate} topic objects.
-Each object MUST have:
-- "title": The actionable how-to topic title
-- "resource": The URL to documentation, tutorial, GitHub repo, or official page you found during search
+Each object MUST have ALL of the following fields:
+- "title": The actionable how-to topic title (required)
+- "resource": The URL to documentation, tutorial, GitHub repo, or official page (required)
+- "summary": 1-2 sentence description of what the reader will learn/build (required)
+- "whatItIs": What this tool/technique is and how it works (required)
+- "newCapability": What NEW capabilities this enables that weren't possible before (required)
+- "whoShouldCare": Why ${audience.audienceName} specifically should care about this (required)
+- "howToGetStarted": First 2-3 concrete steps to get started (required)
+- "expectedImpact": Quantifiable benefit or outcome (e.g., "40% faster processing", "reduces errors by 60%") (required)
 
 The final output MUST be a valid JSON array. Do not include any text outside of the JSON.
 
@@ -103,11 +109,13 @@ Example format:
 [
   {
     "title": "Build an AI-Powered Document Classifier Using Claude API and Python",
-    "resource": "https://docs.anthropic.com/claude/docs"
-  },
-  {
-    "title": "Deploy a Local LLM for Private Data Analysis with Ollama and LangChain",
-    "resource": "https://github.com/ollama/ollama"
+    "resource": "https://docs.anthropic.com/claude/docs",
+    "summary": "Learn to build a document classifier that automatically categorizes files using Claude's structured output mode with 95% accuracy.",
+    "whatItIs": "A Python script using the Claude API that analyzes document content and assigns categories based on your custom taxonomy.",
+    "newCapability": "Claude's new structured output mode (released Nov 2024) ensures valid JSON responses every time, eliminating parsing errors.",
+    "whoShouldCare": "Perfect for ${audience.audienceName} who need to process large document collections and organize research materials efficiently.",
+    "howToGetStarted": "1. Install anthropic SDK: pip install anthropic 2. Get API key from console.anthropic.com 3. Clone the starter template from the docs",
+    "expectedImpact": "Automate document classification with 95% accuracy, reducing manual sorting time by 80%."
   }
 ]
 ` + searchGuidance;
@@ -116,10 +124,17 @@ Example format:
 /**
  * Parsed topic from Claude response
  * Phase 15.5: Now includes resource field
+ * Phase 16 fix: Added rich context fields for proper article generation
  */
 interface ParsedTopic {
   title: string;
   resource?: string;
+  summary?: string;
+  whatItIs?: string;
+  newCapability?: string;
+  whoShouldCare?: string;
+  howToGetStarted?: string;
+  expectedImpact?: string;
 }
 
 /**
@@ -141,6 +156,20 @@ function parseTopicsResponse(text: string): ParsedTopic[] {
 
   try {
     const parsed = JSON.parse(cleaned);
+
+    // Helper to extract rich fields from object
+    const extractRichFields = (obj: Record<string, unknown>): ParsedTopic => ({
+      title: String(obj.title || obj),
+      resource: typeof obj.resource === 'string' ? obj.resource : undefined,
+      // Phase 16 fix: Extract all rich context fields
+      summary: typeof obj.summary === 'string' ? obj.summary : undefined,
+      whatItIs: typeof obj.whatItIs === 'string' ? obj.whatItIs : undefined,
+      newCapability: typeof obj.newCapability === 'string' ? obj.newCapability : undefined,
+      whoShouldCare: typeof obj.whoShouldCare === 'string' ? obj.whoShouldCare : undefined,
+      howToGetStarted: typeof obj.howToGetStarted === 'string' ? obj.howToGetStarted : undefined,
+      expectedImpact: typeof obj.expectedImpact === 'string' ? obj.expectedImpact : undefined,
+    });
+
     if (Array.isArray(parsed)) {
       // Handle both string[] (backward compat) and object[] formats
       return parsed.map((item): ParsedTopic => {
@@ -148,10 +177,7 @@ function parseTopicsResponse(text: string): ParsedTopic[] {
           return { title: item };
         }
         if (typeof item === 'object' && item !== null) {
-          return {
-            title: item.title || String(item),
-            resource: item.resource,
-          };
+          return extractRichFields(item as Record<string, unknown>);
         }
         return { title: String(item) };
       }).filter(t => t.title && t.title.trim() !== '');
@@ -163,11 +189,7 @@ function parseTopicsResponse(text: string): ParsedTopic[] {
           return { title: item };
         }
         if (typeof item === 'object' && item !== null) {
-          const obj = item as Record<string, unknown>;
-          return {
-            title: String(obj.title || obj),
-            resource: typeof obj.resource === 'string' ? obj.resource : undefined,
-          };
+          return extractRichFields(item as Record<string, unknown>);
         }
         return { title: String(item) };
       }).filter(t => t.title && t.title.trim() !== '');
@@ -318,21 +340,30 @@ export async function generateSuggestionsForAudience(
 
     const parsedTopics = parseTopicsResponse(responseText);
 
-    // Convert to SuggestedTopic format with audienceId and resource
+    // Convert to SuggestedTopic format with audienceId and all rich fields
     // Phase 15.5: Now includes resource field from Claude response
+    // Phase 16 fix: Now includes all rich context fields for proper article generation
     const topics: SuggestedTopic[] = parsedTopics.map((parsed) => ({
       title: parsed.title,
       audienceId: params.audienceId,
       resource: parsed.resource,
+      // Phase 16 fix: Pass through all rich context fields
+      summary: parsed.summary,
+      whatItIs: parsed.whatItIs,
+      newCapability: parsed.newCapability,
+      whoShouldCare: parsed.whoShouldCare,
+      howToGetStarted: parsed.howToGetStarted,
+      expectedImpact: parsed.expectedImpact,
     }));
 
     const durationMs = Date.now() - startTime;
     console.log(`[${agentLabel}] Generated ${topics.length} suggestions in ${durationMs}ms`);
 
-    // DEBUG: Log generated topics with resources
+    // DEBUG: Log generated topics with rich context fields
     console.log(`[${agentLabel}] Generated topics:`, topics.map(t => ({
       title: t.title,
       resource: t.resource || '(no resource)',
+      hasRichContext: !!(t.summary || t.whatItIs || t.newCapability),
     })));
 
     return {

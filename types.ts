@@ -53,11 +53,19 @@ export interface TrendingTopic {
  * Phase 15.4: Suggested topic with audience association
  * Used for "Suggest Topics" feature with per-audience generation
  * Phase 15.5: Added resource field for source URL
+ * Phase 16 fix: Added rich context fields to preserve topic context through pipeline
  */
 export interface SuggestedTopic {
   title: string;
   audienceId: string;
   resource?: string; // Source URL for the topic
+  // Phase 16 fix: Rich context fields for proper article generation
+  summary?: string;
+  whatItIs?: string;
+  newCapability?: string;
+  whoShouldCare?: string;
+  howToGetStarted?: string;
+  expectedImpact?: string;
 }
 
 export interface GoogleSettings {
@@ -451,4 +459,172 @@ export interface PromptImportLog {
   rawContentLength: number;
   processingTimeMs: number;
   createdAt: string;
+}
+
+// ============================================================================
+// Phase 16: Per-Audience Newsletter Generation Types
+// ============================================================================
+
+/**
+ * Topic with explicit audience association for per-audience generation
+ * Extends SuggestedTopic with additional fields for mismatch tracking
+ * Phase 16 fix: Added rich context fields to preserve topic context through pipeline
+ */
+export interface TopicWithAudienceId {
+  title: string;
+  audienceId: string;
+  summary?: string;
+  resource?: string;
+  /** Original audienceId if topic was reassigned during mismatch resolution */
+  reassignedFrom?: string;
+  // Phase 16 fix: Rich context fields for proper article generation
+  whatItIs?: string;
+  newCapability?: string;
+  whoShouldCare?: string;
+  howToGetStarted?: string;
+  expectedImpact?: string;
+}
+
+/**
+ * Actions available when resolving topic-audience mismatches
+ */
+export type MismatchResolutionAction = 'reassign' | 'generate_fresh' | 'skip';
+
+/**
+ * User decision for resolving a single topic-audience mismatch
+ */
+export interface MismatchResolution {
+  topic: TopicWithAudienceId;
+  action: MismatchResolutionAction;
+  /** Target audience ID when action is 'reassign' */
+  targetAudienceId?: string;
+  /** Apply this resolution to all similar mismatches */
+  applyToAll?: boolean;
+}
+
+/**
+ * Information about a topic-audience mismatch for the modal
+ */
+export interface MismatchInfo {
+  topic: TopicWithAudienceId;
+  originalAudienceId: string;
+  originalAudienceName: string;
+  suggestedAudienceId: string | null;
+  suggestedAudienceName: string | null;
+  sameCategoryOptions: AudienceConfig[];
+  reason?: string;
+}
+
+/**
+ * Map of audience ID to assigned topics
+ * Note: Uses Map internally but serialized to Record for API responses
+ */
+export type BalancedTopicMap = Map<string, TopicWithAudienceId[]>;
+
+/**
+ * Result of topic-audience balancing analysis
+ */
+export interface TopicAudienceBalanceResult {
+  /** Map of audienceId to assigned topics */
+  balancedMap: BalancedTopicMap;
+  /** Audiences with no assigned topics */
+  orphanedAudiences: AudienceConfig[];
+  /** Topics that couldn't be matched to selected audiences */
+  unmatchedTopics: TopicWithAudienceId[];
+  /** Topics that were reassigned from their original audience */
+  reassignedTopics: TopicWithAudienceId[];
+  /** Whether user intervention is needed */
+  hasMismatches: boolean;
+  stats: {
+    totalTopics: number;
+    matchedTopics: number;
+    orphanedAudienceCount: number;
+    mismatchCount: number;
+  };
+}
+
+/**
+ * Parameters for V4 per-audience newsletter generation
+ */
+export interface PerAudienceGenerationParams {
+  audiences: AudienceConfig[];
+  /** Pre-selected topics with audience tags */
+  selectedTopics?: TopicWithAudienceId[];
+  /** Number of topics to generate per audience if not using selectedTopics */
+  topicsPerAudience?: number;
+  tone: string;
+  flavors: string[];
+  imageStyle?: string;
+  personaId?: string;
+  promptOfTheDay?: PromptOfTheDay;
+}
+
+/**
+ * Result of V4 per-audience newsletter generation
+ */
+export interface PerAudienceNewsletterResult {
+  success: boolean;
+  newsletter?: EnhancedNewsletter;
+  sectionResults: AudienceSectionResult[];
+  appliedOverlaps: StrategicOverlap[];
+  balanceResult: TopicAudienceBalanceResult;
+  metrics: GenerationMetrics;
+  error?: string;
+}
+
+/**
+ * Strategic overlap between platforms/tools across audiences
+ */
+export interface StrategicOverlap {
+  originalTopic: TopicWithAudienceId;
+  originalAudienceId: string;
+  suggestedTopic: string;
+  targetAudienceId: string;
+  overlapType: 'platform-equivalent';
+  confidence: number;
+}
+
+/**
+ * Mapping of equivalent platforms/tools for strategic overlap detection
+ */
+export interface PlatformEquivalent {
+  platform: string;
+  equivalents: string[];
+  category: 'ai-model' | 'cloud' | 'productivity' | 'framework' | 'language';
+}
+
+/**
+ * Result for a single audience section generation
+ */
+export interface AudienceSectionResult {
+  audienceId: string;
+  audienceName: string;
+  section: EnhancedAudienceSection;
+  topics: TopicWithAudienceId[];
+  sources: SourceCitation[];
+  generationTimeMs: number;
+}
+
+/**
+ * Metrics tracking for V4 generation pipeline
+ */
+export interface GenerationMetrics {
+  totalTimeMs: number;
+  topicGenerationTimeMs: number;
+  sourceAllocationTimeMs: number;
+  contentGenerationTimeMs: number;
+  /** Ratio of parallel vs sequential time savings */
+  parallelEfficiency: number;
+}
+
+/**
+ * Source with fetched content for per-audience section generation
+ */
+export interface SourceWithContent {
+  url: string;
+  title: string;
+  content?: string;
+  snippet?: string;
+  publication?: string;
+  category?: string;
 }

@@ -1,12 +1,12 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import type { Newsletter, NewsletterSection, TrendingTopic, GoogleSettings, GapiAuthData, Preset, EnhancedHistoryItem, PromptOfTheDay, Subscriber, SubscriberList, EnhancedNewsletter, EnhancedAudienceSection, AudienceConfig, WriterPersona } from './types';
+import type { Newsletter, NewsletterSection, TrendingTopic, GoogleSettings, GapiAuthData, Preset, EnhancedHistoryItem, PromptOfTheDay, Subscriber, SubscriberList, EnhancedNewsletter, EnhancedAudienceSection, AudienceConfig, WriterPersona, MismatchInfo, PerAudienceGenerationParams, MismatchResolution, TopicWithAudienceId } from './types';
 import { AppProviders, useNewsletter, useTopics, useAudienceSelection, useTrendingContent, useNavigation, useError, useModals, useAuth, useSettings } from './contexts';
 import { Header } from './components/Header';
 import { NewsletterPreview } from './components/NewsletterPreview';
 import { ImageEditorModal } from './components/ImageEditorModal';
 import { Spinner } from './components/Spinner';
 import { SparklesIcon, SearchIcon, LightbulbIcon, PlusIcon, XIcon, DriveIcon, SheetIcon, SendIcon, RefreshIcon, TypeIcon, ImageIcon, HistoryIcon, SettingsIcon, CodeIcon } from './components/IconComponents'; // Added new icons
-import { generateNewsletterContent, generateImage, generateTopicSuggestions, generateTopicSuggestionsV2, generateTrendingTopics, generateTrendingTopicsWithSources, generateCompellingTrendingContent, generateTrendingTopicsV2, savePresetsToCloud, loadPresetsFromCloud } from './services/claudeService';
+import { generateNewsletterContent, generateImage, generateTopicSuggestions, generateTopicSuggestionsV2, generateTrendingTopics, generateTrendingTopicsWithSources, generateCompellingTrendingContent, generateTrendingTopicsV2, savePresetsToCloud, loadPresetsFromCloud, analyzeTopicAudienceMatch } from './services/claudeService';
 import type { ParallelGenConfig } from './services/claudeService';
 import { InspirationSources } from './components/InspirationSources';
 import * as trendingDataService from './services/trendingDataService';
@@ -39,6 +39,7 @@ import { useSavedSources } from './hooks/useSavedSources'; // Phase 15.6
 import * as draftApi from './services/draftClientService';
 import { PersonaEditor } from './components/PersonaEditor';
 import { CalendarEntryPickerModal } from './components/CalendarEntryPickerModal';
+import { TopicMismatchModal } from './components/TopicMismatchModal';
 import * as calendarApi from './services/calendarClientService';
 import type { CalendarEntry } from './services/calendarClientService';
 import type { SavedPrompt } from './services/promptClientService';
@@ -161,6 +162,7 @@ const AppContent: React.FC = () => {
     const { googleSettings, saveSettings: setGoogleSettings } = useSettings();
 
     // Topics state from TopicsContext (Phase 6g.9 Batch 1 - migrated from local state)
+    // Phase 18: Added getTopicContext for preserving topic-audience mapping
     const {
         selectedTopics,
         setSelectedTopics,
@@ -174,6 +176,7 @@ const AppContent: React.FC = () => {
         addTrendingTopic,
         isGeneratingTopics,
         setIsGeneratingTopics,
+        getTopicContext,  // Phase 18: Get context (audienceId, resource) for topic
     } = useTopics();
 
     // Audience selection from TopicsContext (Phase 6g.9 Batch 1)
@@ -284,7 +287,8 @@ const AppContent: React.FC = () => {
     } = useTemplates();
 
     // Phase 15.5: Saved topics for auto-save
-    const { saveTopicsBatch } = useSavedTopics();
+    // Phase 18: Also get topics list to look up sourceUrl for library topics
+    const { saveTopicsBatch, topics: savedTopicsList } = useSavedTopics();
 
     // Phase 15.6: Saved sources for auto-save
     const { saveSourcesBatch } = useSavedSources();
@@ -308,6 +312,13 @@ const AppContent: React.FC = () => {
     const [subscribers, setSubscribers] = useState<Subscriber[]>([]);
     const [subscriberLists, setSubscriberLists] = useState<SubscriberList[]>([]);
     const [selectedEmailLists, setSelectedEmailLists] = useState<string[]>([]);
+
+    // Phase 16: V4 per-audience generation state (V4 removed in Phase 19 - simplified to single generation path)
+    const [showMismatchModal, setShowMismatchModal] = useState(false);
+    const [mismatchData, setMismatchData] = useState<{
+        mismatches: MismatchInfo[];
+        selectedAudiences: AudienceConfig[];
+    } | null>(null);
 
     // Enhanced newsletter v2 format state (useEnhancedFormat, enhancedNewsletter, customAudiences, defaultAudiences now from context)
     // NOTE: isAudienceEditorOpen moved to UIContext (Phase 6g.9 Batch 5)
@@ -834,11 +845,19 @@ const AppContent: React.FC = () => {
             }
 
             // Auto-save archive after successful fetch
+            // Phase 18: Preserve full topic objects including audienceId and resource
             try {
                 const archiveContent = {
                     trendingTopics: v2Result.topics || compellingData.actionableCapabilities?.map((item: any) => ({
                         title: item.title,
-                        summary: item.description || item.whatItIs || ""
+                        summary: item.description || item.whatItIs || "",
+                        // Preserve rich context fields from compellingContent fallback
+                        whatItIs: item.whatItIs,
+                        newCapability: item.newCapability,
+                        whoShouldCare: item.whoShouldCare,
+                        howToGetStarted: item.howToGetStarted,
+                        expectedImpact: item.expectedImpact,
+                        resource: item.resource || item.url,
                     })) || [],
                     compellingContent: compellingData,
                     trendingSources: fetchedSources
@@ -1139,9 +1158,57 @@ const AppContent: React.FC = () => {
             setLoading("Fetching sources from GDELT, ArXiv, Reddit...");
             setProgress(20);
 
+            // Phase 17: Convert topics to full objects with resource URLs
+            // This allows topics with pre-existing sources to skip Brave validation
+            // Phase 18: Check topic context map FIRST (preserves audience from archives)
+            const topicsWithContext: TopicWithAudienceId[] = selectedTopics.map(topicTitle => {
+                // Phase 18: FIRST check topic context map (from addTopicWithContext)
+                // This is the primary source for archived topic context
+                const savedContext = getTopicContext(topicTitle);
+
+                // Then check suggested topics (from AI generation in current session)
+                const suggested = suggestedTopics.find(s => s.title === topicTitle);
+
+                // Also check saved topics library for sourceUrl
+                const savedTopic = savedTopicsList.find(s => s.title === topicTitle);
+
+                // Priority for audienceId: context map > suggested > first audience
+                const audienceId = savedContext?.audienceId || suggested?.audienceId || audienceKeys[0];
+
+                // Priority for resource: context map > suggested > saved library
+                const sourceUrl = savedContext?.resource || suggested?.resource || savedTopic?.sourceUrl;
+
+                // Log if context was found (helps debug audience distribution)
+                if (savedContext?.audienceId) {
+                    console.log(`[Enhanced] Topic "${topicTitle}" using saved context: audience=${savedContext.audienceId}`);
+                }
+
+                return {
+                    title: topicTitle,
+                    audienceId,
+                    summary: suggested?.summary || savedTopic?.description,
+                    resource: sourceUrl,
+                    whatItIs: savedContext?.whatItIs || suggested?.whatItIs,
+                    newCapability: savedContext?.newCapability || suggested?.newCapability,
+                    whoShouldCare: suggested?.whoShouldCare,
+                    howToGetStarted: suggested?.howToGetStarted,
+                    expectedImpact: suggested?.expectedImpact,
+                };
+            });
+
+            // Phase 18: Log audience distribution to detect single-audience issue
+            const audienceDistribution = topicsWithContext.reduce((acc, t) => {
+                acc[t.audienceId] = (acc[t.audienceId] || 0) + 1;
+                return acc;
+            }, {} as Record<string, number>);
+            console.log('[Enhanced] Phase 18: Topic-audience distribution:', audienceDistribution);
+
+            console.log('[Enhanced] Phase 17: Topics with sources:',
+                topicsWithContext.filter(t => t.resource).length, 'of', topicsWithContext.length);
+
             // Phase 14: Pass tone and flavors for quality fix
             const result = await enhancedNewsletterService.generateEnhancedNewsletter({
-                topics: selectedTopics,
+                topics: topicsWithContext,  // Phase 17: Send full objects with resource URLs
                 audiences: selectedAudienceConfigs,
                 imageStyle: selectedImageStyle,
                 promptOfTheDay: promptOfTheDay, // Include user-supplied prompt if set
@@ -1269,9 +1336,21 @@ const AppContent: React.FC = () => {
             setLoading(null);
             setProgress(0);
         }
-    }, [selectedTopics, getAudienceKeys, selectedImageStyle, customAudiences, defaultAudiences, promptOfTheDay]);
+    }, [selectedTopics, suggestedTopics, getAudienceKeys, selectedImageStyle, customAudiences, defaultAudiences, promptOfTheDay, selectedTone, getFlavorKeys, activePersona]);
 
-    // Unified generation handler that switches between v1 and v2
+    // Phase 19: V4 generation removed - simplified to single enhanced path
+    // V4 (perAudienceNewsletterGenerator) was removed because it ignored topic.resource
+    // All generation now uses enhancedGenerator.ts which properly enforces PRIMARY SOURCEs
+
+    // Handle mismatch resolution (kept for potential future use, but simplified)
+    const handleMismatchResolution = useCallback(async (_resolutions: MismatchResolution[]) => {
+        console.log('[App] handleMismatchResolution - V4 removed, closing modal');
+        setShowMismatchModal(false);
+        setMismatchData(null);
+    }, []);
+
+    // Unified generation handler that switches between v1 (legacy) and v2/v3 (enhanced)
+    // Phase 19: Simplified to single enhanced path (V4 removed)
     const handleGenerate = useCallback(async () => {
         if (useEnhancedFormat) {
             await handleGenerateEnhancedNewsletter();
@@ -1996,6 +2075,20 @@ const AppContent: React.FC = () => {
                     }}
                     currentEntryId={pendingCalendarEntryId}
                 />
+
+                {/* Phase 16: Topic-Audience Mismatch Modal */}
+                {showMismatchModal && mismatchData && (
+                    <TopicMismatchModal
+                        isOpen={showMismatchModal}
+                        onClose={() => {
+                            setShowMismatchModal(false);
+                            setMismatchData(null);
+                        }}
+                        onResolve={handleMismatchResolution}
+                        mismatches={mismatchData.mismatches}
+                        selectedAudiences={mismatchData.selectedAudiences}
+                    />
+                )}
             </div>
         </div>
     );

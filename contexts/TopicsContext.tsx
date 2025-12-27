@@ -87,10 +87,25 @@ const LEGACY_AUDIENCE_MAPPING: Record<string, string[]> = {
   analysts: ['business-intelligence'],
 };
 
+/**
+ * Phase 18: Topic context storage
+ * Maps topic title to its full context (audienceId, resource, etc.)
+ * This enables preserving audience assignment when topics are selected from archives
+ */
+export interface TopicContext {
+  audienceId?: string;
+  resource?: string;
+  whatItIs?: string;
+  newCapability?: string;
+}
+
 interface TopicsState {
   // Selected topics for newsletter generation
   selectedTopics: string[];
   customTopic: string;
+
+  // Phase 18: Topic context map (title -> audienceId, resource, etc.)
+  topicContextMap: Record<string, TopicContext>;
 
   // AI-suggested topics (Phase 15.4: with audience association)
   suggestedTopics: SuggestedTopic[];
@@ -117,6 +132,10 @@ interface TopicsActions {
   addTopic: (topic: string) => void;
   removeTopic: (index: number) => void;
   clearTopics: () => void;
+
+  // Phase 18: Topic context management
+  addTopicWithContext: (topic: TrendingTopic | SuggestedTopic) => void;
+  getTopicContext: (title: string) => TopicContext | undefined;
 
   // Suggested topics (Phase 15.4: with audience association)
   setSuggestedTopics: (topics: SuggestedTopic[]) => void;
@@ -157,6 +176,9 @@ export const TopicsProvider: React.FC<TopicsProviderProps> = ({
   // Topic selection state (from App.tsx lines 129-130)
   const [selectedTopics, setSelectedTopics] = useState<string[]>(defaultTopics);
   const [customTopic, setCustomTopic] = useState<string>('');
+
+  // Phase 18: Topic context map - preserves audienceId, resource when topics are selected
+  const [topicContextMap, setTopicContextMap] = useState<Record<string, TopicContext>>({});
 
   // Suggested topics state (Phase 15.4: with audience association)
   const [suggestedTopics, setSuggestedTopics] = useState<SuggestedTopic[]>([]);
@@ -259,27 +281,51 @@ export const TopicsProvider: React.FC<TopicsProviderProps> = ({
 
   /**
    * Remove a topic by index
+   * Phase 18: Also removes from context map
    */
   const removeTopic = useCallback((indexToRemove: number) => {
-    setSelectedTopics((prev) => prev.filter((_, index) => index !== indexToRemove));
+    setSelectedTopics((prev) => {
+      const topicToRemove = prev[indexToRemove];
+      // Also remove from context map
+      if (topicToRemove) {
+        setTopicContextMap((prevMap) => {
+          const { [topicToRemove]: _, ...rest } = prevMap;
+          return rest;
+        });
+      }
+      return prev.filter((_, index) => index !== indexToRemove);
+    });
   }, []);
 
   /**
    * Clear all topics
+   * Phase 18: Also clears context map
    */
   const clearTopics = useCallback(() => {
     setSelectedTopics([]);
+    setTopicContextMap({});
   }, []);
 
   /**
    * Select a suggested topic (add to selected)
    * Phase 15.4: Accepts both string and SuggestedTopic
+   * Phase 18: Also saves context when SuggestedTopic object is provided
    */
   const selectSuggestedTopic = useCallback(
     (suggestion: string | SuggestedTopic) => {
       const title = typeof suggestion === 'string' ? suggestion : suggestion.title;
       if (!selectedTopics.includes(title)) {
         setSelectedTopics((prev) => [...prev, title]);
+        // Phase 18: Save context if full object provided
+        if (typeof suggestion !== 'string') {
+          setTopicContextMap((prev) => ({
+            ...prev,
+            [title]: {
+              audienceId: suggestion.audienceId,
+              resource: suggestion.resource,
+            },
+          }));
+        }
       }
     },
     [selectedTopics]
@@ -298,10 +344,47 @@ export const TopicsProvider: React.FC<TopicsProviderProps> = ({
     [selectedTopics]
   );
 
+  /**
+   * Phase 18: Add a topic WITH its full context (audienceId, resource, etc.)
+   * Use this when adding topics from archives or trending content
+   */
+  const addTopicWithContext = useCallback(
+    (topic: TrendingTopic | SuggestedTopic) => {
+      const title = topic.title.trim();
+      if (title && !selectedTopics.includes(title)) {
+        setSelectedTopics((prev) => [...prev, title]);
+        // Save the context
+        setTopicContextMap((prev) => ({
+          ...prev,
+          [title]: {
+            audienceId: topic.audienceId,
+            resource: topic.resource,
+            whatItIs: 'whatItIs' in topic ? topic.whatItIs : undefined,
+            newCapability: 'newCapability' in topic ? topic.newCapability : undefined,
+          },
+        }));
+        console.log(`[TopicsContext] Added topic with context: "${title}" (audience: ${topic.audienceId || 'none'})`);
+      }
+    },
+    [selectedTopics]
+  );
+
+  /**
+   * Phase 18: Get the saved context for a topic by title
+   * Returns undefined if no context was saved
+   */
+  const getTopicContext = useCallback(
+    (title: string): TopicContext | undefined => {
+      return topicContextMap[title];
+    },
+    [topicContextMap]
+  );
+
   const value: TopicsContextValue = {
     // State
     selectedTopics,
     customTopic,
+    topicContextMap,  // Phase 18: topic context memory
     suggestedTopics,
     trendingContent,
     compellingContent,
@@ -318,6 +401,8 @@ export const TopicsProvider: React.FC<TopicsProviderProps> = ({
     addTopic,
     removeTopic,
     clearTopics,
+    addTopicWithContext,  // Phase 18: add topic with context
+    getTopicContext,      // Phase 18: get context for topic
     setSuggestedTopics,
     selectSuggestedTopic,
     setTrendingContent,
@@ -352,6 +437,7 @@ export const useTopics = (): TopicsContextValue => {
 
 /**
  * Hook for just the selected topics
+ * Phase 18: Extended with context management
  */
 export const useSelectedTopics = () => {
   const {
@@ -362,6 +448,9 @@ export const useSelectedTopics = () => {
     addTopic,
     removeTopic,
     clearTopics,
+    topicContextMap,
+    addTopicWithContext,
+    getTopicContext,
   } = useTopics();
 
   return {
@@ -373,11 +462,16 @@ export const useSelectedTopics = () => {
     removeTopic,
     clearTopics,
     hasTopics: selectedTopics.length > 0,
+    // Phase 18: Topic context
+    topicContextMap,
+    addTopicWithContext,
+    getTopicContext,
   };
 };
 
 /**
  * Hook for trending content
+ * Phase 18: Extended with addTopicWithContext for preserving topic context
  */
 export const useTrendingContent = () => {
   const {
@@ -390,6 +484,7 @@ export const useTrendingContent = () => {
     setTrendingSources,
     setIsFetchingTrending,
     addTrendingTopic,
+    addTopicWithContext,
   } = useTopics();
 
   return {
@@ -402,6 +497,7 @@ export const useTrendingContent = () => {
     setTrendingSources,
     setIsFetchingTrending,
     addTrendingTopic,
+    addTopicWithContext,  // Phase 18: add with full context
   };
 };
 
