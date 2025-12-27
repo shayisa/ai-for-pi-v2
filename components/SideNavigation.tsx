@@ -28,6 +28,7 @@ export const SideNavigation: React.FC<SideNavigationProps> = ({ activePage, setA
                 { id: 'contentCalendar', label: 'Calendar', description: 'Content planning' },
                 { id: 'history', label: 'History', description: 'Past newsletters' },
                 { id: 'subscriberManagement', label: 'Subscribers', description: 'Mailing lists' },
+                { id: 'knowledgeBase', label: 'Knowledge Base', description: 'RAG documents & chat' },
                 { id: 'logs', label: 'Logs', description: 'System activity' },
             ]
         }

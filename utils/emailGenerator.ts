@@ -1,5 +1,5 @@
 
-import type { Newsletter } from '../types';
+import type { Newsletter, EnhancedNewsletter, EnhancedAudienceSection, ToolOfTheDay, EditorsNote, PracticalPrompt, SourceCitation, PromptOfTheDay } from '../types';
 
 // Editorial Design Palette
 const colors = {
@@ -237,4 +237,331 @@ export const generateEmailHtml = (newsletter: Newsletter, topics: string[]): str
     </body>
     </html>
     `;
+};
+
+// ============================================================================
+// Enhanced Newsletter Email Generator (v2 Format)
+// ============================================================================
+
+/**
+ * Render Editor's Note section
+ */
+const renderEditorsNote = (note: EditorsNote): string => {
+    const editorsNoteStyle = `border-left: 3px solid ${colors.editorialRed}; padding-left: 20px; margin-bottom: 32px; font-style: italic;`;
+    const formatContent = (content: string) => {
+        return content.replace(/<a /g, `<a style="color: ${colors.editorialNavy}; text-decoration: underline;" `);
+    };
+
+    return `
+        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="margin-bottom: 32px;">
+            <tr>
+                <td style="${editorsNoteStyle}">
+                    <p style="font-family: ${fonts.serif}; font-size: 18px; color: ${colors.charcoal}; line-height: 1.75; margin: 0;">
+                        ${formatContent(note.message)}
+                    </p>
+                </td>
+            </tr>
+        </table>
+    `;
+};
+
+/**
+ * Render Tool of the Day section
+ */
+const renderToolOfTheDay = (tool: ToolOfTheDay): string => {
+    if (!tool.name) return '';
+
+    const toolBoxStyle = `background-color: ${colors.pearl}; padding: 24px; border: 1px solid ${colors.borderSubtle}; margin-bottom: 40px;`;
+    const toolLabelStyle = `font-family: ${fonts.sans}; font-size: 11px; font-weight: 600; color: ${colors.editorialRed}; text-transform: uppercase; letter-spacing: 2px; margin: 0 0 12px 0;`;
+    const toolNameStyle = `font-family: ${fonts.display}; font-size: 24px; font-weight: 400; color: ${colors.ink}; margin: 0 0 16px 0;`;
+    const toolLinkStyle = `color: ${colors.editorialNavy}; text-decoration: underline;`;
+
+    return `
+        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="${toolBoxStyle}">
+            <tr>
+                <td>
+                    <p style="${toolLabelStyle}">Tool of the Day</p>
+                    <h3 style="${toolNameStyle}">
+                        <a href="${tool.url}" target="_blank" style="${toolLinkStyle}">${tool.name}</a>
+                    </h3>
+                    <p style="font-family: ${fonts.serif}; font-size: 16px; color: ${colors.charcoal}; line-height: 1.6; margin: 0 0 16px 0;">
+                        <strong style="color: ${colors.ink};">Why now:</strong> ${tool.whyNow}
+                    </p>
+                    <p style="font-family: ${fonts.serif}; font-size: 16px; color: ${colors.charcoal}; line-height: 1.6; margin: 0;">
+                        <strong style="color: ${colors.ink};">Quick start:</strong> ${tool.quickStart}
+                    </p>
+                </td>
+            </tr>
+        </table>
+    `;
+};
+
+/**
+ * Render a single enhanced audience section
+ */
+const renderEnhancedSection = (section: EnhancedAudienceSection, index: number): string => {
+    const audienceBadgeStyle = `display: inline-block; background-color: ${colors.editorialNavy}; color: ${colors.paper}; font-family: ${fonts.sans}; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; padding: 6px 12px; margin-bottom: 16px;`;
+    const sectionTitleStyle = `font-family: ${fonts.display}; font-size: 28px; font-weight: 400; color: ${colors.ink}; margin: 0 0 20px 0; letter-spacing: -0.3px;`;
+    const whyItMattersStyle = `border-left: 3px solid ${colors.editorialNavy}; padding-left: 16px; margin: 20px 0; background-color: ${colors.pearl}; padding: 16px; padding-left: 20px;`;
+    const contentStyle = `font-family: ${fonts.serif}; font-size: 18px; color: ${colors.charcoal}; line-height: 1.75; margin: 20px 0;`;
+    const promptBoxStyle = `background-color: ${colors.ink}; color: ${colors.pearl}; padding: 20px; margin: 24px 0; font-family: ${fonts.mono}; font-size: 14px; line-height: 1.6;`;
+    const promptScenarioStyle = `font-family: ${fonts.sans}; font-size: 13px; font-weight: 600; color: ${colors.editorialGold}; margin-bottom: 12px;`;
+    const sourcesStyle = `font-family: ${fonts.sans}; font-size: 14px; color: ${colors.slate}; margin-top: 20px; padding-top: 16px; border-top: 1px solid ${colors.borderSubtle};`;
+    const sourceLinkStyle = `color: ${colors.editorialNavy}; text-decoration: underline;`;
+    const imageStyle = `width: 100%; height: auto; display: block; border: 1px solid ${colors.borderSubtle}; margin: 24px 0;`;
+
+    const formatContent = (content: string) => {
+        return content.replace(/<a /g, `<a style="${sourceLinkStyle}" `);
+    };
+
+    // Build sources HTML
+    const sourcesHtml = section.sources && section.sources.length > 0
+        ? `
+            <div style="${sourcesStyle}">
+                <strong>Sources:</strong>
+                ${section.sources.map((s: SourceCitation) =>
+                    `<a href="${s.url}" target="_blank" style="${sourceLinkStyle}">${s.title}</a>`
+                ).join(' · ')}
+            </div>
+        `
+        : '';
+
+    // Build image HTML
+    const imageHtml = section.imageUrl
+        ? `<img src="${section.imageUrl}" alt="${section.title}" style="${imageStyle}">`
+        : '';
+
+    // Build practical prompt HTML
+    const practicalPromptHtml = section.practicalPrompt && section.practicalPrompt.prompt
+        ? `
+            <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="${promptBoxStyle}">
+                <tr>
+                    <td>
+                        <p style="${promptScenarioStyle}">${section.practicalPrompt.scenario}</p>
+                        <pre style="margin: 0; white-space: pre-wrap; word-wrap: break-word; font-family: ${fonts.mono}; font-size: 13px; line-height: 1.6;">${section.practicalPrompt.prompt}</pre>
+                    </td>
+                </tr>
+            </table>
+        `
+        : '';
+
+    const dividerHtml = index > 0
+        ? `<hr style="border: none; border-top: 1px solid ${colors.borderSubtle}; margin: 48px 0 40px 0;">`
+        : '';
+
+    return `
+        ${dividerHtml}
+        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%">
+            <tr>
+                <td>
+                    <span style="${audienceBadgeStyle}">For ${section.audienceName}</span>
+                    <h2 style="${sectionTitleStyle}">${section.title}</h2>
+                    ${imageHtml}
+                    <div style="${whyItMattersStyle}">
+                        <p style="font-family: ${fonts.serif}; font-size: 16px; color: ${colors.charcoal}; line-height: 1.6; margin: 0;">
+                            <strong style="color: ${colors.ink};">Why it matters:</strong> ${section.whyItMatters}
+                        </p>
+                    </div>
+                    <div style="${contentStyle}">${formatContent(section.content)}</div>
+                    ${practicalPromptHtml}
+                    ${sourcesHtml}
+                </td>
+            </tr>
+        </table>
+    `;
+};
+
+/**
+ * Render Prompt of the Day section (reused for v2)
+ */
+const renderPromptOfTheDaySection = (prompt: PromptOfTheDay): string => {
+    const promptCodeContainerStyle = `background-color: ${colors.ink}; color: ${colors.pearl}; padding: 20px; font-family: ${fonts.mono}; font-size: 13px; line-height: 1.6; overflow-x: auto; display: block; margin: 10px 0;`;
+    const promptCodeTagStyle = `color: ${colors.editorialGold}; font-weight: bold;`;
+
+    const parsePromptCode = (promptCode: string) => {
+        const escaped = promptCode
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+        const lines = escaped.split('\n');
+        return lines.map(line => {
+            const highlighted = line
+                .replace(/&lt;(\w+)&gt;/g, `<span style="${promptCodeTagStyle}">&lt;$1&gt;</span>`)
+                .replace(/&lt;\/(\w+)&gt;/g, `<span style="${promptCodeTagStyle}">&lt;/$1&gt;</span>`);
+            return `<div style="margin: 0; padding: 3px 0; word-wrap: break-word; overflow-wrap: break-word;">${highlighted}</div>`;
+        }).join('');
+    };
+
+    return `
+        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="margin-bottom: 24px; background-color: ${colors.paper}; border: 1px solid ${colors.borderSubtle};">
+            <tr>
+                <td style="padding: 24px;">
+                    <h3 style="font-family: ${fonts.display}; font-size: 22px; color: ${colors.ink}; margin: 0 0 16px 0;">Prompt of the Day</h3>
+                    <h4 style="font-family: ${fonts.sans}; font-size: 16px; font-weight: 600; color: ${colors.ink}; margin: 0 0 10px 0;">${prompt.title}</h4>
+                    <p style="font-family: ${fonts.serif}; font-size: 16px; color: ${colors.charcoal}; line-height: 1.65; margin-bottom: 16px;">${prompt.summary}</p>
+                    <p style="font-family: ${fonts.sans}; font-size: 13px; font-weight: 600; color: ${colors.slate}; margin-bottom: 8px;">Example prompts:</p>
+                    <ul style="list-style-type: disc; margin: 0 0 16px 20px; padding: 0;">
+                        ${prompt.examplePrompts.map(p => `
+                            <li style="font-family: ${fonts.serif}; font-size: 15px; color: ${colors.charcoal}; line-height: 1.6; margin-bottom: 6px;">${p}</li>
+                        `).join('')}
+                    </ul>
+                    <p style="font-family: ${fonts.sans}; font-size: 13px; font-weight: 600; color: ${colors.slate}; margin-bottom: 8px;">Prompt Code:</p>
+                    <div style="${promptCodeContainerStyle}">
+                        ${parsePromptCode(prompt.promptCode)}
+                    </div>
+                </td>
+            </tr>
+        </table>
+    `;
+};
+
+/**
+ * Generate HTML email for Enhanced Newsletter (v2 format)
+ * Includes: Editor's Note, Tool of the Day, audience sections with "For X" badges,
+ * "Why it matters", practical prompts, sources, and consistent formatting
+ */
+export const generateEnhancedEmailHtml = (newsletter: EnhancedNewsletter, topics: string[]): string => {
+    const bodyWrapperStyle = `margin: 0; padding: 24px; background-color: ${colors.pearl}; font-family: ${fonts.serif};`;
+    const containerStyle = `width: 100%; max-width: 680px; margin: 0 auto; background-color: ${colors.paper}; box-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 4px 12px rgba(0,0,0,0.04);`;
+    const headerStyle = `padding: 48px 40px 40px 40px; border-bottom: 2px solid ${colors.ink};`;
+    const topicLabelStyle = `font-family: ${fonts.sans}; font-size: 11px; font-weight: 600; color: ${colors.slate}; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 16px;`;
+    const subjectStyle = `font-family: ${fonts.display}; font-size: 42px; font-weight: 400; color: ${colors.ink}; margin: 0; line-height: 1.15; letter-spacing: -0.5px;`;
+    const bodyStyle = `padding: 48px 40px; font-family: ${fonts.serif}; font-size: 18px; color: ${colors.charcoal}; line-height: 1.75;`;
+    const footerWrapperStyle = `padding: 40px; background-color: ${colors.pearl}; border-top: 1px solid ${colors.borderSubtle}; font-family: ${fonts.sans};`;
+    const footerTextStyle = `font-size: 14px; color: ${colors.slate}; line-height: 1.6; text-align: center;`;
+    const footerLinkStyle = `color: ${colors.editorialNavy}; text-decoration: underline; font-weight: 500;`;
+    const subscribeButtonStyle = `background-color: ${colors.ink}; color: ${colors.paper}; padding: 14px 28px; text-decoration: none; font-weight: 500; display: inline-block; font-family: ${fonts.sans}; font-size: 14px;`;
+
+    const formatDate = () => {
+        return new Date().toLocaleDateString('en-US', {
+            weekday: 'long',
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric'
+        });
+    };
+
+    const subject = newsletter.subject || newsletter.audienceSections[0]?.title || 'Newsletter';
+
+    // Render all audience sections
+    const sectionsHtml = newsletter.audienceSections
+        .map((section, index) => renderEnhancedSection(section, index))
+        .join('');
+
+    // Render prompt of the day if present
+    const promptOfTheDayHtml = newsletter.promptOfTheDay
+        ? renderPromptOfTheDaySection(newsletter.promptOfTheDay)
+        : '';
+
+    return `
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>${subject}</title>
+    </head>
+    <body style="${bodyWrapperStyle}">
+        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%">
+            <tr>
+                <td>
+                    <table role="presentation" border="0" cellpadding="0" cellspacing="0" style="${containerStyle}">
+                        <!-- Header -->
+                        <tr>
+                            <td style="${headerStyle}">
+                                <p style="${topicLabelStyle}">${formatDate()}${topics && topics.length > 0 ? ` <span style="color: ${colors.silver}; margin: 0 8px;">·</span> ${topics.join(' · ')}` : ''}</p>
+                                <h1 style="${subjectStyle}">${subject}</h1>
+                            </td>
+                        </tr>
+
+                        <!-- Body -->
+                        <tr>
+                            <td style="${bodyStyle}">
+                                <!-- Editor's Note -->
+                                ${renderEditorsNote(newsletter.editorsNote)}
+
+                                <!-- Tool of the Day -->
+                                ${renderToolOfTheDay(newsletter.toolOfTheDay)}
+
+                                <!-- Audience Sections -->
+                                ${sectionsHtml}
+
+                                <!-- Conclusion -->
+                                <hr style="border: none; border-top: 1px solid ${colors.borderSubtle}; margin: 40px 0 32px 0;">
+                                <p style="margin-top: 0; font-family: ${fonts.serif}; font-size: 18px; color: ${colors.charcoal}; line-height: 1.75;">${newsletter.conclusion}</p>
+                            </td>
+                        </tr>
+
+                        <!-- Footer -->
+                        <tr>
+                            <td style="${footerWrapperStyle}">
+                                <!-- Prompt of the Day -->
+                                ${promptOfTheDayHtml}
+
+                                <!-- Share & Subscribe Section -->
+                                <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="margin-bottom: 24px; text-align: center; padding: 24px 0; border-top: 1px solid ${colors.borderSubtle}; border-bottom: 1px solid ${colors.borderSubtle};">
+                                    <tr>
+                                        <td>
+                                            <p style="font-family: ${fonts.sans}; font-size: 15px; color: ${colors.charcoal}; margin-bottom: 20px;">Enjoying these insights? Share with a colleague.</p>
+                                            <a href="#" target="_blank" style="${subscribeButtonStyle}">Subscribe</a>
+                                            <p style="margin-top: 16px; font-size: 14px;"><a href="mailto:?subject=FW: ${encodeURIComponent(subject)}&body=I thought you'd find this interesting." style="${footerLinkStyle}">Forward this newsletter</a></p>
+                                        </td>
+                                    </tr>
+                                </table>
+
+                                <!-- Explore Further Section -->
+                                ${topics && topics.length > 0 ? `
+                                <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="margin-bottom: 24px;">
+                                    <tr>
+                                        <td style="font-family: ${fonts.display}; font-size: 22px; color: ${colors.ink}; text-align: center; padding-bottom: 16px;">
+                                            Explore Further
+                                        </td>
+                                    </tr>
+                                    ${topics.map(topic => `
+                                    <tr>
+                                        <td style="padding: 12px 0; text-align: center;">
+                                            <p style="font-family: ${fonts.sans}; font-size: 14px; font-weight: 500; color: ${colors.ink}; margin: 0 0 8px 0;">${topic}</p>
+                                            <span style="font-family: ${fonts.sans}; font-size: 13px;">
+                                                <a href="https://www.youtube.com/results?search_query=${encodeURIComponent(topic)}" target="_blank" style="${footerLinkStyle}">YouTube</a>
+                                                <span style="color: ${colors.silver}; margin: 0 8px;">·</span>
+                                                <a href="https://scholar.google.com/scholar?q=${encodeURIComponent(topic)}" target="_blank" style="${footerLinkStyle}">Google Scholar</a>
+                                                <span style="color: ${colors.silver}; margin: 0 8px;">·</span>
+                                                <a href="https://twitter.com/search?q=${encodeURIComponent(topic)}" target="_blank" style="${footerLinkStyle}">X</a>
+                                            </span>
+                                        </td>
+                                    </tr>
+                                    `).join('')}
+                                </table>
+                                ` : ''}
+
+                                <!-- Legal Footer -->
+                                <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="padding-top: 24px; border-top: 1px solid ${colors.borderSubtle};">
+                                    <tr>
+                                        <td style="${footerTextStyle}">
+                                            <p style="margin: 0 0 8px 0; font-family: ${fonts.sans}; font-size: 13px; color: ${colors.slate};">© ${new Date().getFullYear()} AI for PI · Newsletter Studio</p>
+                                            <p style="margin: 0 0 12px 0; font-family: ${fonts.sans}; font-size: 13px; color: ${colors.silver};">Curated and generated with AI assistance</p>
+                                            <p style="margin: 0; font-family: ${fonts.sans}; font-size: 13px;">
+                                                <a href="mailto:shayisa@gmail.com?subject=UNSUBSCRIBE" target="_blank" style="${footerLinkStyle}">Unsubscribe</a>
+                                                <span style="color: ${colors.silver}; margin: 0 8px;">·</span>
+                                                <a href="mailto:shayisa@gmail.com" target="_blank" style="${footerLinkStyle}">Contact</a>
+                                            </p>
+                                        </td>
+                                    </tr>
+                                </table>
+                            </td>
+                        </tr>
+                    </table>
+                </td>
+            </tr>
+        </table>
+    </body>
+    </html>
+    `;
+};
+
+/**
+ * Type guard to check if a newsletter is an EnhancedNewsletter (v2)
+ */
+export const isEnhancedNewsletter = (newsletter: Newsletter | EnhancedNewsletter): newsletter is EnhancedNewsletter => {
+    return 'audienceSections' in newsletter && 'editorsNote' in newsletter;
 };

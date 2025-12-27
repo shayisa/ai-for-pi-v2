@@ -28,6 +28,7 @@ import { HistoryContentPage } from './pages/HistoryContentPage'; // New
 import { SubscriberManagementPage } from './pages/SubscriberManagementPage'; // New
 import { AuthenticationPage } from './pages/AuthenticationPage'; // New
 import { LogsPage } from './pages/LogsPage'; // System activity logs
+import { KnowledgeBasePage } from './pages/KnowledgeBasePage'; // RAG Knowledge Base
 import { ContentCalendarPage } from './pages/ContentCalendarPage'; // Content calendar
 import { useHistory } from './hooks/useHistory';
 import { usePrompts } from './hooks/usePrompts';
@@ -117,7 +118,7 @@ const imageStyleOptions: Record<string, { label: string; description: string }> 
     },
 };
 
-export type ActivePage = 'authentication' | 'discoverTopics' | 'toneAndVisuals' | 'generateNewsletter' | 'history' | 'subscriberManagement' | 'logs' | 'contentCalendar';
+export type ActivePage = 'authentication' | 'discoverTopics' | 'toneAndVisuals' | 'generateNewsletter' | 'history' | 'subscriberManagement' | 'logs' | 'contentCalendar' | 'knowledgeBase';
 
 
 type ErrorState = {
@@ -1855,10 +1856,14 @@ const AppContent: React.FC = () => {
                     }
 
                     // Send email using refactored sendEmail (now takes email array directly)
+                    // Use original enhancedNewsletter for v2 format to preserve all rich content
                     const gmailUserEmail = authData?.email || 'shayisa@gmail.com';
+                    const newsletterForEmail = useEnhancedFormat && enhancedNewsletter
+                        ? enhancedNewsletter
+                        : activeNewsletter;
                     const emailResult = await googleApi.sendEmail(
                         gmailUserEmail,
-                        activeNewsletter,
+                        newsletterForEmail,
                         selectedTopics,
                         subscriberEmails,
                         listNames
@@ -2000,6 +2005,10 @@ const AppContent: React.FC = () => {
                             onViewNewsletter={handleViewLinkedNewsletter}
                             onGenerateNew={handleGenerateNewFromCalendar}
                         />
+                    )}
+
+                    {activePage === 'knowledgeBase' && (
+                        <KnowledgeBasePage />
                     )}
 
                 </main>

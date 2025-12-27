@@ -24,7 +24,8 @@ export type ActivePage =
   | 'history'
   | 'subscriberManagement'
   | 'logs'
-  | 'contentCalendar';
+  | 'contentCalendar'
+  | 'knowledgeBase';
 
 // Error state type (from App.tsx line 112-115)
 export interface ErrorState {

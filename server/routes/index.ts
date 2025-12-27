@@ -29,6 +29,7 @@
  * | Prompt Import | Migrated | 8 (Phase 11 multi-source import) |
  * | Topics | Migrated | 9 (saved topic library) |
  * | Sources | Migrated | 11 (saved sources library) |
+ * | RAG | New | 14 (knowledge base & chat) |
  *
  * ## Usage
  * ```typescript
@@ -58,6 +59,7 @@ import generationRoutes from './generation.routes.ts';
 import promptImportRoutes from './promptImport.routes.ts';
 import topicRoutes from './topic.routes.ts';
 import sourceRoutes from './source.routes.ts';
+import ragRoutes from './rag.routes.ts';
 
 const router = Router();
 
@@ -119,6 +121,9 @@ router.use('/topics', topicRoutes);
 
 // Sources (saved inspiration sources library)
 router.use('/sources', sourceRoutes);
+
+// RAG Knowledge Base (persistent document storage & chat)
+router.use('/rag', ragRoutes);
 
 // Generation (migrated - AI content generation endpoints)
 // Mounted at root level since endpoints use direct paths like /fetchTrendingSources

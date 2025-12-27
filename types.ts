@@ -628,3 +628,149 @@ export interface SourceWithContent {
   publication?: string;
   category?: string;
 }
+
+// ============================================================================
+// RAG Knowledge Base Types
+// ============================================================================
+
+export type RagDocumentStatus = 'pending' | 'indexed' | 'failed';
+export type RagDocumentSourceType = 'manual' | 'newsletter' | 'archive' | 'url' | 'paste';
+export type RagDocumentContentType = 'pdf' | 'txt' | 'md' | 'html' | 'text';
+export type RagMessageRole = 'user' | 'assistant';
+
+/**
+ * Document stored in the RAG knowledge base
+ */
+export interface RagDocument {
+  id: string;
+  geminiFileId: string | null;
+  filename: string;
+  contentType: RagDocumentContentType;
+  sourceType: RagDocumentSourceType;
+  sizeBytes: number;
+  status: RagDocumentStatus;
+  errorMessage: string | null;
+  metadata: Record<string, unknown> | null;
+  createdAt: string;
+  indexedAt: string | null;
+  sourceUrl: string | null;
+  newsletterId: string | null;
+  contentHash: string | null;
+}
+
+/**
+ * Chat conversation with the knowledge base
+ */
+export interface RagChat {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * Source reference returned from RAG queries
+ */
+export interface RagSourceReference {
+  documentId: string;
+  filename: string;
+  relevance?: number;
+  snippet?: string;
+}
+
+/**
+ * Individual message in a RAG chat
+ */
+export interface RagMessage {
+  id: string;
+  chatId: string;
+  role: RagMessageRole;
+  content: string;
+  sources: RagSourceReference[] | null;
+  createdAt: string;
+}
+
+/**
+ * RAG knowledge base configuration
+ */
+export interface RagConfig {
+  geminiCacheName: string | null;
+  totalDocuments: number;
+  totalSizeBytes: number;
+  createdAt: string;
+  lastSyncAt: string | null;
+}
+
+/**
+ * Storage statistics for the RAG knowledge base
+ */
+export interface RagStorageStats {
+  totalDocuments: number;
+  totalSizeBytes: number;
+  documentsByStatus: Record<RagDocumentStatus, number>;
+  documentsBySource: Record<string, number>;
+}
+
+/**
+ * Chat with its messages for full conversation display
+ */
+export interface RagChatWithMessages {
+  chat: RagChat;
+  messages: RagMessage[];
+}
+
+/**
+ * Request to send a message in a RAG chat
+ */
+export interface RagChatRequest {
+  chatId?: string; // If undefined, creates new chat
+  message: string;
+  title?: string; // Optional title for new chats
+}
+
+/**
+ * Response from sending a message in a RAG chat
+ */
+export interface RagChatResponse {
+  chat: RagChat;
+  userMessage: RagMessage;
+  assistantMessage: RagMessage;
+}
+
+/**
+ * Request to upload a document to the knowledge base
+ */
+export interface RagUploadRequest {
+  filename: string;
+  contentType: RagDocumentContentType;
+  sourceType: RagDocumentSourceType;
+  content: string; // Base64 for files, plain text for paste
+  sourceUrl?: string;
+  metadata?: Record<string, unknown>;
+}
+
+/**
+ * Response from document upload
+ */
+export interface RagUploadResponse {
+  document: RagDocument;
+  message: string;
+}
+
+/**
+ * Request to index content from a URL
+ */
+export interface RagUrlIndexRequest {
+  url: string;
+  metadata?: Record<string, unknown>;
+}
+
+/**
+ * Filter options for listing documents
+ */
+export interface RagDocumentFilters {
+  status?: RagDocumentStatus;
+  sourceType?: RagDocumentSourceType;
+  limit?: number;
+  offset?: number;
+}

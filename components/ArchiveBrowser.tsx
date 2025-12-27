@@ -1,6 +1,9 @@
 /**
  * Archive Browser Component
  * Browse, load, and manage saved trending insights archives
+ *
+ * Phase 6: Added archive indexing dialog integration
+ * When loading an archive, prompts user to index sources to RAG Knowledge Base
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -9,6 +12,9 @@ import * as archiveClientService from '../services/archiveClientService';
 import type { Archive, ArchiveContent } from '../services/archiveClientService';
 import { XIcon, TrashIcon, ChevronDownIcon } from './IconComponents';
 import { modalOverlay, modalContent, staggerContainer, staggerItem } from '../utils/animations';
+import { ArchiveIndexDialog } from './ArchiveIndexDialog';
+import { useRagIndexing } from '../hooks/useRagIndexing';
+import type { SourceIndexType } from '../services/ragClientService';
 
 interface ArchiveBrowserProps {
   isOpen: boolean;
@@ -26,6 +32,13 @@ export const ArchiveBrowser: React.FC<ArchiveBrowserProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+
+  // Phase 6: Archive indexing state
+  const [pendingArchive, setPendingArchive] = useState<Archive | null>(null);
+  const [isIndexDialogOpen, setIsIndexDialogOpen] = useState(false);
+
+  // RAG indexing hook
+  const { indexedUrls, indexSourcesBatch, refreshIndexedUrls } = useRagIndexing();
 
   // Fetch archives when modal opens
   const fetchArchives = useCallback(async () => {
@@ -59,11 +72,119 @@ export const ArchiveBrowser: React.FC<ArchiveBrowserProps> = ({
     }
   };
 
-  // Handle load archive
+  // Handle load archive - show index dialog first
   const handleLoad = (archive: Archive) => {
-    onLoadArchive(archive.content, archive.audience);
-    onClose();
+    setPendingArchive(archive);
+    setIsIndexDialogOpen(true);
   };
+
+  // Complete the archive load (after index dialog)
+  const completeLoad = useCallback(() => {
+    if (pendingArchive) {
+      onLoadArchive(pendingArchive.content, pendingArchive.audience);
+      setPendingArchive(null);
+      setIsIndexDialogOpen(false);
+      onClose();
+    }
+  }, [pendingArchive, onLoadArchive, onClose]);
+
+  // Extract indexable sources from archive content
+  const extractSourcesToIndex = useCallback((content: ArchiveContent, indexOnlyNew: boolean) => {
+    const sources: Array<{
+      url: string;
+      title: string;
+      sourceType: SourceIndexType;
+      metadata?: Record<string, unknown>;
+    }> = [];
+
+    // Trending topics with resource URLs
+    (content.trendingTopics || []).forEach(topic => {
+      if (topic.resource) {
+        if (!indexOnlyNew || !indexedUrls.has(topic.resource)) {
+          sources.push({
+            url: topic.resource,
+            title: topic.title,
+            sourceType: 'archive',
+            metadata: { audienceId: topic.audienceId, fromArchive: true },
+          });
+        }
+      }
+    });
+
+    // Essential tools with URLs
+    (content.compellingContent?.essentialTools || []).forEach(tool => {
+      if (tool.url) {
+        if (!indexOnlyNew || !indexedUrls.has(tool.url)) {
+          sources.push({
+            url: tool.url,
+            title: tool.name,
+            sourceType: 'archive',
+            metadata: { purpose: tool.purpose, fromArchive: true },
+          });
+        }
+      }
+    });
+
+    // Trending sources
+    (content.trendingSources || []).forEach(source => {
+      if (source.url) {
+        if (!indexOnlyNew || !indexedUrls.has(source.url)) {
+          sources.push({
+            url: source.url,
+            title: source.title,
+            sourceType: 'archive',
+            metadata: {
+              category: source.category,
+              author: source.author,
+              publication: source.publication,
+              fromArchive: true,
+            },
+          });
+        }
+      }
+    });
+
+    return sources;
+  }, [indexedUrls]);
+
+  // Handle skip - just load archive without indexing
+  const handleSkip = useCallback(() => {
+    completeLoad();
+  }, [completeLoad]);
+
+  // Handle index new only
+  const handleIndexNew = useCallback(async () => {
+    if (!pendingArchive) return;
+
+    const sources = extractSourcesToIndex(pendingArchive.content, true);
+    if (sources.length > 0) {
+      console.log(`[ArchiveBrowser] Indexing ${sources.length} new sources from archive`);
+      await indexSourcesBatch(sources);
+      await refreshIndexedUrls();
+    }
+
+    completeLoad();
+  }, [pendingArchive, extractSourcesToIndex, indexSourcesBatch, refreshIndexedUrls, completeLoad]);
+
+  // Handle index all
+  const handleIndexAll = useCallback(async () => {
+    if (!pendingArchive) return;
+
+    const sources = extractSourcesToIndex(pendingArchive.content, false);
+    if (sources.length > 0) {
+      console.log(`[ArchiveBrowser] Indexing all ${sources.length} sources from archive`);
+      await indexSourcesBatch(sources);
+      await refreshIndexedUrls();
+    }
+
+    completeLoad();
+  }, [pendingArchive, extractSourcesToIndex, indexSourcesBatch, refreshIndexedUrls, completeLoad]);
+
+  // Handle dialog close (cancel)
+  const handleDialogClose = useCallback(() => {
+    setPendingArchive(null);
+    setIsIndexDialogOpen(false);
+  }, []);
 
   // Format date for display
   const formatDate = (dateStr: string) => {
@@ -87,6 +208,7 @@ export const ArchiveBrowser: React.FC<ArchiveBrowserProps> = ({
   };
 
   return (
+    <>
     <AnimatePresence>
       {isOpen && (
         <motion.div
@@ -343,5 +465,20 @@ export const ArchiveBrowser: React.FC<ArchiveBrowserProps> = ({
         </motion.div>
       )}
     </AnimatePresence>
+
+      {/* Phase 6: Archive Index Dialog */}
+      {pendingArchive && (
+        <ArchiveIndexDialog
+          isOpen={isIndexDialogOpen}
+          archiveName={pendingArchive.name}
+          archiveContent={pendingArchive.content}
+          indexedUrls={indexedUrls}
+          onSkip={handleSkip}
+          onIndexNew={handleIndexNew}
+          onIndexAll={handleIndexAll}
+          onClose={handleDialogClose}
+        />
+      )}
+    </>
   );
 };

@@ -10,3 +10,5 @@ export { useTopicSelection } from './useTopicSelection';
 export { useGoogleWorkspace } from './useGoogleWorkspace';
 export { usePresets } from './usePresets';
 export { useHistory } from './useHistory';
+export { useRag } from './useRag';
+export { useRagIndexing } from './useRagIndexing';

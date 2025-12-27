@@ -14,7 +14,7 @@
  */
 
 import type { Newsletter, EnhancedNewsletter, GapiAuthData } from '../types';
-import { generateEmailHtml } from '../utils/emailGenerator';
+import { generateEmailHtml, generateEnhancedEmailHtml, isEnhancedNewsletter } from '../utils/emailGenerator';
 import { unwrapResponse, extractErrorMessage } from './apiHelper';
 
 const API_BASE = 'http://localhost:3001';
@@ -257,21 +257,33 @@ export const loadNewsletterFromDrive = async (
 
 /**
  * Send newsletter via Gmail
+ * Supports both v1 (Newsletter) and v2 (EnhancedNewsletter) formats
  */
 export const sendEmail = async (
   userEmail: string,
-  newsletter: Newsletter,
+  newsletter: Newsletter | EnhancedNewsletter,
   topics: string[],
   subscriberEmails: string[],
   listNames?: string[]
 ): Promise<{ message: string; sentCount: number; listNames: string[] }> => {
   try {
-    const htmlBody = generateEmailHtml(newsletter, topics);
+    // Detect v2 EnhancedNewsletter and use appropriate generator
+    const htmlBody = isEnhancedNewsletter(newsletter)
+      ? generateEnhancedEmailHtml(newsletter, topics)
+      : generateEmailHtml(newsletter, topics);
+
     const validEmails = subscriberEmails.filter(email => email && email.includes('@'));
 
     if (validEmails.length === 0) {
       return { message: 'No valid subscriber emails. Email not sent.', sentCount: 0, listNames: listNames || [] };
     }
+
+    // Get subject from the newsletter (v1 has subject directly, v2 may have it or use first section title)
+    const subject = 'subject' in newsletter && newsletter.subject
+      ? newsletter.subject
+      : isEnhancedNewsletter(newsletter) && newsletter.audienceSections[0]?.title
+        ? newsletter.audienceSections[0].title
+        : 'Newsletter';
 
     // Send to each recipient via backend
     const response = await fetch(`${API_BASE}/api/gmail/send-bulk`, {
@@ -280,7 +292,7 @@ export const sendEmail = async (
       body: JSON.stringify({
         userEmail,
         recipients: validEmails,
-        subject: newsletter.subject,
+        subject,
         htmlBody
       })
     });

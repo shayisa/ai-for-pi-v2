@@ -439,9 +439,78 @@ db.exec(`
     ON saved_sources(category);
   CREATE INDEX IF NOT EXISTS idx_saved_sources_created
     ON saved_sources(created_at DESC);
+
+  -- ============================================================================
+  -- RAG Knowledge Base Tables (Persistent Document Storage & Chat)
+  -- ============================================================================
+
+  -- RAG Documents table - stores information about indexed documents
+  CREATE TABLE IF NOT EXISTS rag_documents (
+    id TEXT PRIMARY KEY,
+    gemini_file_id TEXT,
+    filename TEXT NOT NULL,
+    content_type TEXT NOT NULL,
+    source_type TEXT NOT NULL,
+    size_bytes INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'pending',
+    error_message TEXT,
+    metadata TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    indexed_at TEXT,
+    source_url TEXT,
+    newsletter_id TEXT,
+    content_hash TEXT,
+    FOREIGN KEY (newsletter_id) REFERENCES newsletters(id) ON DELETE SET NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_rag_documents_status
+    ON rag_documents(status);
+  CREATE INDEX IF NOT EXISTS idx_rag_documents_source_type
+    ON rag_documents(source_type);
+  CREATE INDEX IF NOT EXISTS idx_rag_documents_created_at
+    ON rag_documents(created_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_rag_documents_content_hash
+    ON rag_documents(content_hash);
+
+  -- RAG Chats table - stores chat conversations
+  CREATE TABLE IF NOT EXISTS rag_chats (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_rag_chats_updated_at
+    ON rag_chats(updated_at DESC);
+
+  -- RAG Messages table - stores individual messages in chats
+  CREATE TABLE IF NOT EXISTS rag_messages (
+    id TEXT PRIMARY KEY,
+    chat_id TEXT NOT NULL,
+    role TEXT NOT NULL,
+    content TEXT NOT NULL,
+    sources TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (chat_id) REFERENCES rag_chats(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_rag_messages_chat_id
+    ON rag_messages(chat_id);
+  CREATE INDEX IF NOT EXISTS idx_rag_messages_created_at
+    ON rag_messages(created_at);
+
+  -- RAG Config table - stores the persistent knowledge base configuration
+  CREATE TABLE IF NOT EXISTS rag_config (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    gemini_cache_name TEXT,
+    total_documents INTEGER DEFAULT 0,
+    total_size_bytes INTEGER DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    last_sync_at TEXT
+  );
 `);
 
-console.log('[SQLite] Tables initialized (archives, newsletters, newsletter_logs, subscribers, subscriber_lists, api_keys, api_key_audit_log, oauth_tokens, saved_prompts, image_style_thumbnails, writer_personas, custom_audiences, newsletter_templates, newsletter_drafts, calendar_entries, scheduled_sends, email_tracking, email_stats, system_logs, user_settings, prompt_import_templates, prompt_import_logs, saved_topics, saved_sources)');
+console.log('[SQLite] Tables initialized (archives, newsletters, newsletter_logs, subscribers, subscriber_lists, api_keys, api_key_audit_log, oauth_tokens, saved_prompts, image_style_thumbnails, writer_personas, custom_audiences, newsletter_templates, newsletter_drafts, calendar_entries, scheduled_sends, email_tracking, email_stats, system_logs, user_settings, prompt_import_templates, prompt_import_logs, saved_topics, saved_sources, rag_documents, rag_chats, rag_messages, rag_config)');
 
 // ============================================================================
 // Migration: Enhanced Newsletter Format (v2)

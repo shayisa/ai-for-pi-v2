@@ -2,6 +2,7 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import { ExternalLinkIcon, BookmarkIcon, BookmarkSolidIcon } from './IconComponents';
 import { staggerContainer, staggerItem, skeletonPulse } from '../utils/animations';
+import { IndexToKBButton, IndexAllToKBButton } from './IndexToKBButton';
 
 export interface TrendingSource {
     id: string;
@@ -19,6 +20,13 @@ interface InspirationSourcesPanelProps {
     isLoading?: boolean;
     onSaveSource?: (source: TrendingSource) => void;
     savedSourceUrls?: Set<string>;
+    // RAG Knowledge Base indexing
+    onIndexSource?: (source: TrendingSource) => void;
+    indexedSourceUrls?: Set<string>;
+    indexingSourceUrls?: Set<string>;
+    onIndexAll?: () => void;
+    isBatchIndexing?: boolean;
+    batchIndexProgress?: number;
 }
 
 const categoryStyles: Record<string, { label: string }> = {
@@ -34,7 +42,15 @@ export const InspirationSourcesPanel: React.FC<InspirationSourcesPanelProps> = (
     isLoading = false,
     onSaveSource,
     savedSourceUrls,
+    onIndexSource,
+    indexedSourceUrls,
+    indexingSourceUrls,
+    onIndexAll,
+    isBatchIndexing = false,
+    batchIndexProgress = 0,
 }) => {
+    // Count indexed sources for the bulk button
+    const indexedCount = sources.filter(s => indexedSourceUrls?.has(s.url)).length;
     if (isLoading) {
         return (
             <div className="bg-paper border border-border-subtle p-6">
@@ -74,9 +90,21 @@ export const InspirationSourcesPanel: React.FC<InspirationSourcesPanelProps> = (
     return (
         <div className="bg-paper border border-border-subtle p-6">
             {/* Header */}
-            <div className="flex items-baseline gap-3 mb-4">
-                <span className="font-sans text-overline text-slate uppercase tracking-widest">Trending</span>
-                <h3 className="font-display text-h3 text-ink">Inspiration Sources</h3>
+            <div className="flex items-center justify-between mb-4">
+                <div className="flex items-baseline gap-3">
+                    <span className="font-sans text-overline text-slate uppercase tracking-widest">Trending</span>
+                    <h3 className="font-display text-h3 text-ink">Inspiration Sources</h3>
+                </div>
+                {/* Index All Button */}
+                {onIndexAll && sources.length > 0 && (
+                    <IndexAllToKBButton
+                        availableCount={sources.length}
+                        indexedCount={indexedCount}
+                        isIndexing={isBatchIndexing}
+                        progress={batchIndexProgress}
+                        onIndexAll={onIndexAll}
+                    />
+                )}
             </div>
             <p className="font-serif text-body text-charcoal mb-6">
                 Fresh topics from {sources.length} sources across AI communities
@@ -92,6 +120,8 @@ export const InspirationSourcesPanel: React.FC<InspirationSourcesPanelProps> = (
                 {sources.map((source) => {
                     const style = categoryStyles[source.category];
                     const isSaved = savedSourceUrls?.has(source.url) || false;
+                    const isIndexed = indexedSourceUrls?.has(source.url) || false;
+                    const isIndexing = indexingSourceUrls?.has(source.url) || false;
                     return (
                         <motion.div
                             key={source.id}
@@ -130,7 +160,15 @@ export const InspirationSourcesPanel: React.FC<InspirationSourcesPanelProps> = (
                                 </div>
 
                                 {/* Actions */}
-                                <div className="flex items-center gap-2 flex-shrink-0">
+                                <div className="flex items-center gap-1 flex-shrink-0">
+                                    {/* Index to KB Button */}
+                                    {onIndexSource && (
+                                        <IndexToKBButton
+                                            isIndexed={isIndexed}
+                                            isIndexing={isIndexing}
+                                            onIndex={() => onIndexSource(source)}
+                                        />
+                                    )}
                                     {/* Save Button */}
                                     {onSaveSource && (
                                         <button
@@ -141,10 +179,10 @@ export const InspirationSourcesPanel: React.FC<InspirationSourcesPanelProps> = (
                                                     onSaveSource(source);
                                                 }
                                             }}
-                                            className={`p-1 transition-colors ${
+                                            className={`p-1.5 transition-colors rounded-md ${
                                                 isSaved
                                                     ? 'text-editorial-navy cursor-default'
-                                                    : 'text-slate hover:text-editorial-navy'
+                                                    : 'text-slate hover:text-editorial-navy hover:bg-pearl'
                                             }`}
                                             title={isSaved ? 'Saved to library' : 'Save to library'}
                                             disabled={isSaved}
@@ -161,7 +199,7 @@ export const InspirationSourcesPanel: React.FC<InspirationSourcesPanelProps> = (
                                         href={source.url}
                                         target="_blank"
                                         rel="noopener noreferrer"
-                                        className="p-1 text-silver hover:text-editorial-navy transition-colors"
+                                        className="p-1.5 text-silver hover:text-editorial-navy transition-colors rounded-md hover:bg-pearl"
                                         title="Open in new tab"
                                     >
                                         <ExternalLinkIcon className="h-4 w-4" />

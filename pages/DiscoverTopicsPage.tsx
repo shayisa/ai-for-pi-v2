@@ -20,6 +20,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { InspirationSourcesPanel, TrendingSource } from '../components/InspirationSourcesPanel';
 import { Spinner } from '../components/Spinner';
 import { PlusIcon, RefreshIcon, SearchIcon, LightbulbIcon, XIcon, HistoryIcon, SettingsIcon, FolderIcon, BookmarkIcon, BookmarkSolidIcon, ExternalLinkIcon } from '../components/IconComponents';
+import { IndexToKBButton, IndexAllToKBButton } from '../components/IndexToKBButton';
 import { ArchiveBrowser } from '../components/ArchiveBrowser';
 import { TopicLibrary } from '../components/TopicLibrary';
 import { SourceLibrary } from '../components/SourceLibrary';
@@ -29,6 +30,7 @@ import { useSelectedTopics, useTrendingContent, useAudienceSelection, useTopics 
 import { useLoading, useError, useModals, useCustomAudiences } from '../contexts';
 import { useSavedTopics } from '../hooks/useSavedTopics';
 import { useSavedSources } from '../hooks/useSavedSources';
+import { useRagIndexing } from '../hooks/useRagIndexing';
 
 interface ActionableCapability {
     title: string;
@@ -104,6 +106,17 @@ export const DiscoverTopicsPage: React.FC<DiscoverTopicsPageProps> = ({
     const { topics: savedTopics, saveTopic } = useSavedTopics();
     const { saveSource, savedUrls: savedSourceUrls } = useSavedSources();
 
+    // RAG Knowledge Base indexing
+    const {
+        indexedUrls,
+        indexingUrls,
+        isIndexed,
+        isIndexing,
+        indexSource,
+        indexSourcesBatch,
+        batchProgress,
+    } = useRagIndexing();
+
     // Modal state
     const [isArchiveBrowserOpen, setIsArchiveBrowserOpen] = useState(false);
     const [isTopicLibraryOpen, setIsTopicLibraryOpen] = useState(false);
@@ -175,6 +188,120 @@ export const DiscoverTopicsPage: React.FC<DiscoverTopicsPageProps> = ({
             showToast('Failed to save tool');
         }
     }, [saveSource, showToast]);
+
+    // Handle indexing a source to RAG Knowledge Base
+    const handleIndexSource = useCallback(async (source: TrendingSource) => {
+        try {
+            const result = await indexSource({
+                url: source.url,
+                title: source.title,
+                sourceType: 'trending',
+                metadata: {
+                    category: source.category,
+                    author: source.author,
+                    publication: source.publication,
+                    date: source.date,
+                },
+            });
+            if (result.success) {
+                showToast(result.wasAlreadyIndexed ? 'Already in Knowledge Base' : 'Added to Knowledge Base!');
+            } else {
+                showToast('Failed to index source');
+            }
+        } catch (err) {
+            console.error('Failed to index source:', err);
+            showToast('Failed to index source');
+        }
+    }, [indexSource, showToast]);
+
+    // Handle batch indexing all inspiration sources
+    const handleIndexAllSources = useCallback(async () => {
+        const sourcesToIndex = trendingSources
+            .filter(s => !isIndexed(s.url))
+            .map(s => ({
+                url: s.url,
+                title: s.title,
+                sourceType: 'trending' as const,
+                metadata: {
+                    category: s.category,
+                    author: s.author,
+                    publication: s.publication,
+                    date: s.date,
+                },
+            }));
+
+        if (sourcesToIndex.length === 0) {
+            showToast('All sources already indexed');
+            return;
+        }
+
+        const results = await indexSourcesBatch(sourcesToIndex);
+        const successCount = results.filter(r => r.success && !r.wasAlreadyIndexed).length;
+        const existCount = results.filter(r => r.wasAlreadyIndexed).length;
+        showToast(`Indexed ${successCount} new${existCount > 0 ? `, ${existCount} already existed` : ''}`);
+    }, [trendingSources, isIndexed, indexSourcesBatch, showToast]);
+
+    // Handle indexing an essential tool
+    const handleIndexTool = useCallback(async (tool: EssentialTool) => {
+        if (!tool.link) return;
+        try {
+            const result = await indexSource({
+                url: tool.link,
+                title: tool.name,
+                sourceType: 'tool',
+                metadata: {
+                    description: tool.description,
+                    whyNow: tool.whyNow,
+                },
+            });
+            if (result.success) {
+                showToast(result.wasAlreadyIndexed ? 'Tool already in KB' : 'Tool added to KB!');
+            }
+        } catch (err) {
+            console.error('Failed to index tool:', err);
+        }
+    }, [indexSource, showToast]);
+
+    // Handle indexing a trending topic (from What's Trending section)
+    const handleIndexTrendingTopic = useCallback(async (topic: { title: string; resource?: string; audienceId?: string }) => {
+        if (!topic.resource) return;
+        try {
+            const result = await indexSource({
+                url: topic.resource,
+                title: topic.title,
+                sourceType: 'trending',
+                metadata: {
+                    audienceId: topic.audienceId,
+                },
+            });
+            if (result.success) {
+                showToast(result.wasAlreadyIndexed ? 'Already in KB' : 'Added to KB!');
+            }
+        } catch (err) {
+            console.error('Failed to index trending topic:', err);
+        }
+    }, [indexSource, showToast]);
+
+    // Handle batch indexing all trending topics with resources
+    const handleIndexAllTrendingTopics = useCallback(async () => {
+        const topicsToIndex = trendingContent
+            .filter(t => t.resource && !isIndexed(t.resource))
+            .map(t => ({
+                url: t.resource!,
+                title: t.title,
+                sourceType: 'trending' as const,
+                metadata: { audienceId: t.audienceId },
+            }));
+
+        if (topicsToIndex.length === 0) {
+            showToast('All topics already indexed');
+            return;
+        }
+
+        const results = await indexSourcesBatch(topicsToIndex);
+        const successCount = results.filter(r => r.success && !r.wasAlreadyIndexed).length;
+        showToast(`Indexed ${successCount} topics`);
+    }, [trendingContent, isIndexed, indexSourcesBatch, showToast]);
 
     // Aliases for props API compatibility
     const handleRemoveTopic = removeTopic;
@@ -299,7 +426,17 @@ export const DiscoverTopicsPage: React.FC<DiscoverTopicsPageProps> = ({
                         <span className="text-overline text-slate uppercase tracking-widest font-sans">Step 2</span>
                         <h2 className="font-display text-h3 text-ink">What's Trending</h2>
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex items-center gap-3">
+                        {/* Index All Trending Topics button */}
+                        {trendingContent && trendingContent.filter(t => t.resource).length > 0 && (
+                            <IndexAllToKBButton
+                                availableCount={trendingContent.filter(t => t.resource).length}
+                                indexedCount={trendingContent.filter(t => t.resource && isIndexed(t.resource)).length}
+                                isIndexing={batchProgress?.isRunning || false}
+                                progress={batchProgress ? batchProgress.completed / batchProgress.total : 0}
+                                onIndexAll={handleIndexAllTrendingTopics}
+                            />
+                        )}
                         <button
                             onClick={() => setIsArchiveBrowserOpen(true)}
                             className="flex items-center gap-2 font-sans text-ui text-editorial-navy hover:text-ink transition-colors"
@@ -396,16 +533,25 @@ export const DiscoverTopicsPage: React.FC<DiscoverTopicsPageProps> = ({
                                             )}
                                         </dl>
 
-                                        <div className="flex gap-3 mt-6 pt-4 border-t border-border-subtle">
+                                        <div className="flex items-center gap-3 mt-6 pt-4 border-t border-border-subtle">
                                             {topic.resource && (
-                                                <a
-                                                    href={topic.resource}
-                                                    target="_blank"
-                                                    rel="noopener noreferrer"
-                                                    className="editorial-link font-sans text-ui"
-                                                >
-                                                    Learn More
-                                                </a>
+                                                <>
+                                                    {/* Index to KB button */}
+                                                    <IndexToKBButton
+                                                        isIndexed={isIndexed(topic.resource)}
+                                                        isIndexing={isIndexing(topic.resource)}
+                                                        onIndex={() => handleIndexTrendingTopic(topic)}
+                                                        size="sm"
+                                                    />
+                                                    <a
+                                                        href={topic.resource}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        className="editorial-link font-sans text-ui"
+                                                    >
+                                                        Learn More
+                                                    </a>
+                                                </>
                                             )}
                                             <button
                                                 onClick={() => addTopicWithContext(topic)}
@@ -423,9 +569,32 @@ export const DiscoverTopicsPage: React.FC<DiscoverTopicsPageProps> = ({
                         {/* Essential Tools - still from compellingContent */}
                         {compellingContent?.essentialTools?.length > 0 && (
                             <div>
-                                <h3 className="font-sans text-overline text-slate uppercase tracking-widest mb-4">
-                                    Essential Tools
-                                </h3>
+                                <div className="flex items-center justify-between mb-4">
+                                    <h3 className="font-sans text-overline text-slate uppercase tracking-widest">
+                                        Essential Tools
+                                    </h3>
+                                    {/* Bulk index tools button */}
+                                    <IndexAllToKBButton
+                                        availableCount={compellingContent.essentialTools.filter(t => t.link).length}
+                                        indexedCount={compellingContent.essentialTools.filter(t => t.link && isIndexed(t.link)).length}
+                                        isIndexing={batchProgress?.isRunning || false}
+                                        progress={batchProgress ? batchProgress.completed / batchProgress.total : 0}
+                                        onIndexAll={async () => {
+                                            const toolsToIndex = compellingContent.essentialTools
+                                                .filter(t => t.link && !isIndexed(t.link))
+                                                .map(t => ({
+                                                    url: t.link!,
+                                                    title: t.name,
+                                                    sourceType: 'tool' as const,
+                                                    metadata: { description: t.description, whyNow: t.whyNow },
+                                                }));
+                                            if (toolsToIndex.length > 0) {
+                                                await indexSourcesBatch(toolsToIndex);
+                                                showToast(`Indexed ${toolsToIndex.length} tools`);
+                                            }
+                                        }}
+                                    />
+                                </div>
                                 <motion.div
                                     variants={staggerContainer}
                                     initial="hidden"
@@ -446,15 +615,23 @@ export const DiscoverTopicsPage: React.FC<DiscoverTopicsPageProps> = ({
                                                 </p>
                                             </div>
                                             <div className="flex items-center gap-2 flex-shrink-0">
+                                                {/* Index to KB button */}
+                                                {tool.link && (
+                                                    <IndexToKBButton
+                                                        isIndexed={isIndexed(tool.link)}
+                                                        isIndexing={isIndexing(tool.link)}
+                                                        onIndex={() => handleIndexTool(tool)}
+                                                    />
+                                                )}
                                                 {/* Phase 15.6: Save tool button */}
                                                 {tool.link && (
                                                     <button
                                                         onClick={() => handleSaveTool(tool)}
                                                         disabled={savedSourceUrls.has(tool.link)}
-                                                        className={`p-1 transition-colors ${
+                                                        className={`p-1.5 rounded-md transition-colors ${
                                                             savedSourceUrls.has(tool.link)
                                                                 ? 'text-editorial-navy cursor-default'
-                                                                : 'text-slate hover:text-editorial-navy'
+                                                                : 'text-slate hover:text-editorial-navy hover:bg-pearl'
                                                         }`}
                                                         title={savedSourceUrls.has(tool.link) ? 'Saved to library' : 'Save to library'}
                                                     >
@@ -521,6 +698,12 @@ export const DiscoverTopicsPage: React.FC<DiscoverTopicsPageProps> = ({
                     isLoading={isFetchingTrending}
                     onSaveSource={handleSaveSource}
                     savedSourceUrls={savedSourceUrls}
+                    onIndexSource={handleIndexSource}
+                    indexedSourceUrls={indexedUrls}
+                    indexingSourceUrls={indexingUrls}
+                    onIndexAll={handleIndexAllSources}
+                    isBatchIndexing={batchProgress?.isRunning || false}
+                    batchIndexProgress={batchProgress ? batchProgress.completed / batchProgress.total : 0}
                 />
             </div>
 
