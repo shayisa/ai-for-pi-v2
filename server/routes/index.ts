@@ -30,6 +30,7 @@
  * | Topics | Migrated | 9 (saved topic library) |
  * | Sources | Migrated | 11 (saved sources library) |
  * | RAG | New | 14 (knowledge base & chat) |
+ * | Sent History | New | 3 (Phase 18 email delivery history) |
  *
  * ## Usage
  * ```typescript
@@ -60,6 +61,7 @@ import promptImportRoutes from './promptImport.routes.ts';
 import topicRoutes from './topic.routes.ts';
 import sourceRoutes from './source.routes.ts';
 import ragRoutes from './rag.routes.ts';
+import sentHistoryRoutes from './sentHistory.routes.ts';
 
 const router = Router();
 
@@ -124,6 +126,9 @@ router.use('/sources', sourceRoutes);
 
 // RAG Knowledge Base (persistent document storage & chat)
 router.use('/rag', ragRoutes);
+
+// Sent History (Phase 18 - email delivery history)
+router.use('/sent-history', sentHistoryRoutes);
 
 // Generation (migrated - AI content generation endpoints)
 // Mounted at root level since endpoints use direct paths like /fetchTrendingSources

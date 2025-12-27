@@ -30,6 +30,7 @@ import { AuthenticationPage } from './pages/AuthenticationPage'; // New
 import { LogsPage } from './pages/LogsPage'; // System activity logs
 import { KnowledgeBasePage } from './pages/KnowledgeBasePage'; // RAG Knowledge Base
 import { ContentCalendarPage } from './pages/ContentCalendarPage'; // Content calendar
+import { SentHistoryPage } from './pages/SentHistoryPage'; // Phase 18: Sent email history
 import { useHistory } from './hooks/useHistory';
 import { usePrompts } from './hooks/usePrompts';
 import { usePersonas } from './hooks/usePersonas';
@@ -41,6 +42,7 @@ import * as draftApi from './services/draftClientService';
 import { PersonaEditor } from './components/PersonaEditor';
 import { CalendarEntryPickerModal } from './components/CalendarEntryPickerModal';
 import { TopicMismatchModal } from './components/TopicMismatchModal';
+import { SendEmailModal, SendEmailRecipients } from './components/SendEmailModal';
 import * as calendarApi from './services/calendarClientService';
 import type { CalendarEntry } from './services/calendarClientService';
 import type { SavedPrompt } from './services/promptClientService';
@@ -118,7 +120,7 @@ const imageStyleOptions: Record<string, { label: string; description: string }> 
     },
 };
 
-export type ActivePage = 'authentication' | 'discoverTopics' | 'toneAndVisuals' | 'generateNewsletter' | 'history' | 'subscriberManagement' | 'logs' | 'contentCalendar' | 'knowledgeBase';
+export type ActivePage = 'authentication' | 'discoverTopics' | 'toneAndVisuals' | 'generateNewsletter' | 'history' | 'subscriberManagement' | 'logs' | 'contentCalendar' | 'knowledgeBase' | 'sentHistory';
 
 
 type ErrorState = {
@@ -318,6 +320,9 @@ const AppContent: React.FC = () => {
 
     // Phase 16: V4 per-audience generation state (V4 removed in Phase 19 - simplified to single generation path)
     const [showMismatchModal, setShowMismatchModal] = useState(false);
+
+    // Phase 18: Send Email modal state
+    const [showSendEmailModal, setShowSendEmailModal] = useState(false);
     const [mismatchData, setMismatchData] = useState<{
         mismatches: MismatchInfo[];
         selectedAudiences: AudienceConfig[];
@@ -1841,56 +1846,9 @@ const AppContent: React.FC = () => {
                     }
                     break;
                 case 'gmail':
-                    // Fetch active subscribers from SQLite
-                    const subscriberResponse = await subscriberApi.getSubscribers({ status: 'active' });
-                    let subscribers = subscriberResponse.subscribers;
-
-                    // Filter by selected lists if any are selected
-                    let listNames: string[] = [];
-                    if (selectedEmailLists.length > 0) {
-                        subscribers = subscribers.filter(sub => {
-                            const subLists = sub.lists ? sub.lists.split(',').map(l => l.trim()) : [];
-                            return subLists.some(listId => selectedEmailLists.includes(listId));
-                        });
-
-                        // Get list names for logging
-                        const allLists = await subscriberApi.getLists();
-                        listNames = allLists.lists
-                            .filter(l => selectedEmailLists.includes(l.id))
-                            .map(l => l.name);
-                    }
-
-                    const subscriberEmails = subscribers.map(sub => sub.email);
-
-                    if (subscriberEmails.length === 0) {
-                        throw new Error("No active subscribers found. Add subscribers in the Subscriber Management page.");
-                    }
-
-                    // Send email using refactored sendEmail (now takes email array directly)
-                    // Use original enhancedNewsletter for v2 format to preserve all rich content
-                    const gmailUserEmail = authData?.email || 'shayisa@gmail.com';
-                    const newsletterForEmail = useEnhancedFormat && enhancedNewsletter
-                        ? enhancedNewsletter
-                        : activeNewsletter;
-                    const emailResult = await googleApi.sendEmail(
-                        gmailUserEmail,
-                        newsletterForEmail,
-                        selectedTopics,
-                        subscriberEmails,
-                        listNames
-                    );
-                    resultMessage = emailResult.message;
-                    setWorkflowActions({ ...workflowActions, sentEmail: true });
-
-                    // Log to SQLite
-                    if (activeId) {
-                        await newsletterApi.logAction(activeId, 'sent_email', {
-                            sent_to_lists: selectedEmailLists,
-                            list_names: listNames,
-                            recipient_count: emailResult.sentCount || 0
-                        });
-                    }
-                    break;
+                    // Phase 18: Open SendEmailModal to select recipients
+                    setShowSendEmailModal(true);
+                    return; // Exit early - modal handles the actual send
             }
 
             // After successful save/send, delete the draft (Issue 1 fix)
@@ -1910,7 +1868,73 @@ const AppContent: React.FC = () => {
             setWorkflowStatus({ message: `Error during ${action} action: ${errorMessage}`, type: 'error' });
         }
     };
-    
+
+    /**
+     * Phase 18: Handle send email with selected recipients from modal
+     */
+    const handleSendWithRecipients = async (recipients: SendEmailRecipients): Promise<void> => {
+        // Get active newsletter
+        const activeNewsletter = useEnhancedFormat && enhancedNewsletter
+            ? convertEnhancedToLegacy(enhancedNewsletter)
+            : newsletter;
+        const activeId = useEnhancedFormat && enhancedNewsletter
+            ? enhancedNewsletter.id
+            : newsletter?.id;
+
+        if (!activeNewsletter || !authData?.access_token) {
+            throw new Error('No newsletter or authentication available');
+        }
+
+        setWorkflowStatus({ message: 'Sending newsletter...', type: 'success' });
+
+        try {
+            // Use original enhancedNewsletter for v2 format to preserve all rich content
+            const gmailUserEmail = authData?.email || 'shayisa@gmail.com';
+            const newsletterForEmail = useEnhancedFormat && enhancedNewsletter
+                ? enhancedNewsletter
+                : activeNewsletter;
+
+            const emailResult = await googleApi.sendEmail(
+                gmailUserEmail,
+                newsletterForEmail,
+                selectedTopics,
+                recipients.emails,
+                recipients.listNames
+            );
+
+            setWorkflowActions({ ...workflowActions, sentEmail: true });
+
+            // Log to SQLite with enhanced details (Phase 18)
+            if (activeId) {
+                await newsletterApi.logAction(activeId, 'sent_email', {
+                    sent_to_lists: recipients.listIds,
+                    list_names: recipients.listNames,
+                    recipient_emails: recipients.emails,
+                    recipient_count: recipients.totalCount,
+                    topics: selectedTopics,
+                    subject: activeNewsletter.subject
+                });
+            }
+
+            // After successful send, delete the draft
+            if (authData?.email) {
+                try {
+                    await draftApi.deleteDraft(authData.email);
+                    console.log('[App] Draft cleared after successful email send');
+                } catch (draftErr) {
+                    console.warn('[App] Failed to clear draft after email send:', draftErr);
+                }
+            }
+
+            setWorkflowStatus({ message: emailResult.message, type: 'success' });
+        } catch (error) {
+            console.error('Error sending email:', error);
+            const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred.';
+            setWorkflowStatus({ message: `Error sending email: ${errorMessage}`, type: 'error' });
+            throw error; // Re-throw so modal can show error
+        }
+    };
+
     const hasSelectedAudience = getAudienceKeys().length > 0;
     console.log('isGoogleApiInitialized:', isGoogleApiInitialized);
 
@@ -2022,6 +2046,10 @@ const AppContent: React.FC = () => {
                         <KnowledgeBasePage />
                     )}
 
+                    {activePage === 'sentHistory' && (
+                        <SentHistoryPage />
+                    )}
+
                 </main>
 
                 {editingImage && (
@@ -2109,6 +2137,18 @@ const AppContent: React.FC = () => {
                         selectedAudiences={mismatchData.selectedAudiences}
                     />
                 )}
+
+                {/* Phase 18: Send Email Modal with recipient selection */}
+                <SendEmailModal
+                    isOpen={showSendEmailModal}
+                    onClose={() => setShowSendEmailModal(false)}
+                    newsletterSubject={
+                        (useEnhancedFormat && enhancedNewsletter?.subject)
+                            || newsletter?.subject
+                            || 'Untitled Newsletter'
+                    }
+                    onConfirm={handleSendWithRecipients}
+                />
             </div>
         </div>
     );

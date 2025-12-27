@@ -25,7 +25,8 @@ export type ActivePage =
   | 'subscriberManagement'
   | 'logs'
   | 'contentCalendar'
-  | 'knowledgeBase';
+  | 'knowledgeBase'
+  | 'sentHistory'; // Phase 18: Sent email history
 
 // Error state type (from App.tsx line 112-115)
 export interface ErrorState {
