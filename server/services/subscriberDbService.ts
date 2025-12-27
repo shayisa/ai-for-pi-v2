@@ -116,6 +116,11 @@ export const updateSubscriber = (
       fields.push('date_removed = ?');
       values.push(new Date().toISOString());
     }
+    // Clear date_removed when reactivating subscriber
+    if (updates.status === 'active') {
+      fields.push('date_removed = ?');
+      values.push(null);
+    }
   }
   if (updates.lists !== undefined) {
     fields.push('lists = ?');
@@ -138,10 +143,12 @@ export const updateSubscriber = (
 
   console.log(`[SubscriberDb] Updated subscriber: ${email}`);
 
-  // Sync list counts if lists field was changed
-  if (updates.lists !== undefined) {
+  // Sync list counts if lists field was changed OR status changed (affects active count)
+  if (updates.lists !== undefined || updates.status !== undefined) {
     const oldListIds = existing.lists ? existing.lists.split(',').filter(Boolean).map(l => l.trim()) : [];
-    const newListIds = updates.lists ? updates.lists.split(',').filter(Boolean).map(l => l.trim()) : [];
+    const newListIds = updates.lists !== undefined
+      ? (updates.lists ? updates.lists.split(',').filter(Boolean).map(l => l.trim()) : [])
+      : oldListIds;
     const allAffectedLists = new Set([...oldListIds, ...newListIds]);
     for (const listId of allAffectedLists) {
       syncListCount(listId);
@@ -396,17 +403,53 @@ export const deleteList = (id: string): boolean => {
 };
 
 /**
- * Get all lists
+ * Get all lists with dynamically calculated subscriber counts
  */
 export const getLists = (): SubscriberList[] => {
   const stmt = db.prepare(`SELECT * FROM subscriber_lists ORDER BY date_created DESC`);
   const rows = stmt.all() as DbListRow[];
 
-  return rows.map(rowToList);
+  // Calculate subscriber count dynamically for each list
+  // This ensures accurate counts even if the stored count is stale
+  return rows.map(row => {
+    const count = getSubscriberCountForList(row.id);
+    return {
+      id: row.id,
+      name: row.name,
+      description: row.description || undefined,
+      dateCreated: row.date_created,
+      subscriberCount: count
+    };
+  });
 };
 
 /**
- * Get a single list by ID
+ * Get active subscriber count for a list
+ * Counts subscribers whose comma-separated lists field contains the list ID
+ */
+const getSubscriberCountForList = (listId: string): number => {
+  // Match list ID in comma-separated field: exact match, at start, at end, or in middle
+  const stmt = db.prepare(`
+    SELECT COUNT(*) as count FROM subscribers
+    WHERE status = 'active'
+    AND (
+      lists = ?
+      OR lists LIKE ?
+      OR lists LIKE ?
+      OR lists LIKE ?
+    )
+  `);
+  const result = stmt.get(
+    listId,           // exact match
+    `${listId},%`,    // at start
+    `%,${listId}`,    // at end
+    `%,${listId},%`   // in middle
+  ) as { count: number };
+  return result.count;
+};
+
+/**
+ * Get a single list by ID with dynamically calculated subscriber count
  */
 export const getListById = (id: string): SubscriberList | null => {
   const stmt = db.prepare(`SELECT * FROM subscriber_lists WHERE id = ?`);
@@ -414,7 +457,14 @@ export const getListById = (id: string): SubscriberList | null => {
 
   if (!row) return null;
 
-  return rowToList(row);
+  const count = getSubscriberCountForList(row.id);
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description || undefined,
+    dateCreated: row.date_created,
+    subscriberCount: count
+  };
 };
 
 // ======================

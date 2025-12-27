@@ -11,6 +11,7 @@
  * - POST   /api/subscribers              - Add new subscriber
  * - PUT    /api/subscribers/:email       - Update subscriber
  * - DELETE /api/subscribers/:email       - Delete (soft) subscriber
+ * - DELETE /api/subscribers/:email/hard  - Hard delete (permanent) subscriber
  * - POST   /api/subscribers/import       - Bulk import subscribers
  *
  * ## List Endpoints
@@ -97,6 +98,34 @@ subscriberRouter.post('/import', (req: Request, res: Response) => {
     const err = error as Error;
     logger.error('subscribers', 'import_error', `Failed to import subscribers: ${err.message}`, err, { correlationId });
     sendError(res, 'Failed to import subscribers', ErrorCodes.DATABASE_ERROR, correlationId, { details: err.message });
+  }
+});
+
+/**
+ * DELETE /api/subscribers/:email/hard
+ *
+ * Hard delete (permanently remove) a subscriber.
+ * NOTE: Must be before /:email route to avoid conflict.
+ *
+ * @param {string} email - Subscriber email
+ */
+subscriberRouter.delete('/:email/hard', (req: Request, res: Response) => {
+  const correlationId = getCorrelationId();
+
+  try {
+    const success = subscriberDbService.hardDeleteSubscriber(req.params.email);
+
+    if (!success) {
+      logger.warn('subscribers', 'hard_delete_not_found', `Subscriber not found: ${req.params.email}`, { correlationId });
+      return sendError(res, 'Subscriber not found', ErrorCodes.NOT_FOUND, correlationId);
+    }
+
+    logger.info('subscribers', 'hard_delete', `Permanently deleted subscriber: ${req.params.email}`, { correlationId });
+    sendSuccess(res, { success: true, message: 'Subscriber permanently deleted' });
+  } catch (error) {
+    const err = error as Error;
+    logger.error('subscribers', 'hard_delete_error', `Failed to hard delete subscriber: ${err.message}`, err, { correlationId });
+    sendError(res, 'Failed to delete subscriber', ErrorCodes.DATABASE_ERROR, correlationId, { details: err.message });
   }
 });
 

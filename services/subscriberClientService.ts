@@ -93,11 +93,21 @@ export const updateSubscriber = async (
 };
 
 /**
- * Delete (deactivate) a subscriber
+ * Delete (deactivate) a subscriber - soft delete
  */
 export const deleteSubscriber = async (email: string): Promise<{ success: boolean; message: string }> => {
   return apiRequest<{ success: boolean; message: string }>(
     `/api/subscribers/${encodeURIComponent(email)}`,
+    { method: 'DELETE' }
+  );
+};
+
+/**
+ * Hard delete (permanently remove) a subscriber
+ */
+export const hardDeleteSubscriber = async (email: string): Promise<{ success: boolean; message: string }> => {
+  return apiRequest<{ success: boolean; message: string }>(
+    `/api/subscribers/${encodeURIComponent(email)}/hard`,
     { method: 'DELETE' }
   );
 };

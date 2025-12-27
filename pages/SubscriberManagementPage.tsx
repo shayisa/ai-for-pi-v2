@@ -148,13 +148,48 @@ export const SubscriberManagementPage: React.FC<SubscriberManagementPageProps> =
     };
 
     const handleDeleteSubscriber = async (email: string) => {
-        if (!confirm(`Are you sure you want to delete ${email}?`)) return;
+        if (!confirm(`Are you sure you want to deactivate ${email}? They can be reactivated later.`)) return;
 
         setLoading(true);
         try {
             await subscriberApi.deleteSubscriber(email);
+            // Update local state to reflect the status change
+            setSubscribersData(subscribersData.map(s =>
+                s.email === email ? { ...s, status: 'inactive' as const, dateRemoved: new Date().toISOString() } : s
+            ));
+            showSuccess('Subscriber deactivated successfully');
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Failed to deactivate subscriber');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleReactivateSubscriber = async (email: string) => {
+        if (!confirm(`Reactivate ${email}?`)) return;
+
+        setLoading(true);
+        try {
+            await subscriberApi.updateSubscriber(email, { status: 'active' });
+            // Refresh the full list to get updated data
+            const result = await subscriberApi.getSubscribers({ status: 'all' });
+            setSubscribersData(result.subscribers);
+            showSuccess('Subscriber reactivated successfully');
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Failed to reactivate subscriber');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleHardDeleteSubscriber = async (email: string) => {
+        if (!confirm(`PERMANENTLY delete ${email}? This cannot be undone.`)) return;
+
+        setLoading(true);
+        try {
+            await subscriberApi.hardDeleteSubscriber(email);
             setSubscribersData(subscribersData.filter(s => s.email !== email));
-            showSuccess('Subscriber deleted successfully');
+            showSuccess('Subscriber permanently deleted');
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Failed to delete subscriber');
         } finally {
@@ -499,13 +534,32 @@ export const SubscriberManagementPage: React.FC<SubscriberManagementPageProps> =
                                                                 <EditIcon className="h-3 w-3" />
                                                                 Edit
                                                             </button>
-                                                            <button
-                                                                onClick={() => handleDeleteSubscriber(sub.email)}
-                                                                className="inline-flex items-center gap-1 px-2 py-1 font-sans text-caption text-editorial-red hover:underline ml-2"
-                                                            >
-                                                                <TrashIcon className="h-3 w-3" />
-                                                                Delete
-                                                            </button>
+                                                            {sub.status === 'active' ? (
+                                                                <button
+                                                                    onClick={() => handleDeleteSubscriber(sub.email)}
+                                                                    className="inline-flex items-center gap-1 px-2 py-1 font-sans text-caption text-editorial-red hover:underline ml-2"
+                                                                >
+                                                                    <TrashIcon className="h-3 w-3" />
+                                                                    Deactivate
+                                                                </button>
+                                                            ) : (
+                                                                <>
+                                                                    <button
+                                                                        onClick={() => handleReactivateSubscriber(sub.email)}
+                                                                        className="inline-flex items-center gap-1 px-2 py-1 font-sans text-caption text-green-700 hover:underline ml-2"
+                                                                    >
+                                                                        <RefreshIcon className="h-3 w-3" />
+                                                                        Reactivate
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={() => handleHardDeleteSubscriber(sub.email)}
+                                                                        className="inline-flex items-center gap-1 px-2 py-1 font-sans text-caption text-editorial-red hover:underline ml-2"
+                                                                    >
+                                                                        <TrashIcon className="h-3 w-3" />
+                                                                        Delete
+                                                                    </button>
+                                                                </>
+                                                            )}
                                                         </td>
                                                     </tr>
                                                 ))
