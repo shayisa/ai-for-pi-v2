@@ -67,6 +67,60 @@ export interface UseRagIndexingReturn {
 }
 
 // ============================================================================
+// URL Extraction Helper
+// ============================================================================
+
+/**
+ * Extract all valid URLs from a potentially malformed string
+ * Handles cases where AI returns multiple URLs concatenated with " and "
+ * e.g., "https://monai.io/ and https://github.com/Project-MONAI/MONAI"
+ *
+ * @returns Array of valid URLs extracted from the input
+ */
+function extractValidUrls(rawUrl: string): { urls: string[]; original: string } {
+  // Split on " and " to handle multiple URLs
+  const candidates = rawUrl.includes(' and ')
+    ? rawUrl.split(' and ').map(u => u.trim())
+    : [rawUrl.trim()];
+
+  // Validate each URL and keep only valid ones
+  const validUrls: string[] = [];
+  for (const candidate of candidates) {
+    try {
+      new URL(candidate);
+      validUrls.push(candidate);
+    } catch {
+      console.warn(`[useRagIndexing] Invalid URL skipped: ${candidate}`);
+    }
+  }
+
+  return { urls: validUrls, original: rawUrl };
+}
+
+/**
+ * Get a clean, usable URL from a potentially malformed string.
+ * Returns the first valid URL found, or the original if none are valid.
+ * Use this for display purposes (e.g., "Learn More" links).
+ *
+ * Always returns the FIRST valid URL because the AI typically puts
+ * the primary content URL first in multi-URL strings.
+ */
+export function getCleanUrl(rawUrl: string | undefined | null): string {
+  // Guard against null/undefined
+  if (!rawUrl) {
+    return '';
+  }
+
+  if (!rawUrl.includes(' and ')) {
+    return rawUrl.trim();
+  }
+
+  const { urls } = extractValidUrls(rawUrl);
+  // Always return first valid URL (the primary content URL)
+  return urls.length > 0 ? urls[0] : rawUrl;
+}
+
+// ============================================================================
 // Hook Implementation
 // ============================================================================
 
@@ -121,7 +175,16 @@ export function useRagIndexing(): UseRagIndexingReturn {
 
   const isIndexed = useCallback(
     (url: string): boolean => {
-      return indexedUrls.has(url);
+      // Direct check first
+      if (indexedUrls.has(url)) return true;
+
+      // If URL contains " and ", check if ANY extracted URL is indexed
+      if (url.includes(' and ')) {
+        const { urls } = extractValidUrls(url);
+        return urls.some(u => indexedUrls.has(u));
+      }
+
+      return false;
     },
     [indexedUrls]
   );
@@ -139,54 +202,115 @@ export function useRagIndexing(): UseRagIndexingReturn {
 
   const indexSource = useCallback(
     async (params: IndexSourceParams): Promise<IndexResult> => {
-      const { url, title, sourceType, metadata } = params;
+      const { url: rawUrl, title, sourceType, metadata } = params;
 
-      // Check if already indexed
-      if (indexedUrls.has(url)) {
-        console.log(`[useRagIndexing] URL already indexed: ${url}`);
+      // Extract all valid URLs from the input (handles " and " concatenation)
+      const { urls, original } = extractValidUrls(rawUrl);
+
+      if (urls.length === 0) {
+        console.error(`[useRagIndexing] No valid URLs found in: ${original}`);
         return {
-          url,
-          success: true,
-          wasAlreadyIndexed: true,
+          url: original,
+          success: false,
+          wasAlreadyIndexed: false,
+          error: `No valid URLs found in: ${original}`,
         };
       }
 
-      // Mark as indexing
-      setIndexingUrls((prev) => new Set(prev).add(url));
+      // Log if multiple URLs were extracted
+      if (urls.length > 1) {
+        console.log(`[useRagIndexing] Extracted ${urls.length} URLs from: "${original}"`);
+        urls.forEach((u, i) => console.log(`  [${i + 1}] ${u}`));
+      } else if (urls[0] !== original) {
+        console.log(`[useRagIndexing] Cleaned URL: "${original}" → "${urls[0]}"`);
+      }
+
+      // Track results for all URLs
+      const results: { url: string; success: boolean; wasAlreadyIndexed: boolean; error?: string }[] = [];
+      let anySuccess = false;
+      let allAlreadyIndexed = true;
+      const successfulUrls: string[] = [];
+
+      // Mark all URLs as indexing
+      setIndexingUrls((prev) => {
+        const next = new Set(prev);
+        urls.forEach(u => next.add(u));
+        return next;
+      });
 
       try {
-        const response = await ragApi.fetchAndIndexUrl(url, title, sourceType, metadata);
+        // Index each URL
+        for (const url of urls) {
+          // Check if already indexed
+          if (indexedUrls.has(url)) {
+            console.log(`[useRagIndexing] URL already indexed: ${url}`);
+            results.push({ url, success: true, wasAlreadyIndexed: true });
+            anySuccess = true;
+            continue;
+          }
 
-        if (response.wasAlreadyIndexed || response.document) {
-          // Add to indexed set
-          setIndexedUrls((prev) => new Set(prev).add(url));
+          allAlreadyIndexed = false;
+
+          try {
+            const response = await ragApi.fetchAndIndexUrl(url, title, sourceType, metadata);
+
+            if (response.wasAlreadyIndexed || response.document) {
+              successfulUrls.push(url);
+            }
+
+            console.log(
+              `[useRagIndexing] ${response.wasAlreadyIndexed ? 'Already indexed' : 'Indexed'}: ${url}`
+            );
+
+            results.push({
+              url,
+              success: true,
+              wasAlreadyIndexed: response.wasAlreadyIndexed,
+            });
+            anySuccess = true;
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : 'Failed to index source';
+            console.error(`[useRagIndexing] Error indexing ${url}:`, msg);
+            results.push({ url, success: false, wasAlreadyIndexed: false, error: msg });
+          }
         }
 
-        console.log(
-          `[useRagIndexing] ${response.wasAlreadyIndexed ? 'Already indexed' : 'Indexed'}: ${url}`
-        );
+        // Add successful URLs to indexed set
+        if (successfulUrls.length > 0) {
+          setIndexedUrls((prev) => {
+            const next = new Set(prev);
+            successfulUrls.forEach(u => next.add(u));
+            return next;
+          });
+        }
 
-        return {
-          url,
-          success: true,
-          wasAlreadyIndexed: response.wasAlreadyIndexed,
-          document: response.document || undefined,
-        };
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : 'Failed to index source';
-        console.error(`[useRagIndexing] Error indexing ${url}:`, e);
+        // Return combined result
+        const successCount = results.filter(r => r.success).length;
+        const failedResults = results.filter(r => !r.success);
 
-        return {
-          url,
-          success: false,
-          wasAlreadyIndexed: false,
-          error: msg,
-        };
+        if (anySuccess) {
+          return {
+            url: urls.length === 1 ? urls[0] : original,
+            success: true,
+            wasAlreadyIndexed: allAlreadyIndexed,
+            // Include error info if some URLs failed
+            error: failedResults.length > 0
+              ? `Indexed ${successCount}/${urls.length} URLs. Failed: ${failedResults.map(r => r.url).join(', ')}`
+              : undefined,
+          };
+        } else {
+          return {
+            url: original,
+            success: false,
+            wasAlreadyIndexed: false,
+            error: `All URLs failed: ${failedResults.map(r => `${r.url} (${r.error})`).join('; ')}`,
+          };
+        }
       } finally {
-        // Remove from indexing set
+        // Remove all URLs from indexing set
         setIndexingUrls((prev) => {
           const next = new Set(prev);
-          next.delete(url);
+          urls.forEach(u => next.delete(u));
           return next;
         });
       }
@@ -207,32 +331,65 @@ export function useRagIndexing(): UseRagIndexingReturn {
       // Reset cancellation flag
       batchCancelledRef.current = false;
 
-      // Initialize progress
+      // Extract valid URLs from each source (handles " and " concatenation)
+      const expandedSources: IndexSourceParams[] = [];
+      const invalidResults: IndexResult[] = [];
+
+      for (const source of sources) {
+        const { urls, original } = extractValidUrls(source.url);
+
+        if (urls.length === 0) {
+          console.error(`[useRagIndexing] No valid URLs in batch source: ${original}`);
+          invalidResults.push({
+            url: original,
+            success: false,
+            wasAlreadyIndexed: false,
+            error: `No valid URLs found: ${original}`,
+          });
+        } else {
+          // Add each valid URL as a separate source
+          for (const url of urls) {
+            if (url !== original) {
+              console.log(`[useRagIndexing] Extracted URL in batch: "${original}" → "${url}"`);
+            }
+            expandedSources.push({ ...source, url });
+          }
+        }
+      }
+
+      const sanitizedSources = expandedSources;
+
+      // If all URLs are invalid, return early
+      if (sanitizedSources.length === 0) {
+        return invalidResults;
+      }
+
+      // Initialize progress (count includes invalid as already failed)
       setBatchProgress({
         total: sources.length,
-        completed: 0,
+        completed: invalidResults.length,
         indexed: 0,
         alreadyIndexed: 0,
-        failed: 0,
+        failed: invalidResults.length,
         isRunning: true,
       });
 
-      // Mark all as indexing
-      const urlsToIndex = sources.map((s) => s.url);
+      // Mark all valid URLs as indexing
+      const urlsToIndex = sanitizedSources.map((s) => s.url);
       setIndexingUrls((prev) => {
         const next = new Set(prev);
         urlsToIndex.forEach((url) => next.add(url));
         return next;
       });
 
-      const results: IndexResult[] = [];
+      const results: IndexResult[] = [...invalidResults];
       let indexed = 0;
       let alreadyIndexed = 0;
-      let failed = 0;
+      let failed = invalidResults.length;
 
       try {
         // Use the batch API for efficiency
-        const response = await ragApi.fetchAndIndexBatch(sources);
+        const response = await ragApi.fetchAndIndexBatch(sanitizedSources);
 
         // Process results and update indexed set
         const newlyIndexedUrls: string[] = [];

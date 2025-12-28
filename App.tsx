@@ -863,19 +863,22 @@ const AppContent: React.FC = () => {
 
             // Auto-save archive after successful fetch
             // Phase 18: Preserve full topic objects including audienceId and resource
+            // NOTE: Use length check, not ||, because [] is truthy in JavaScript
             try {
                 const archiveContent = {
-                    trendingTopics: v2Result.topics || compellingData.actionableCapabilities?.map((item: any) => ({
-                        title: item.title,
-                        summary: item.description || item.whatItIs || "",
-                        // Preserve rich context fields from compellingContent fallback
-                        whatItIs: item.whatItIs,
-                        newCapability: item.newCapability,
-                        whoShouldCare: item.whoShouldCare,
-                        howToGetStarted: item.howToGetStarted,
-                        expectedImpact: item.expectedImpact,
-                        resource: item.resource || item.url,
-                    })) || [],
+                    trendingTopics: (v2Result.topics && v2Result.topics.length > 0)
+                        ? v2Result.topics
+                        : compellingData.actionableCapabilities?.map((item: any) => ({
+                            title: item.title,
+                            summary: item.description || item.whatItIs || "",
+                            // Preserve rich context fields from compellingContent fallback
+                            whatItIs: item.whatItIs,
+                            newCapability: item.newCapability,
+                            whoShouldCare: item.whoShouldCare,
+                            howToGetStarted: item.howToGetStarted,
+                            expectedImpact: item.expectedImpact,
+                            resource: item.resource || item.url,
+                        })) || [],
                     compellingContent: compellingData,
                     trendingSources: fetchedSources
                 };
@@ -898,6 +901,12 @@ const AppContent: React.FC = () => {
     // Load content from an archive (skips API calls, saves tokens)
     const handleLoadFromArchive = useCallback((content: archiveClientService.ArchiveContent, audience: string[]) => {
         console.log('[Archive] Loading from archive...');
+        console.log('[Archive] Received content:', {
+            hasTrendingTopics: !!content.trendingTopics,
+            trendingTopicsCount: content.trendingTopics?.length || 0,
+            hasCompellingContent: !!content.compellingContent,
+            hasTrendingSources: !!content.trendingSources,
+        });
 
         // Set trending sources
         if (content.trendingSources) {
@@ -909,14 +918,23 @@ const AppContent: React.FC = () => {
             setCompellingContent(content.compellingContent);
         }
 
-        // Extract titles for trending topics
+        // Extract trending topics - preserve full rich content when available
         if (content.trendingTopics && content.trendingTopics.length > 0) {
+            console.log('[Archive] Setting trendingContent with', content.trendingTopics.length, 'topics:',
+                content.trendingTopics.map(t => t.title));
             setTrendingContent(content.trendingTopics);
         } else if (content.compellingContent?.actionableCapabilities) {
-            const titles = content.compellingContent.actionableCapabilities.map((item: any) => item.title);
-            setTrendingContent(titles.map((title: string) => ({
-                title,
-                summary: "Actionable AI capability from archived insights"
+            // Fallback: Convert actionableCapabilities to trending topics format
+            // PRESERVE all rich content fields, not just title!
+            setTrendingContent(content.compellingContent.actionableCapabilities.map((item: any) => ({
+                title: item.title,
+                summary: item.description || item.whatItIs || "",
+                whatItIs: item.whatItIs,
+                newCapability: item.newCapability,
+                whoShouldCare: item.whoShouldCare,
+                howToGetStarted: item.howToGetStarted,
+                expectedImpact: item.expectedImpact,
+                resource: item.resource || item.url,
             })));
         }
 

@@ -24,6 +24,24 @@ export interface ExtractionResult {
 }
 
 /**
+ * Transform URLs that can't be extracted directly into extractable alternatives
+ * For example, arXiv PDF URLs are transformed to abstract pages
+ */
+function transformUrl(url: string): string {
+  // arXiv PDF URLs: https://arxiv.org/pdf/2512.21338v1 -> https://arxiv.org/abs/2512.21338v1
+  // arXiv HTML URLs: https://arxiv.org/html/2512.21338v1 -> https://arxiv.org/abs/2512.21338v1
+  const arxivPdfMatch = url.match(/^https?:\/\/arxiv\.org\/(pdf|html)\/(.+?)(?:\.pdf)?$/);
+  if (arxivPdfMatch) {
+    const paperId = arxivPdfMatch[2];
+    const transformedUrl = `https://arxiv.org/abs/${paperId}`;
+    console.log(`[ArticleExtractor] Transformed arXiv URL: ${url} -> ${transformedUrl}`);
+    return transformedUrl;
+  }
+
+  return url;
+}
+
+/**
  * Extract content from a single URL
  */
 export async function extractArticle(url: string): Promise<{
@@ -35,10 +53,13 @@ export async function extractArticle(url: string): Promise<{
 }> {
   const startTime = Date.now();
 
+  // Transform URLs that can't be extracted directly (e.g., PDFs)
+  const extractableUrl = transformUrl(url);
+
   try {
     // Note: @extractus/article-extractor doesn't support custom headers in the extract options
     // The library handles User-Agent internally
-    const result = await extract(url);
+    const result = await extract(extractableUrl);
 
     const timeMs = Date.now() - startTime;
 

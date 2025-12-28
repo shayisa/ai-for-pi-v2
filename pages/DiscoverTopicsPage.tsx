@@ -30,7 +30,7 @@ import { useSelectedTopics, useTrendingContent, useAudienceSelection, useTopics 
 import { useLoading, useError, useModals, useCustomAudiences } from '../contexts';
 import { useSavedTopics } from '../hooks/useSavedTopics';
 import { useSavedSources } from '../hooks/useSavedSources';
-import { useRagIndexing } from '../hooks/useRagIndexing';
+import { useRagIndexing, getCleanUrl } from '../hooks/useRagIndexing';
 import { checkTrendingCacheStatus } from '../services/claudeService';
 
 interface ActionableCapability {
@@ -132,6 +132,9 @@ export const DiscoverTopicsPage: React.FC<DiscoverTopicsPageProps> = ({
     const prefetchAttempted = useRef(false);
     const [isBackgroundRefreshing, setIsBackgroundRefreshing] = useState(false);
 
+    // Phase 18: Track content availability for async race condition prevention
+    const hasContentRef = useRef(false);
+
     // Show toast notification
     const showToast = useCallback((message: string) => {
         setToastMessage(message);
@@ -154,17 +157,41 @@ export const DiscoverTopicsPage: React.FC<DiscoverTopicsPageProps> = ({
     }, []);
 
     /**
-     * Phase 17: Pre-fetch trending content on page mount if cache is stale/missing
+     * Phase 18: Keep hasContentRef in sync with trendingContent state
+     * This allows async functions to check if content was loaded during their execution
      */
     useEffect(() => {
+        hasContentRef.current = !!(trendingContent && trendingContent.length > 0);
+    }, [trendingContent]);
+
+    /**
+     * Phase 17: Pre-fetch trending content on page mount if cache is stale/missing
+     * Phase 18 fix: Only pre-fetch if content was NOT loaded from archive
+     */
+    useEffect(() => {
+        // Debug: Log current state
+        console.log('[DiscoverTopicsPage] Pre-fetch check:', {
+            prefetchAttempted: prefetchAttempted.current,
+            hasSelectedAudience,
+            isFetchingTrending,
+            trendingContentLength: trendingContent?.length || 0,
+            hasCacheMetadata: !!trendingCacheMetadata,
+            cacheIsStale: trendingCacheMetadata?.isStale,
+        });
+
         // Only attempt once per page mount
         if (prefetchAttempted.current) return;
         // Need audience selected
         if (!hasSelectedAudience) return;
         // Don't pre-fetch if already loading
         if (isFetchingTrending) return;
-        // Don't pre-fetch if we have fresh content
-        if (trendingContent && trendingContent.length > 0 && trendingCacheMetadata && !trendingCacheMetadata.isStale) return;
+        // Don't pre-fetch if we have content (from archive or fresh fetch)
+        // Phase 18 fix: Skip pre-fetch if we have content, regardless of cache metadata
+        // This prevents overwriting archive-loaded data
+        if (trendingContent && trendingContent.length > 0) {
+            console.log('[DiscoverTopicsPage] Skipping pre-fetch: already have', trendingContent.length, 'topics');
+            return;
+        }
 
         prefetchAttempted.current = true;
 
@@ -175,6 +202,12 @@ export const DiscoverTopicsPage: React.FC<DiscoverTopicsPageProps> = ({
                 const status = await checkTrendingCacheStatus(audience);
 
                 if (status.isStale || status.isMissing) {
+                    // Phase 18 fix: Check ref to see if content was loaded (e.g., from archive)
+                    // while we were waiting for cache status check
+                    if (hasContentRef.current) {
+                        console.log('[DiscoverTopicsPage] Aborting pre-fetch: content was loaded while checking cache');
+                        return;
+                    }
                     console.log('[DiscoverTopicsPage] Pre-fetching: cache is', status.isMissing ? 'missing' : 'stale');
                     setIsBackgroundRefreshing(true);
                     await fetchTrendingContent();
@@ -543,6 +576,7 @@ export const DiscoverTopicsPage: React.FC<DiscoverTopicsPageProps> = ({
                                 What's Trending
                             </h3>
                             <motion.div
+                                key={`trending-grid-${trendingContent.length}-${trendingContent[0]?.title?.slice(0, 20) || ''}`}
                                 variants={staggerContainer}
                                 initial="hidden"
                                 animate="visible"
@@ -618,7 +652,7 @@ export const DiscoverTopicsPage: React.FC<DiscoverTopicsPageProps> = ({
                                                         size="sm"
                                                     />
                                                     <a
-                                                        href={topic.resource}
+                                                        href={getCleanUrl(topic.resource)}
                                                         target="_blank"
                                                         rel="noopener noreferrer"
                                                         className="editorial-link font-sans text-ui"
